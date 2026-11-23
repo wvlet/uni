@@ -35,9 +35,9 @@ import wvlet.uni.rx.Rx
 ```
 
 Also on `ServerSentEvent`: `withRetry(millis)`, `withData`, `noId`, `noEvent`,
-`noRetry`, `toContent` (wire format). Netty and Native cap concurrent streams;
-over the cap clients get 503 (`.withMaxStreamingConnections(n)`, Netty default
-256).
+`noRetry`, `toContent` (wire format). The JVM and Native servers cap concurrent
+streams; over the cap clients get 503 (`Http.server.withMaxStreamingConnections(n)`,
+default 256 on the JVM).
 
 ## SSE client
 

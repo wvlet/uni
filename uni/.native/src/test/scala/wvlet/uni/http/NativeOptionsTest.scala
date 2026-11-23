@@ -21,11 +21,11 @@ class NativeOptionsTest extends UniTest:
     val config = Native
       .options
       .withWorkerThreads(4)
-      .withIdleTimeoutMillis(1000)
+      .withReadTimeoutMillis(1000)
       .withWorkerThreads(8)
       .applyTo(NativeServerConfig())
     config.workerThreads shouldBe 8
-    config.idleTimeoutMillis shouldBe 1000
+    config.readTimeoutMillis shouldBe 1000
   }
 
   test("the default worker count follows the cores, from 4 to 16, and stays 16 on Windows") {
@@ -53,6 +53,42 @@ class NativeOptionsTest extends UniTest:
         server shouldMatch { case _: NativeHttpServer =>
         }
       }
+  }
+
+  test("Http.server's shared limits reach the Native config and win over Native.options") {
+    val config = HttpCompat.nativeConfig(
+      Http
+        .server
+        .withMaxInitialLineLength(1024)
+        .withMaxHeaderSize(2048)
+        .withRequestReadTimeoutMillis(5000)
+        .withWriteTimeoutMillis(6000)
+        .withIdleTimeoutMillis(7000)
+        .noRequestDecompression
+        .withMaxDecompressedRequestSize(4096)
+        .withMaxStreamingConnections(3)
+        .withShutdownTimeoutMillis(2500)
+        .withBackend(Native.options.withWorkerThreads(8).withReadTimeoutMillis(900))
+    )
+    config.maxInitialLineLength shouldBe 1024
+    config.maxHeaderSize shouldBe 2048
+    config.requestReadTimeoutMillis shouldBe 5000
+    config.writeTimeoutMillis shouldBe 6000
+    config.idleTimeoutMillis shouldBe 7000
+    config.requestDecompression shouldBe false
+    config.maxDecompressedRequestSize shouldBe 4096
+    config.effectiveMaxStreamingConnections shouldBe 3
+    config.shutdownTimeoutMillis shouldBe 2500
+    config.workerThreads shouldBe 8
+    config.readTimeoutMillis shouldBe 900
+  }
+
+  test("unset shared limits keep the Native defaults") {
+    val config = HttpCompat.nativeConfig(Http.server)
+    val native = NativeServerConfig()
+    config.idleTimeoutMillis shouldBe native.idleTimeoutMillis
+    config.maxStreamingConnections shouldBe None
+    config.shutdownTimeoutMillis shouldBe native.shutdownTimeoutMillis
   }
 
 end NativeOptionsTest

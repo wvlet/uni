@@ -19,7 +19,7 @@ import wvlet.uni.test.UniTest
 import java.io.{ByteArrayOutputStream, InputStream}
 import java.net.Socket
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
 
 /**
@@ -181,6 +181,34 @@ class SocketServerStabilityTest extends UniTest:
       server.isRunning shouldBe true
     finally
       server.stop()
+  }
+
+  test("stop() waits only for the shutdown timeout before closing busy connections") {
+    val started = CountDownLatch(1)
+    val slow    = Http
+      .server
+      .withShutdownTimeoutMillis(200)
+      .withHandler { (_: Request) =>
+        started.countDown()
+        Thread.sleep(10000)
+        Response.ok
+      }
+    val server = JvmHttpServer(slow.withPort(0))
+    server.start()
+    val client = Thread { () =>
+      try
+        get(server, "/")
+        ()
+      catch
+        case _: Exception =>
+          ()
+    }
+    client.setDaemon(true)
+    client.start()
+    started.await(5, TimeUnit.SECONDS) shouldBe true
+    val t0 = System.nanoTime()
+    server.stop()
+    ((System.nanoTime() - t0) / 1000000 < 5000) shouldBe true
   }
 
   test("have no handler timeout by default, as uni-netty") {

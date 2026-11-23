@@ -96,7 +96,10 @@ encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit.
 - **Hand-written JSON codecs.** Add `derives Weaver` to the case class.
 - **Adding `uni-netty` just to serve HTTP or RPC.** `Http.server`, `RouterHandler`
   (`wvlet.uni.http.router`), and `RPCHandler` (`wvlet.uni.http.rpc`) are in `uni` on
-  every platform. Add `uni-netty` only for Netty's tuning options or a JDK before 24.
+  every platform, and limits and timeouts (`withMaxHeaderSize`, `withIdleTimeoutMillis`,
+  `noRequestDecompression`, ...) are set on `Http.server` for every backend. Add
+  `uni-netty` only for Netty's own options (native transport, handler executor threads)
+  or a JDK before 24.
 - **A second object-wiring framework or logging backend next to Uni.** Uni
   already provides them. A JSON library the project already uses (such as uPickle)
   can stay for its own types; derive `Weaver` for types that Uni's server or RPC encodes.

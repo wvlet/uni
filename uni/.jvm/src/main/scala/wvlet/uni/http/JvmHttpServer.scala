@@ -60,23 +60,38 @@ private[http] object JvmHttpServer:
     * virtual thread costs only memory, so streaming connections are capped like Netty's (256)
     * rather than by a worker pool.
     */
-  private[http] def limits(config: HttpServerConfig): SocketServerLimits = SocketServerLimits(
-    backlog = 1024,
-    request = HttpReaderLimits(maxContentLength =
-      config.maxContentLength.getOrElse(SocketServerLimits.DefaultMaxContentLength)
-    ),
-    requestTimeoutMillis = SocketServerLimits.DefaultTimeoutMillis,
-    writeTimeoutMillis = SocketServerLimits.DefaultTimeoutMillis,
-    requestDecompression = true,
-    maxDecompressedRequestSize = SocketServerLimits.DefaultMaxDecompressedRequestSize,
-    // No handler timeout, as on Netty: a parked virtual thread costs only memory
-    handlerTimeoutMillis = 0,
-    idleTimeoutMillis = 30000,
-    readTimeoutMillis = 30000,
-    webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(1024 * 1024),
-    webSocketPingIntervalMillis = config.webSocketPingIntervalMillis.getOrElse(0),
-    maxStreamingConnections = 256
-  )
+  private[http] def limits(config: HttpServerConfig): SocketServerLimits =
+    val timeout = SocketServerLimits.DefaultTimeoutMillis
+    SocketServerLimits(
+      backlog = 1024,
+      request = HttpReaderLimits(
+        maxInitialLineLength = config
+          .maxInitialLineLength
+          .getOrElse(HttpReaderLimits.DefaultMaxInitialLineLength),
+        maxHeaderSize = config.maxHeaderSize.getOrElse(HttpReaderLimits.DefaultMaxHeaderSize),
+        maxContentLength = config
+          .maxContentLength
+          .getOrElse(SocketServerLimits.DefaultMaxContentLength)
+      ),
+      requestTimeoutMillis = config.requestReadTimeoutMillis.getOrElse(timeout),
+      writeTimeoutMillis = config.writeTimeoutMillis.getOrElse(timeout),
+      requestDecompression = config.requestDecompression.getOrElse(true),
+      maxDecompressedRequestSize = config
+        .maxDecompressedRequestSize
+        .getOrElse(SocketServerLimits.DefaultMaxDecompressedRequestSize),
+      // No handler timeout, as on Netty: a parked virtual thread costs only memory
+      handlerTimeoutMillis = 0,
+      idleTimeoutMillis = config.idleTimeoutMillis.getOrElse(timeout),
+      readTimeoutMillis = timeout,
+      webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(1024 * 1024),
+      webSocketPingIntervalMillis = config.webSocketPingIntervalMillis.getOrElse(0),
+      maxStreamingConnections = config.maxStreamingConnections.getOrElse(256),
+      shutdownTimeoutMillis = config
+        .shutdownTimeoutMillis
+        .getOrElse(SocketServerLimits.DefaultShutdownTimeoutMillis)
+    )
+
+  end limits
 
 end JvmHttpServer
 

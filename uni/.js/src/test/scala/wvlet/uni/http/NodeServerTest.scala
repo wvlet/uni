@@ -75,6 +75,40 @@ class NodeServerTest extends UniTest:
           (e.statusCode.getOrElse(-1), e.contentAsString)
       }
 
+  test("should pass the shared limits to Node's createServer options") {
+    val options = NodeHttpServer.serverOptions(
+      NodeServerConfig()
+        .withMaxHeaderSize(4096)
+        .withRequestReadTimeoutMillis(20000)
+        .withIdleTimeoutMillis(7000)
+    )
+    options.maxHeaderSize.asInstanceOf[Int] shouldBe 4096
+    options.requestTimeout.asInstanceOf[Int] shouldBe 20000
+    // Node rejects a headersTimeout above requestTimeout
+    options.headersTimeout.asInstanceOf[Int] shouldBe 20000
+    options.keepAliveTimeout.asInstanceOf[Int] shouldBe 7000
+    // Unset limits keep Node's defaults
+    scala
+      .scalajs
+      .js
+      .isUndefined(NodeHttpServer.serverOptions(NodeServerConfig()).requestTimeout) shouldBe true
+  }
+
+  test("should reject request headers over maxHeaderSize with 431") {
+    val config = NodeServerConfig()
+      .withHandler(_ => Response.ok("ok"))
+      .withMaxHeaderSize(1024)
+      .withPort(0)
+    config.startAndAwait { server =>
+      for
+        (okStatus, _) <- statusAndBody(server, Request.get("/"))
+        (status, _)   <- statusAndBody(server, Request.get("/").addHeader("X-Big", "b" * 4000))
+      yield
+        okStatus shouldBe 200
+        status shouldBe 431
+    }
+  }
+
   test("should reject a request body over maxContentLength with 413") {
     val config = NodeServerConfig()
       .withHandler { request =>

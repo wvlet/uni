@@ -37,10 +37,14 @@ private[http] enum ReadResult:
   *   the body as sent, or after chunked decoding (413)
   */
 private[http] case class HttpReaderLimits(
-    maxInitialLineLength: Int = 4096,
-    maxHeaderSize: Int = 8192,
+    maxInitialLineLength: Int = HttpReaderLimits.DefaultMaxInitialLineLength,
+    maxHeaderSize: Int = HttpReaderLimits.DefaultMaxHeaderSize,
     maxContentLength: Int = 1024 * 1024
 )
+
+private[http] object HttpReaderLimits:
+  final val DefaultMaxInitialLineLength = 4096
+  final val DefaultMaxHeaderSize        = 8192
 
 /**
   * An HTTP/1.1 request reader over a connection. Handles keep-alive (multiple requests per

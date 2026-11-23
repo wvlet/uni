@@ -58,7 +58,7 @@ GET http://a/ HTTP/1.1\r\nHost: b\r\n\r\n
 # Host
 GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n
 GET / HTTP/1.1\r\nHost: a b\r\n\r\n
-# Expect and Content-Encoding (the built-in JVM server always decodes Content-Encoding)
+# Expect and Content-Encoding
 POST / HTTP/1.1\r\nHost: a\r\nExpect: 100-continue\r\nContent-Length: 3\r\n\r\nabc
 POST / HTTP/1.1\r\nHost: a\r\nExpect: something\r\nContent-Length: 3\r\n\r\nabc
 POST / HTTP/1.1\r\nHost: a\r\nContent-Encoding: gzip\r\nContent-Length: 3\r\n\r\nabc

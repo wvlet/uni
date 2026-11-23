@@ -46,10 +46,6 @@ UNI_QUIRKS = {
     "added-headers": ["content-length"],
 }
 
-# The built-in JVM server always decodes gzip/deflate request bodies and has no option to turn it
-# off, so it echoes a different body (or 400) for any request with Content-Encoding
-DECODES_CONTENT_ENCODING = {"uni_jvm"}
-
 # Categories that point at a different reading of the byte stream
 FAILING = {"TYPE_DISCREPANCY", "REQUEST_DISCREPANCY", "STREAM_DISCREPANCY"}
 
@@ -201,7 +197,7 @@ def main() -> int:
                     "payload": show(payload),
                     "categories": categories,
                     "invalid": invalid,
-                    "known": (name, payload) in known or (name in DECODES_CONTENT_ENCODING and b"content-encoding" in payload.lower()),
+                    "known": (name, payload) in known,
                     "results": {n: describe(results[n]) for n in [name, *REFERENCES]},
                 }
             )

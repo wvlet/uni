@@ -16,9 +16,11 @@ package wvlet.uni.http.netty
 import wvlet.uni.http.ServerOptions
 
 /**
-  * Netty-only options for `Http.server`, created with [[Netty.options]]. Each setter is checked
-  * when called, and the options are applied to the `NettyServerConfig` built from `Http.server`'s
-  * settings.
+  * Netty-only options for `Http.server`, created with [[Netty.options]]: the transport, the handler
+  * executor, and the shutdown quiet period and hook. Limits and timeouts that every backend shares,
+  * such as `withMaxHeaderSize` or `withShutdownTimeoutMillis`, are set on `Http.server` itself.
+  * Each setter is checked when called, and the options are applied to the `NettyServerConfig` built
+  * from `Http.server`'s settings, which win over them.
   */
 case class NettyOptions private (updates: Seq[NettyServerConfig => NettyServerConfig])
     extends ServerOptions:
@@ -31,39 +33,18 @@ case class NettyOptions private (updates: Seq[NettyServerConfig => NettyServerCo
   private[netty] def applyTo(config: NettyServerConfig): NettyServerConfig =
     updates.foldLeft(config)((c, update) => update(c))
 
-  def withMaxInitialLineLength(length: Int): NettyOptions = add(_.withMaxInitialLineLength(length))
-  def withMaxHeaderSize(size: Int): NettyOptions          = add(_.withMaxHeaderSize(size))
   def withUseNativeTransport(enabled: Boolean): NettyOptions = add(
     _.withUseNativeTransport(enabled)
   )
 
   def noNativeTransport: NettyOptions                      = add(_.noNativeTransport)
   def withShutdownQuietPeriod(seconds: Long): NettyOptions = add(_.withShutdownQuietPeriod(seconds))
-  def withShutdownTimeout(seconds: Long): NettyOptions     = add(_.withShutdownTimeout(seconds))
-
-  def withGracefulShutdown(quietPeriodSeconds: Long = 2, timeoutSeconds: Long = 30): NettyOptions =
-    add(_.withGracefulShutdown(quietPeriodSeconds, timeoutSeconds))
-
-  def withShutdownHook: NettyOptions = add(_.withShutdownHook)
-  def noShutdownHook: NettyOptions   = add(_.noShutdownHook)
+  def withShutdownHook: NettyOptions                       = add(_.withShutdownHook)
+  def noShutdownHook: NettyOptions                         = add(_.noShutdownHook)
 
   def withHandlerExecutorThreads(threads: Int): NettyOptions = add(
     _.withHandlerExecutorThreads(threads)
   )
-
-  def withRequestReadTimeoutMillis(millis: Int): NettyOptions = add(
-    _.withRequestReadTimeoutMillis(millis)
-  )
-
-  def noRequestReadTimeout: NettyOptions     = add(_.noRequestReadTimeout)
-  def withRequestDecompression: NettyOptions = add(_.withRequestDecompression)
-  def noRequestDecompression: NettyOptions   = add(_.noRequestDecompression)
-
-  def withMaxDecompressedRequestSize(sizeInBytes: Int): NettyOptions = add(
-    _.withMaxDecompressedRequestSize(sizeInBytes)
-  )
-
-  def withMaxStreamingConnections(n: Int): NettyOptions = add(_.withMaxStreamingConnections(n))
 
 end NettyOptions
 

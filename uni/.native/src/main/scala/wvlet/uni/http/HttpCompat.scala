@@ -25,7 +25,10 @@ private[http] object HttpCompat extends HttpCompatApi:
   // binary must not link
   override def defaultHttpChannelFactory: HttpChannelFactory = NativeHttpChannelFactory
 
-  override def startServer(config: HttpServerConfig): HttpServer =
+  override def startServer(config: HttpServerConfig): HttpServer = nativeConfig(config).start()
+
+  /** The Native config for `Http.server`'s settings, which win over the `Native.options`. */
+  private[http] def nativeConfig(config: HttpServerConfig): NativeServerConfig =
     val base =
       config
         .backendOptions
@@ -33,24 +36,37 @@ private[http] object HttpCompat extends HttpCompatApi:
           o
         }
         .foldLeft(NativeServerConfig())((c, o) => o.applyTo(c))
-    base
-      .copy(
-        name = config.name,
-        host = config.host,
-        port = config.port,
-        handler = config.handler,
-        filters = config.filters,
-        webSocketRoutes = config.webSocketRoutes,
-        allowedOrigins = config.allowedOrigins,
-        allowedHosts = config.allowedHosts,
-        detailedErrors = config.detailedErrors,
-        maxRequestSize = config.maxContentLength.getOrElse(base.maxRequestSize),
-        webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(base.webSocketMaxFrameSize),
-        webSocketPingIntervalMillis = config
-          .webSocketPingIntervalMillis
-          .getOrElse(base.webSocketPingIntervalMillis)
-      )
-      .start()
+    base.copy(
+      name = config.name,
+      host = config.host,
+      port = config.port,
+      handler = config.handler,
+      filters = config.filters,
+      webSocketRoutes = config.webSocketRoutes,
+      allowedOrigins = config.allowedOrigins,
+      allowedHosts = config.allowedHosts,
+      detailedErrors = config.detailedErrors,
+      maxRequestSize = config.maxContentLength.getOrElse(base.maxRequestSize),
+      webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(base.webSocketMaxFrameSize),
+      webSocketPingIntervalMillis = config
+        .webSocketPingIntervalMillis
+        .getOrElse(base.webSocketPingIntervalMillis),
+      maxInitialLineLength = config.maxInitialLineLength.getOrElse(base.maxInitialLineLength),
+      maxHeaderSize = config.maxHeaderSize.getOrElse(base.maxHeaderSize),
+      requestReadTimeoutMillis = config
+        .requestReadTimeoutMillis
+        .getOrElse(base.requestReadTimeoutMillis),
+      writeTimeoutMillis = config.writeTimeoutMillis.getOrElse(base.writeTimeoutMillis),
+      idleTimeoutMillis = config.idleTimeoutMillis.getOrElse(base.idleTimeoutMillis),
+      requestDecompression = config.requestDecompression.getOrElse(base.requestDecompression),
+      maxDecompressedRequestSize = config
+        .maxDecompressedRequestSize
+        .getOrElse(base.maxDecompressedRequestSize),
+      maxStreamingConnections = config.maxStreamingConnections.orElse(base.maxStreamingConnections),
+      shutdownTimeoutMillis = config.shutdownTimeoutMillis.getOrElse(base.shutdownTimeoutMillis)
+    )
+
+  end nativeConfig
 
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] = PartialFunction.empty
 

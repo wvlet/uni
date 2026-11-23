@@ -219,6 +219,46 @@ class NettyServerSecurityTest extends UniTest:
       }
   }
 
+  test("close an idle connection on the idle timeout, and time a started request separately") {
+    NettyServerConfig()
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withIdleTimeoutMillis(1500)
+      .withRequestReadTimeoutMillis(300)
+      .withHandler(_ => Response.ok("ok"))
+      .start { server =>
+        def closedWithin(socket: Socket, maxMillis: Long): Boolean =
+          val start  = System.currentTimeMillis()
+          val result =
+            try
+              socket.getInputStream.read()
+            catch
+              case _: SocketTimeoutException =>
+                -2
+          result == -1 && System.currentTimeMillis() - start < maxMillis
+
+        // Idle: closed by the idle clock, well after the shorter request timeout
+        val idle = Socket("127.0.0.1", server.localPort)
+        try
+          idle.setSoTimeout(5000)
+          val start = System.currentTimeMillis()
+          closedWithin(idle, 4000) shouldBe true
+          (System.currentTimeMillis() - start >= 1000) shouldBe true
+        finally
+          idle.close()
+
+        // A request that starts and stalls: closed by the request clock, not the idle one
+        val stalled = Socket("127.0.0.1", server.localPort)
+        try
+          stalled.setSoTimeout(5000)
+          stalled.getOutputStream.write("GET / HTTP/1.1\r\nHo".getBytes(StandardCharsets.US_ASCII))
+          stalled.getOutputStream.flush()
+          closedWithin(stalled, 1200) shouldBe true
+        finally
+          stalled.close()
+      }
+  }
+
   test("still time out an idle connection after an early 413") {
     NettyServerConfig()
       .withPort(0)

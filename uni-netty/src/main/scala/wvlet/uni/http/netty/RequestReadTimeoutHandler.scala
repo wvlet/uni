@@ -13,7 +13,12 @@
  */
 package wvlet.uni.http.netty
 
-import io.netty.channel.{ChannelDuplexHandler, ChannelHandlerContext, ChannelPromise}
+import io.netty.channel.{
+  ChannelDuplexHandler,
+  ChannelHandlerContext,
+  ChannelInboundHandlerAdapter,
+  ChannelPromise
+}
 import io.netty.handler.codec.http.LastHttpContent
 import wvlet.uni.log.LogSupport
 
@@ -27,16 +32,43 @@ import java.util.concurrent.{ScheduledFuture, TimeUnit}
   * header bytes) and idle keep-alive connections, without limiting how long a handler may take to
   * produce its response. Must sit after the HTTP codec so it sees decoded request and response
   * objects; it is removed when a connection upgrades to WebSocket.
+  *
+  * With a positive `idleTimeoutMillis`, the wait for a request's first bytes gets its own clock, as
+  * on the built-in server: a connection waiting for its next request closes after
+  * `idleTimeoutMillis`, and the request clock (`timeoutMillis`, 0 for none) starts when the first
+  * bytes arrive, as [[arrivalProbe]] reports from in front of the codec.
   */
-class RequestReadTimeoutHandler(timeoutMillis: Long) extends ChannelDuplexHandler with LogSupport:
+class RequestReadTimeoutHandler(timeoutMillis: Long, idleTimeoutMillis: Long = 0)
+    extends ChannelDuplexHandler
+    with LogSupport:
   // Only touched on the channel's event loop
   private var timer: ScheduledFuture[?] = null
+  // Whether the armed clock is the idle one, waiting for a request's first bytes
+  private var waitingForRequest          = false
+  private var ctx: ChannelHandlerContext = null
+
+  /** A handler for the front of the pipeline that reports raw bytes before the codec sees them. */
+  def arrivalProbe: ChannelInboundHandlerAdapter =
+    new ChannelInboundHandlerAdapter:
+      override def channelRead(probeCtx: ChannelHandlerContext, msg: Any): Unit =
+        bytesArrived()
+        probeCtx.fireChannelRead(msg)
+
+  private def bytesArrived(): Unit =
+    if waitingForRequest && ctx != null then
+      waitingForRequest = false
+      if timeoutMillis > 0 then
+        schedule(ctx, timeoutMillis)
+      else
+        disarm()
+
   // Requests received minus responses written. Pipelining can make it exceed 1, and it can dip
   // below 0 when a response precedes its request's end (e.g. the aggregator's early 413 for an
   // oversized body). The connection is waiting for a request whenever it is <= 0.
   private var pendingRequests = 0
 
   override def handlerAdded(ctx: ChannelHandlerContext): Unit =
+    this.ctx = ctx
     if ctx.channel().isActive then
       arm(ctx)
 
@@ -48,7 +80,9 @@ class RequestReadTimeoutHandler(timeoutMillis: Long) extends ChannelDuplexHandle
     disarm()
     ctx.fireChannelInactive()
 
-  override def handlerRemoved(ctx: ChannelHandlerContext): Unit = disarm()
+  override def handlerRemoved(ctx: ChannelHandlerContext): Unit =
+    disarm()
+    this.ctx = null
 
   override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
     if msg.isInstanceOf[LastHttpContent] then
@@ -74,22 +108,29 @@ class RequestReadTimeoutHandler(timeoutMillis: Long) extends ChannelDuplexHandle
           }
     ctx.write(msg, promise)
 
+  // Wait for the next request: on the idle clock when it is set, otherwise on the request clock
   private def arm(ctx: ChannelHandlerContext): Unit =
+    if idleTimeoutMillis > 0 then
+      schedule(ctx, idleTimeoutMillis)
+      waitingForRequest = true
+    else
+      schedule(ctx, timeoutMillis)
+
+  private def schedule(ctx: ChannelHandlerContext, millis: Long): Unit =
     disarm()
     timer = ctx
       .executor()
       .schedule(
         () =>
-          debug(
-            s"Closing ${ctx.channel().remoteAddress()}: no complete request in ${timeoutMillis}ms"
-          )
+          debug(s"Closing ${ctx.channel().remoteAddress()}: no complete request in ${millis}ms")
           ctx.close()
         ,
-        timeoutMillis,
+        millis,
         TimeUnit.MILLISECONDS
       )
 
   private def disarm(): Unit =
+    waitingForRequest = false
     if timer != null then
       timer.cancel(false)
       timer = null

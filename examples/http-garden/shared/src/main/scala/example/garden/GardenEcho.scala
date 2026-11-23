@@ -44,8 +44,10 @@ object GardenEcho:
       .withHost("127.0.0.1")
       // Garden sends arbitrary Host values
       .noHostCheck
+      // Echo the bytes as sent, not the decompressed body
+      .noRequestDecompression
       .withRxHandler(handler)
-    val server = Backend.configure(config).start()
+    val server = config.start()
     println(s"ready ${server.localPort}")
     server.awaitTermination()
 

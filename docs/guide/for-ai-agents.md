@@ -189,8 +189,10 @@ for background.
   hook, only the last one runs.
 - **Adding `uni-netty` just to serve HTTP or RPC.** `Http.server`, `RouterHandler`,
   and `RPCHandler` are in `uni` and run on every platform (the JVM's built-in
-  server needs JDK 24+). Add `uni-netty` only for Netty's tuning options or an
-  older JDK, and import the handlers from `wvlet.uni.http.router` and
+  server needs JDK 24+), and limits and timeouts such as `withMaxHeaderSize` or
+  `withIdleTimeoutMillis` are set on `Http.server` for every backend. Add
+  `uni-netty` only for Netty's own options (native transport, handler executor
+  threads) or an older JDK, and import the handlers from `wvlet.uni.http.router` and
   `wvlet.uni.http.rpc`, not `wvlet.uni.http.netty`.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
 - **Mixing two libraries for one concern in the same module.** Uni works
