@@ -5,6 +5,7 @@ import wvlet.uni.http.HttpClientConfig
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONObject
+import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
@@ -14,6 +15,7 @@ import wvlet.uni.storage.ObjectStore
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.WeaverConfig
 
 import scala.collection.immutable.VectorMap
 import scala.util.control.NonFatal
@@ -966,7 +968,7 @@ object Parquet:
     */
   def updateIcebergRows(root: String, filter: ParquetFilter)(
       update: Map[String, Any] => Map[String, Any]
-  ): Long = withTarget(datasetTarget(root))(updateRows(_, filter, update))
+  ): Long = withTarget(datasetTarget(root))(updateRows(_, filter, RowCodec.maps, update))
 
   /** Updates the rows that `filter` matches in the Iceberg table at `root` in the store */
   def updateIcebergRows(store: ObjectStore, root: String, filter: ParquetFilter)(
@@ -974,13 +976,102 @@ object Parquet:
   ): Long = updateRows(
     DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
     filter,
+    RowCodec.maps,
     update
   )
 
-  private def updateRows(
+  /**
+    * Updates the rows that `filter` matches as `A`, as [[updateIcebergRows]] does with maps: each
+    * matching row is read into `A` as [[ParquetDataset.readAs]] reads it (columns matched to fields
+    * by name), and `update`'s result is written with the table's current schema, as
+    * [[writeDataset]] writes `A`. `A`'s fields must cover the table's required columns; columns `A`
+    * leaves out are written as null.
+    *
+    * @return
+    *   the number of rows updated; 0, with nothing committed, when no row matches
+    */
+  def updateIcebergRows[A](root: String, filter: ParquetFilter)(update: A => A)(using
+      weaver: Weaver[A]
+  ): Long = withTarget(datasetTarget(root))(updateRows(_, filter, RowCodec.of(weaver), update))
+
+  /** Updates the rows that `filter` matches as `A` in the Iceberg table at `root` in the store */
+  def updateIcebergRows[A](store: ObjectStore, root: String, filter: ParquetFilter)(
+      update: A => A
+  )(using weaver: Weaver[A]): Long = updateRows(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    filter,
+    RowCodec.of(weaver),
+    update
+  )
+
+  /**
+    * How an update reads rows from matching batches and packs new ones for the writer: MessagePack
+    * maps, to which the row lineage columns are added
+    */
+  private trait RowCodec[R]:
+    def decode(batch: ColumnBatch): Iterator[R]
+
+    /** Packs a row as a MessagePack map; it must not be null */
+    def pack(packer: PureScalaBufferPacker, row: R): Unit
+
+  private object RowCodec:
+    val maps: RowCodec[Map[String, Any]] =
+      new RowCodec[Map[String, Any]]:
+        def decode(batch: ColumnBatch): Iterator[Map[String, Any]] = batch.rows
+        // The lineage columns are the update's to write
+        def pack(packer: PureScalaBufferPacker, row: Map[String, Any]): Unit = RecordBytes.pack(
+          packer,
+          row - DatasetWriterCore.RowIdColumn - DatasetWriterCore.LastUpdatedColumn
+        )
+
+    def of[A](weaver: Weaver[A]): RowCodec[A] =
+      new RowCodec[A]:
+        private val config                          = WeaverConfig()
+        def decode(batch: ColumnBatch): Iterator[A] = ParquetFile.rows(
+          batch,
+          weaver,
+          ParquetReadOptions.default
+        )
+        def pack(packer: PureScalaBufferPacker, row: A): Unit = weaver.pack(packer, row, config)
+
+  /**
+    * Writes a packed row with the row lineage columns added: the row's old ID, and a null
+    * last-updated sequence number so the row takes the commit's
+    */
+  private def writeWithLineage(
+      core: DatasetWriterCore,
+      row: PureScalaBufferPacker,
+      out: PureScalaBufferPacker,
+      reader: writer.MsgReader,
+      rowId: Any
+  ): Unit =
+    val bytes = row.writtenArray
+    val size  = row.writtenSize
+    reader.reset(bytes, size)
+    if !reader.isMap then
+      throw IllegalArgumentException("An updated row must pack as a map of column values")
+    val entries = reader.readMapHeader()
+    val header  = reader.pos
+    out.clear
+    out.packMapHeader(entries + 2)
+    out.writePayload(bytes, header, size - header)
+    out.packString(DatasetWriterCore.RowIdColumn)
+    rowId match
+      case id: Long =>
+        out.packLong(id)
+      case _ =>
+        out.packNil
+    out.packString(DatasetWriterCore.LastUpdatedColumn)
+    out.packNil
+    core.writeRow(out.writtenArray, out.writtenSize)
+
+  end writeWithLineage
+
+  private def updateRows[R](
       target: DatasetTarget,
       filter: ParquetFilter,
-      update: Map[String, Any] => Map[String, Any]
+      codec: RowCodec[R],
+      update: R => R
   ): Long =
     commitRowChange(target, "Updated rows of") { (layout, t, snapshotId) =>
       withSnapshot(target, snapshotId) { ds =>
@@ -1022,36 +1113,34 @@ object Parquet:
             .withMode(ParquetWriteMode.Append),
           update = Some(DatasetWriterCore.UpdateBase(t, lineage))
         )
-        val writer  = ParquetDatasetRecordWriter(core)
+        val packer  = PureScalaBufferPacker()
+        val withIds = PureScalaBufferPacker()
+        val reader  = writer.MsgReader()
         val deletes = IndexedSeq.newBuilder[IcebergWrite.RowDeletes]
         try
-          ds.foreachMatchingRows(filter) { m =>
+          ds.foreachMatchingRows(filter, codec.decode) { m =>
             deletes += IcebergWrite.RowDeletes(m.file.path, m.positions, m.deleted)
             var i = 0
             while i < m.rows.size do
               val updated = update(m.rows(i))
               if updated == null then
                 throw IllegalArgumentException("The update returned null for a row")
-              writer.write(
-                if lineage then
-                  // The row keeps its ID, and takes this commit's sequence number
-                  updated ++
-                    Seq(
-                      DatasetWriterCore.RowIdColumn       -> m.rowIds(i),
-                      DatasetWriterCore.LastUpdatedColumn -> null
-                    )
-                else
-                  updated
-              )
+              packer.clear
+              codec.pack(packer, updated)
+              if lineage then
+                // The row keeps its ID, and takes this commit's sequence number
+                writeWithLineage(core, packer, withIds, reader, m.rowIds(i))
+              else
+                core.writeRow(packer.writtenArray, packer.writtenSize)
               i += 1
           }
         catch
           case e: Throwable =>
-            writer.abort()
+            core.abort()
             throw e
         val rows = deletes.result()
         if rows.isEmpty then
-          writer.abort()
+          core.abort()
           None
         else
           // A failure while finishing the files discards them

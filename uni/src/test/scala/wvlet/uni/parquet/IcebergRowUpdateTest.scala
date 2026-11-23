@@ -5,6 +5,10 @@ import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
 import wvlet.uni.io.ListOptions
 import wvlet.uni.test.UniTest
+import wvlet.uni.weaver.Weaver
+
+/** A sale without its required partition column */
+case class IcebergSaleNoDate(id: Long, item: String, country: Option[String]) derives Weaver
 
 /** Merge-on-read row updates: new data files plus deletes of the old rows, in one snapshot */
 class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
@@ -31,7 +35,7 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
     val ds  = Parquet.dataset(root)
     val out = Map.newBuilder[Long, Any]
     try
-      ds.foreachMatchingRows(filter) { m =>
+      ds.foreachMatchingRows(filter, _.rows) { m =>
         m.rows.zip(m.rowIds).foreach((r, id) => out += r("id").asInstanceOf[Long] -> id)
       }
     finally ds.close()
@@ -158,6 +162,42 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
     items(root) shouldBe Seq(1L -> "apple", 2L -> "banana", 3L -> "CHERRY", 5L -> "ELDERBERRY")
     // The first attempt's data file was deleted; only the retry's was added
     dataFiles(root).diff(before).size shouldBe 1
+  }
+
+  test("update rows as case classes") {
+    val root = create()
+    Parquet.updateIcebergRows[IcebergSale](root, col("country").isNull)(s =>
+      s.copy(item = s.item.toUpperCase, country = Some("FR"))
+    ) shouldBe 1L
+    rows(root).find(_("id") == 2L).get shouldBe
+      Map("id" -> 2L, "item" -> "BANANA", "dt" -> d1, "country" -> "FR")
+    summary(root, "operation") shouldBe Some("overwrite")
+    rows(root).size shouldBe 5
+  }
+
+  test("case class updates keep row IDs and can move partitions") {
+    val root   = create(v3)
+    val filter = col("id") === 1L || col("id") === 4L
+    val before = rowIds(root, filter)
+    Parquet.updateIcebergRows[IcebergSale](root, filter)(_.copy(dt = d2)) shouldBe 2L
+    rowIds(root, filter) shouldBe before
+    val ds = Parquet.dataset(root)
+    try
+      ds.readAs[IcebergSale](ParquetReadOptions.default.withFilter(col("dt") === d2))
+        .map(_.id)
+        .toSeq
+        .sorted shouldBe Seq(1L, 3L, 4L, 5L)
+    finally ds.close()
+  }
+
+  test("a case class without a required column fails and leaves no files") {
+    val root   = create()
+    val before = dataFiles(root)
+    intercept[Exception](
+      Parquet.updateIcebergRows[IcebergSaleNoDate](root, col("id") === 1L)(_.copy(item = "x"))
+    )
+    newestVersion(root) shouldBe 1
+    dataFiles(root) shouldBe before
   }
 
   test("refuse a root that isn't an Iceberg table") {
