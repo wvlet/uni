@@ -51,6 +51,8 @@ private[uni] object HttpServerSecurity:
     e match
       case se: ServiceException =>
         se.status.httpStatus.isClientError
+      case e: HttpContent.RequestBodyException =>
+        e.status.isClientError
       case _ =>
         false
 

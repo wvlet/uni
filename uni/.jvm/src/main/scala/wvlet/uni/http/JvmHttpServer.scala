@@ -71,7 +71,10 @@ private[http] object JvmHttpServer:
         maxHeaderSize = config.maxHeaderSize.getOrElse(HttpReaderLimits.DefaultMaxHeaderSize),
         maxContentLength = config
           .maxContentLength
-          .getOrElse(SocketServerLimits.DefaultMaxContentLength)
+          .getOrElse(SocketServerLimits.DefaultMaxContentLength),
+        maxStreamingRequestSize = config
+          .maxStreamingRequestSize
+          .getOrElse(HttpReaderLimits.DefaultMaxStreamingRequestSize)
       ),
       requestTimeoutMillis = config.requestReadTimeoutMillis.getOrElse(timeout),
       writeTimeoutMillis = config.writeTimeoutMillis.getOrElse(timeout),
@@ -88,7 +91,10 @@ private[http] object JvmHttpServer:
       maxStreamingConnections = config.maxStreamingConnections.getOrElse(256),
       shutdownTimeoutMillis = config
         .shutdownTimeoutMillis
-        .getOrElse(SocketServerLimits.DefaultShutdownTimeoutMillis)
+        .getOrElse(SocketServerLimits.DefaultShutdownTimeoutMillis),
+      streamingRequestTimeoutMillis = config
+        .streamingRequestTimeoutMillis
+        .getOrElse(SocketServerLimits.DefaultStreamingRequestTimeoutMillis)
     )
 
   end limits

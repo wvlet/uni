@@ -63,7 +63,14 @@ private[http] object HttpCompat extends HttpCompatApi:
         .maxDecompressedRequestSize
         .getOrElse(base.maxDecompressedRequestSize),
       maxStreamingConnections = config.maxStreamingConnections.orElse(base.maxStreamingConnections),
-      shutdownTimeoutMillis = config.shutdownTimeoutMillis.getOrElse(base.shutdownTimeoutMillis)
+      shutdownTimeoutMillis = config.shutdownTimeoutMillis.getOrElse(base.shutdownTimeoutMillis),
+      streamingRequests = config.streamingRequests.orElse(base.streamingRequests),
+      maxStreamingRequestSize = config
+        .maxStreamingRequestSize
+        .getOrElse(base.maxStreamingRequestSize),
+      streamingRequestTimeoutMillis = config
+        .streamingRequestTimeoutMillis
+        .getOrElse(base.streamingRequestTimeoutMillis)
     )
 
   end nativeConfig

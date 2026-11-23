@@ -49,14 +49,17 @@ private[http] case class SocketServerLimits(
     // Maximum number of concurrent long-lived connections (SSE, WebSocket); more get 503
     maxStreamingConnections: Int,
     // Max time stop() waits for in-flight requests before closing their connections
-    shutdownTimeoutMillis: Long = SocketServerLimits.DefaultShutdownTimeoutMillis
+    shutdownTimeoutMillis: Long = SocketServerLimits.DefaultShutdownTimeoutMillis,
+    // Max time for a streamed request body to arrive after its head (0 disables)
+    streamingRequestTimeoutMillis: Long = SocketServerLimits.DefaultStreamingRequestTimeoutMillis
 )
 
 private[http] object SocketServerLimits:
-  final val DefaultMaxContentLength           = 1024 * 1024
-  final val DefaultTimeoutMillis              = 30000
-  final val DefaultMaxDecompressedRequestSize = 64 * 1024 * 1024
-  final val DefaultShutdownTimeoutMillis      = 30000L
+  final val DefaultMaxContentLength              = 1024 * 1024
+  final val DefaultTimeoutMillis                 = 30000
+  final val DefaultMaxDecompressedRequestSize    = 64 * 1024 * 1024
+  final val DefaultShutdownTimeoutMillis         = 30000L
+  final val DefaultStreamingRequestTimeoutMillis = 60L * 60 * 1000
 
 /**
   * An HTTP/1.1 server over blocking sockets, shared by Scala Native (`NativeHttpServer`) and the
@@ -114,7 +117,22 @@ abstract class SocketHttpServer private[http] (
 
   private val allowedHosts  = config.effectiveAllowedHosts
   private val streamLimiter = ConnectionLimiter(limits.maxStreamingConnections)
-  private val connections   = ConcurrentHashMap.newKeySet[ConnectionState]()
+
+  // Which requests the handler reads as a stream; a predicate that throws streams nothing
+  private val streamingPredicate: Request => Boolean =
+    config.streamingRequests match
+      case None =>
+        null
+      case Some(isStreaming) =>
+        (request: Request) =>
+          try
+            isStreaming(request)
+          catch
+            case NonFatal(e) =>
+              warn(s"The streaming request predicate failed: ${e.getMessage}", e)
+              false
+
+  private val connections = ConcurrentHashMap.newKeySet[ConnectionState]()
 
   // Marks this server's connection threads, so stop() called from a handler doesn't wait on itself
   private val onConnectionThread = ThreadLocal.withInitial[java.lang.Boolean](() => false)
@@ -267,13 +285,21 @@ abstract class SocketHttpServer private[http] (
     // within requestTimeoutMillis. A timeout reads as 0 bytes, and the reader answers 408.
     private val requestTimeoutNanos = limits.requestTimeoutMillis * 1000000L
     private var requestDeadline     = 0L
-    private val reader              = HttpConnectionReader(
+    // While a streamed body is read: its deadline (Long.MaxValue for none), replacing the request's
+    private var bodyDeadline = 0L
+    private val reader       = HttpConnectionReader(
       (buf, off, len, idle) =>
         // After stop() begins, don't wait for another request (see drainConnections)
         if !running.get() && state.idle then
           -1
         else if idle then
           conn.read(buf, off, len, limits.idleTimeoutMillis)
+        else if bodyDeadline != 0L then
+          val left = (bodyDeadline - System.nanoTime()) / 1000000L
+          if left <= 0 then
+            0
+          else
+            conn.read(buf, off, len, math.min(limits.readTimeoutMillis.toLong, left).toInt)
         else if requestTimeoutNanos <= 0 then
           conn.read(buf, off, len, limits.readTimeoutMillis)
         else
@@ -318,6 +344,7 @@ abstract class SocketHttpServer private[http] (
       while continue do
         state.idle = true
         requestDeadline = 0L
+        bodyDeadline = 0L
         // Between requests, give the worker back: the poller resumes the connection once its next
         // request arrives. Bytes already buffered (a pipelined request) or already waiting on the
         // socket are served right away, and a peer that has closed ends the connection.
@@ -331,7 +358,7 @@ abstract class SocketHttpServer private[http] (
             return false
           if n == 0 && poller.park(socket, this) then
             return true
-        val result = reader.readRequest()
+        val result = reader.readRequest(streamingPredicate)
         state.idle = false
         result match
           case ReadResult.Closed =>
@@ -346,9 +373,17 @@ abstract class SocketHttpServer private[http] (
             )
             continue = false
           case ReadResult.Req(received, keepAlive) =>
-            // As in Netty's pipeline, decode the body before the host check, filters, and handler
+            val streamed = received.content.isInstanceOf[HttpContent.StreamContent]
+            if streamed then
+              bodyDeadline =
+                if limits.streamingRequestTimeoutMillis <= 0 then
+                  Long.MaxValue
+                else
+                  System.nanoTime() + limits.streamingRequestTimeoutMillis * 1000000L
+            // As in Netty's pipeline, decode the body before the host check, filters, and handler.
+            // A streamed body reaches the handler as sent.
             val decoded =
-              if limits.requestDecompression then
+              if limits.requestDecompression && !streamed then
                 RequestDecompression.decode(received, limits.maxDecompressedRequestSize)
               else
                 Right(received)
@@ -360,6 +395,7 @@ abstract class SocketHttpServer private[http] (
                 continue = false
               case Right(request) =>
                 continue = serveRequest(state, request, keepAlive)
+        end match
       end while
       false
 
@@ -407,10 +443,14 @@ abstract class SocketHttpServer private[http] (
       request: Request,
       requestKeepAlive: Boolean
   ): Boolean =
-    val conn     = state.conn
-    val response = runHandler(request)
+    val conn                     = state.conn
+    val (response, bodyReusable) =
+      if request.content.isInstanceOf[HttpContent.StreamContent] then
+        handleStreamedRequest(state, request)
+      else
+        (runHandler(request), true)
     // Once stop() begins, answer with Connection: close so the client opens no new request here
-    val keepAlive = requestKeepAlive && running.get()
+    val keepAlive = requestKeepAlive && bodyReusable && running.get()
     val isHead    = request.method == HttpMethod.HEAD
     val sent      =
       if response.isEventStream then
@@ -437,6 +477,33 @@ abstract class SocketHttpServer private[http] (
     keepAlive && sent
 
   end handleHttpRequest
+
+  /**
+    * Run the handler of a request whose body it reads as a stream, then end the body. The upload
+    * takes a streaming slot while it runs, like an SSE stream, so uploads can't occupy every worker
+    * on Native; it has no handler timeout, since its body deadline bounds it. A body that broke off
+    * (413, 400, 408) is answered with its error instead of the handler's response. Returns the
+    * response and whether the connection can serve another request.
+    */
+  private def handleStreamedRequest(state: ConnectionState, request: Request): (Response, Boolean) =
+    if !streamLimiter.tryAcquire() then
+      warn(
+        s"Too many concurrent streaming connections (limit ${streamLimiter
+            .limit}); rejecting a streamed request with 503"
+      )
+      state.reader.finishBody(maxDrain = 0)
+      (Response.serviceUnavailable, false)
+    else
+      try
+        val response = runHandler(request, handlerTimeoutMillis = 0)
+        val end      = state.reader.finishBody()
+        end.failure match
+          case Some(error) =>
+            (Response(error.status).withTextContent(error.message), false)
+          case None =>
+            (response, end.reusable)
+      finally
+        streamLimiter.release()
 
   /**
     * Send a file body in bounded chunks, so the file is never held in memory. Returns false when
@@ -614,9 +681,12 @@ abstract class SocketHttpServer private[http] (
     * Run the handler and block for its single response. The handler may be asynchronous (Rx), so
     * the worker thread waits on a latch for the first event.
     */
-  private def runHandler(request: Request): Response =
+  private def runHandler(
+      request: Request,
+      handlerTimeoutMillis: Long = limits.handlerTimeoutMillis
+  ): Response =
     try
-      checkHeaders(awaitRx(handler.handle(request)))
+      checkHeaders(awaitRx(handler.handle(request), timeoutMillis = handlerTimeoutMillis))
     catch
       case NonFatal(e) =>
         if HttpServerSecurity.isClientError(e) then
@@ -647,7 +717,11 @@ abstract class SocketHttpServer private[http] (
     * Block for the single Response produced by an Rx (the request handler, or a WebSocket upgrade
     * filter gate), bounded by the handler timeout so a never-completing Rx can't wedge the worker.
     */
-  private def awaitRx(rx: Rx[Response], onEmpty: Response = Response.notFound): Response =
+  private def awaitRx(
+      rx: Rx[Response],
+      onEmpty: Response = Response.notFound,
+      timeoutMillis: Long = limits.handlerTimeoutMillis
+  ): Response =
     rx match
       case Rx.SingleOp(v) =>
         // A synchronous handler (Rx.single): evaluate it here, as the runner would, without its
@@ -658,7 +732,7 @@ abstract class SocketHttpServer private[http] (
           case NonFatal(e) =>
             handlerError(e)
       case _ =>
-        awaitRxAsync(rx, onEmpty)
+        awaitRxAsync(rx, onEmpty, timeoutMillis)
 
   private def handlerError(e: Throwable): Response =
     if HttpServerSecurity.isClientError(e) then
@@ -667,7 +741,7 @@ abstract class SocketHttpServer private[http] (
       warn(s"Error in handler: ${e.getMessage}", e)
     errorResponse(e)
 
-  private def awaitRxAsync(rx: Rx[Response], onEmpty: Response): Response =
+  private def awaitRxAsync(rx: Rx[Response], onEmpty: Response, timeoutMillis: Long): Response =
     val latch  = CountDownLatch(1)
     val result = AtomicReference[Response]()
     val run    =
@@ -685,11 +759,11 @@ abstract class SocketHttpServer private[http] (
       }
     val completed =
       try
-        if limits.handlerTimeoutMillis <= 0 then
+        if timeoutMillis <= 0 then
           latch.await()
           true
         else
-          latch.await(limits.handlerTimeoutMillis, TimeUnit.MILLISECONDS)
+          latch.await(timeoutMillis, TimeUnit.MILLISECONDS)
       catch
         case e: InterruptedException =>
           // stop() past its deadline: stop the handler's work too
@@ -701,7 +775,7 @@ abstract class SocketHttpServer private[http] (
       // Cancel the handler's work, so a timed-out request doesn't keep running with no one to
       // answer
       run.cancel
-      warn(s"Handler timed out after ${limits.handlerTimeoutMillis} ms")
+      warn(s"Handler timed out after ${timeoutMillis} ms")
       Response.serviceUnavailable
 
   end awaitRxAsync

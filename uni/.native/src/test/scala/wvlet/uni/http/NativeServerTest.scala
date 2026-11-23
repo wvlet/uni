@@ -401,6 +401,46 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should stream a request body larger than maxRequestSize to the handler") {
+    NativeServerConfig()
+      .withMaxRequestSize(1024)
+      .withStreamingRequests(_.path == "/upload")
+      .withHandler { (req: Request) =>
+        req.content match
+          case s: HttpContent.StreamContent =>
+            val in    = s.openStream
+            val buf   = new Array[Byte](16 * 1024)
+            var total = 0L
+            var n     = in.read(buf)
+            while n >= 0 do
+              total += n
+              n = in.read(buf)
+            Response.ok(total.toString)
+          case _ =>
+            Response.ok("buffered")
+      }
+      .withPort(0)
+      .start { server =>
+        val port = server.localPort
+        val size = 2 * 1024 * 1024
+        request(
+          port,
+          s"POST /upload HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\nContent-Length: ${size}\r\n\r\n${"x" *
+              size}"
+        ).body shouldBe size.toString
+        request(
+          port,
+          s"POST /upload HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n"
+        ).body shouldBe "5"
+        // Other paths stay buffered and limited
+        request(
+          port,
+          s"POST /other HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\nContent-Length: 2048\r\n\r\n${"y" *
+              2048}"
+        ).status shouldBe 413
+      }
+  }
+
   test("should reject streaming connections over the limit with 503") {
     import wvlet.uni.rx.Rx
     NativeServerConfig()

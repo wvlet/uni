@@ -30,7 +30,8 @@ class NativeHttpServer(config: NativeServerConfig)
         request = HttpReaderLimits(
           maxInitialLineLength = config.maxInitialLineLength,
           maxHeaderSize = config.maxHeaderSize,
-          maxContentLength = config.maxRequestSize
+          maxContentLength = config.maxRequestSize,
+          maxStreamingRequestSize = config.maxStreamingRequestSize
         ),
         requestTimeoutMillis = config.requestReadTimeoutMillis,
         writeTimeoutMillis = config.writeTimeoutMillis,
@@ -42,7 +43,8 @@ class NativeHttpServer(config: NativeServerConfig)
         webSocketMaxFrameSize = config.webSocketMaxFrameSize,
         webSocketPingIntervalMillis = config.webSocketPingIntervalMillis,
         maxStreamingConnections = config.effectiveMaxStreamingConnections,
-        shutdownTimeoutMillis = config.shutdownTimeoutMillis
+        shutdownTimeoutMillis = config.shutdownTimeoutMillis,
+        streamingRequestTimeoutMillis = config.streamingRequestTimeoutMillis
       )
     ):
 

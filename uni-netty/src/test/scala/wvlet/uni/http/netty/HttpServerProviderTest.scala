@@ -139,4 +139,41 @@ class HttpServerProviderTest extends UniTest:
       .shutdownTimeoutSeconds shouldBe 1
   }
 
+  test("hand Netty's buffered body to a streaming request as a stream, not decompressed") {
+    Http
+      .server
+      .withPort(0)
+      .withStreamingRequests(_.path == "/upload")
+      .withHandler { (req: wvlet.uni.http.Request) =>
+        req.content match
+          case s: wvlet.uni.http.HttpContent.StreamContent =>
+            val bytes = s.openStream.readAllBytes()
+            Response.ok(s"stream ${bytes.length}")
+          case other =>
+            Response.ok(s"buffered ${other.length}")
+      }
+      .start { server =>
+        def postGzip(path: String): String =
+          val out = java.io.ByteArrayOutputStream()
+          val gz  = java.util.zip.GZIPOutputStream(out)
+          gz.write(("z" * 5000).getBytes)
+          gz.close()
+          HttpClient
+            .newHttpClient()
+            .send(
+              HttpRequest
+                .newBuilder(URI.create(s"http://127.0.0.1:${server.localPort}${path}"))
+                .header("Content-Encoding", "gzip")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(out.toByteArray))
+                .build(),
+              HttpResponse.BodyHandlers.ofString()
+            )
+            .body()
+        // The stream carries the gzip bytes as sent; the buffered path decodes them
+        (postGzip("/upload").startsWith("stream ")) shouldBe true
+        (postGzip("/upload") != "stream 5000") shouldBe true
+        postGzip("/other") shouldBe "buffered 5000"
+      }
+  }
+
 end HttpServerProviderTest

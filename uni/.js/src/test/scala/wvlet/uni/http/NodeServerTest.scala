@@ -98,6 +98,33 @@ class NodeServerTest extends UniTest:
       .isUndefined(NodeHttpServer.serverOptions(NodeServerConfig()).requestTimeout) shouldBe true
   }
 
+  test("should hand a streaming request its buffered body as a stream") {
+    val config = NodeServerConfig()
+      .withStreamingRequests(_.path == "/upload")
+      .withHandler { request =>
+        request.content match
+          case s: HttpContent.StreamContent =>
+            Response.ok(s"stream ${s.toContentString}")
+          case other =>
+            Response.ok(s"buffered ${other.toContentString}")
+      }
+      .withPort(0)
+    config.startAndAwait { server =>
+      for
+        (_, streamed) <- statusAndBody(
+          server,
+          Request.post("/upload").withContent(HttpContent.text("abc"))
+        )
+        (_, buffered) <- statusAndBody(
+          server,
+          Request.post("/other").withContent(HttpContent.text("abc"))
+        )
+      yield
+        streamed shouldBe Some("stream abc")
+        buffered shouldBe Some("buffered abc")
+    }
+  }
+
   test("should reject request headers over maxHeaderSize with 431") {
     val config = NodeServerConfig()
       .withHandler(_ => Response.ok("ok"))
