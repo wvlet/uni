@@ -1722,15 +1722,38 @@ body {
 
 .colors-legend {
   display: inline-flex;
-  gap: 12px;
+  gap: 4px;
   color: var(--uni-muted);
   font-size: var(--uni-font-size-sm);
 }
 
-.colors-legend span {
+.colors-scheme {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.colors-scheme:hover {
+  background: var(--uni-hover);
+  color: var(--uni-fg);
+}
+
+.colors-scheme:focus-visible {
+  outline: 2px solid var(--uni-focus);
+  outline-offset: 1px;
+}
+
+.colors-scheme[aria-pressed='true'] {
+  border-color: var(--uni-line);
+  background: var(--uni-raised);
+  color: var(--uni-fg);
 }
 
 .colors-legend .icon,

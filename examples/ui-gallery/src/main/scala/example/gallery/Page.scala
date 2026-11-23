@@ -3,6 +3,8 @@ package example.gallery
 import example.gallery.stories.*
 import wvlet.uni.dom.RxElement
 import wvlet.uni.dom.testing.AriaPattern
+import wvlet.uni.rx.RxVar
+import wvlet.uni.ui.ColorScheme
 
 /**
   * A WAI-ARIA APG pattern a page's component follows, the element to check (a CSS selector looked
@@ -48,9 +50,16 @@ case class ComponentPage(
     */
   def isComponent: Boolean = !topic
 
-/** A page with its own view instead of examples, such as the color tokens. */
-case class GuidePage(id: String, name: String, summary: String, view: () => RxElement)
-    extends GalleryPage
+/**
+  * A page with its own view instead of examples, such as the color tokens. The view gets the
+  * gallery's color scheme, so a page can switch it.
+  */
+case class GuidePage(
+    id: String,
+    name: String,
+    summary: String,
+    view: RxVar[ColorScheme] => RxElement
+) extends GalleryPage
 
 /**
   * A sidebar section: the pages of one catalog page of the docs, at `docs` under

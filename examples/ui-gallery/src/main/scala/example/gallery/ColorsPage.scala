@@ -4,7 +4,8 @@ import org.scalajs.dom
 import wvlet.uni.dom.Clipboard
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.ColorScheme
 
 import scala.concurrent.ExecutionContext
 import scala.language.implicitConversions
@@ -121,7 +122,7 @@ object ColorsPage:
     "colors",
     "Colors",
     "Every uni-ui color variable, in light and dark, with what it is used for. Click a swatch to copy its var(), or a value to copy the value.",
-    () => ColorsView()
+    scheme => ColorsView(scheme)
   )
 
 end ColorsPage
@@ -186,8 +187,10 @@ end ThemeProbe
 /**
   * The Colors page: a row of swatches per role, like Tailwind's color palette. Each swatch shows
   * the light theme on its left half and the dark theme on its right, read live by a [[ThemeProbe]].
+  * The Light and Dark buttons in the header switch the gallery's color scheme, so the page around
+  * the swatches can be seen in either theme.
   */
-class ColorsView extends RxElement:
+class ColorsView(scheme: RxVar[ColorScheme]) extends RxElement:
   private val probe   = ThemeProbe(ColorsPage.tokens.map(_.variable))
   private val copied  = Rx.variable(Option.empty[(String, Boolean)])
   private var timer   = 0
@@ -298,6 +301,33 @@ class ColorsView extends RxElement:
 
   end swatch
 
+  /**
+    * Shows the gallery in `s`, pressed while it is the chosen scheme. Pressing it again goes back
+    * to following the OS setting.
+    */
+  private def schemeButton(s: ColorScheme, icon: RxElement): RxElement = button(
+    cls           -> "colors-scheme",
+    data("theme") -> s.toString.toLowerCase,
+    ariaPressed   -> scheme.map(c => (c == s).toString),
+    titleAttr     ->
+      scheme.map(c =>
+        if c == s then
+          "Follow the system color scheme"
+        else
+          s"Show the gallery in ${s.label.toLowerCase}"
+      ),
+    onclick -> { () =>
+      scheme.update(c =>
+        if c == s then
+          ColorScheme.System
+        else
+          s
+      )
+    },
+    icon,
+    s.label
+  )
+
   override def render: RxElement = div(
     cls -> "page colors-page",
     PageHeader(
@@ -306,7 +336,13 @@ class ColorsView extends RxElement:
       ColorsPage.groups.map(g => PageHeader.Link(g.id, g.title, ColorsPage.page.id)),
       overline = Seq("Foundations", "Colors"),
       trailing = Seq(
-        div(cls -> "colors-legend", span(Icons.sun, "Light"), span(Icons.moon, "Dark")),
+        div(
+          cls       -> "colors-legend",
+          role      -> "group",
+          ariaLabel -> "Color scheme",
+          schemeButton(ColorScheme.Light, Icons.sun),
+          schemeButton(ColorScheme.Dark, Icons.moon)
+        ),
         a(
           cls    -> "story-link",
           href   -> "https://wvlet.org/uni/dom/theming",
