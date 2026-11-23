@@ -101,9 +101,10 @@ theorem split_trailing (p : Char → Bool) (u : Bytes) :
 
 /-! ## Lines -/
 
-theorem scanLine_true_ok : ∀ {s l r : Bytes}, scanLine true s = .ok l r → l = [] ∧ s = '\n' :: r
-  | [], _, _, h => by simp [scanLine] at h
-  | c :: t, l, r, h => by
+theorem scanLine_true_ok : ∀ {left : Nat} {s l r : Bytes}, scanLine true left s = .ok l r →
+    l = [] ∧ s = '\n' :: r
+  | _, [], _, _, h => by simp [scanLine] at h
+  | left, c :: t, l, r, h => by
     unfold scanLine at h
     by_cases h1 : (c == '\n') = true
     · simp only [h1, ite_true] at h
@@ -114,10 +115,10 @@ theorem scanLine_true_ok : ∀ {s l r : Bytes}, scanLine true s = .ok l r → l 
     · simp [h1] at h
 
 /-- A line the reader accepts ends at a CR LF and holds no CR or LF. -/
-theorem scanLine_ok : ∀ {s l r : Bytes}, scanLine false s = .ok l r →
+theorem scanLine_ok : ∀ {left : Nat} {s l r : Bytes}, scanLine false left s = .ok l r →
     s = l ++ '\r' :: '\n' :: r ∧ ∀ c ∈ l, c ≠ '\r' ∧ c ≠ '\n'
-  | [], _, _, h => by simp [scanLine] at h
-  | c :: t, l, r, h => by
+  | _, [], _, _, h => by simp [scanLine] at h
+  | left, c :: t, l, r, h => by
     unfold scanLine at h
     by_cases h1 : (c == '\n') = true
     · simp [h1] at h
@@ -129,7 +130,10 @@ theorem scanLine_ok : ∀ {s l r : Bytes}, scanLine false s = .ok l r →
         subst h3
         simp
       · simp only [h3, Bool.false_eq_true, ite_false] at h
-        cases hs : scanLine false t with
+        by_cases h4 : (left == 0) = true
+        · simp [h4] at h
+        simp only [h4, Bool.false_eq_true, ite_false] at h
+        cases hs : scanLine false (left - 1) t with
         | ok l' r' =>
           rw [hs] at h
           simp only [Line.ok.injEq] at h
@@ -142,8 +146,7 @@ theorem scanLine_ok : ∀ {s l r : Bytes}, scanLine false s = .ok l r →
           rcases hx with rfl | hx
           · exact ⟨h3, h1⟩
           · exact hl x hx
-        | bad => rw [hs] at h; simp at h
-        | incomplete => rw [hs] at h; simp at h
+        | _ => rw [hs] at h; simp at h
 
 /-- A member finds the same line, in either line mode. -/
 theorem nextLine_crlf (lf : Bool) : ∀ (l r : Bytes), (∀ c ∈ l, c ≠ '\r' ∧ c ≠ '\n') →
@@ -255,17 +258,18 @@ theorem memberValue_split (o : Opts) (v : Bytes) :
 /-! ## Heads -/
 
 /-- The fields the reader reads, as the lines a member reads up to the same empty line. -/
-theorem readFields_lines (lf : Bool) : ∀ (fuel fuel' : Nat) (s : Bytes) {fs : List (Bytes × Bytes)}
-    {rest : Bytes}, readFields fuel s = .ok fs rest → fuel ≤ fuel' →
+theorem readFields_lines (lf : Bool) : ∀ (fuel fuel' left : Nat) (s : Bytes)
+    {fs : List (Bytes × Bytes)} {rest : Bytes}, readFields fuel left s = .ok fs rest → fuel ≤ fuel' →
     ∃ lines, headLines lf fuel' s = some (lines, rest) ∧
       (∀ l ∈ lines, parseField l = .ok (readerField l)) ∧ fs = lines.map readerField
-  | 0, _, _, _, _, h, _ => by simp [readFields] at h
-  | _ + 1, 0, _, _, _, _, hle => by omega
-  | fuel + 1, fuel' + 1, s, fs, rest, h, hle => by
+  | 0, _, _, _, _, _, h, _ => by simp [readFields] at h
+  | _ + 1, 0, _, _, _, _, _, hle => by omega
+  | fuel + 1, fuel' + 1, left, s, fs, rest, h, hle => by
     unfold readFields at h
-    cases hl : scanLine false s with
+    cases hl : scanLine false left s with
     | incomplete => simp [hl] at h
     | bad => simp [hl] at h
+    | tooLong => simp [hl] at h
     | ok line r =>
       obtain ⟨hs, hnl⟩ := scanLine_ok hl
       simp only [hl] at h
@@ -282,11 +286,12 @@ theorem readFields_lines (lf : Bool) : ∀ (fuel fuel' : Nat) (s : Bytes) {fs : 
         | error e => simp [hp] at h
         | ok f =>
           simp only [hp] at h
-          cases hr : readFields fuel r with
+          generalize left - ((c :: l).length + 2) = left' at h
+          cases hr : readFields fuel left' r with
           | ok fs' rest' =>
             simp only [hr, Fields.ok.injEq] at h
             obtain ⟨rfl, rfl⟩ := h
-            obtain ⟨lines, hh, hall, hfs⟩ := readFields_lines lf fuel fuel' r hr (by omega)
+            obtain ⟨lines, hh, hall, hfs⟩ := readFields_lines lf fuel fuel' left' r hr (by omega)
             have hf := (parseField_ok hp).1
             refine ⟨(c :: l) :: lines, ?_, ?_, ?_⟩
             · unfold headLines
@@ -298,12 +303,12 @@ theorem readFields_lines (lf : Bool) : ∀ (fuel fuel' : Nat) (s : Bytes) {fs : 
               · rw [hp, hf]
               · exact hall x hx
             · simp [hfs, hf]
-          | bad m => simp [hr] at h
-          | incomplete => simp [hr] at h
+          | _ => simp [hr] at h
 
 /-- The head the reader reads, as the lines a member reads: the request line, then one line per
 field. -/
-theorem readHead_lines (lf : Bool) {s : Bytes} {hd : Head} (h : readHead s = .ok hd) :
+theorem readHead_lines (lf : Bool) {lim : Limits} {s : Bytes} {hd : Head}
+    (h : readHead lim s = .ok hd) :
     ∃ lines, headLines lf ((s.dropWhile isNewline).length + 1) (s.dropWhile isNewline) =
         some (lines, hd.after) ∧
       (∀ l ∈ lines.drop 1, parseField l = .ok (readerField l)) ∧
@@ -311,9 +316,10 @@ theorem readHead_lines (lf : Bool) {s : Bytes} {hd : Head} (h : readHead s = .ok
   unfold readHead at h
   generalize hd0 : s.dropWhile isNewline = d at h ⊢
   simp only at h
-  cases hl : scanLine false d with
+  cases hl : scanLine false lim.maxLine d with
   | incomplete => simp [hl] at h
   | bad => simp [hl] at h
+  | tooLong => simp [hl] at h
   | ok line afterLine =>
     obtain ⟨hs, hnl⟩ := scanLine_ok hl
     simp only [hl] at h
@@ -322,14 +328,15 @@ theorem readHead_lines (lf : Bool) {s : Bytes} {hd : Head} (h : readHead s = .ok
     | ok v =>
       obtain ⟨method, target, http10⟩ := v
       simp only [hp] at h
-      cases hf : readFields (afterLine.length + 1) afterLine with
+      cases hf : readFields (afterLine.length + 1) lim.maxHeader afterLine with
       | incomplete => simp [hf] at h
       | bad m => simp [hf] at h
+      | tooLong => simp [hf] at h
       | ok headers after =>
         simp only [hf, HeadResult.ok.injEq] at h
         subst h
         have hlen : afterLine.length + 1 ≤ d.length := by rw [hs]; simp; omega
-        obtain ⟨lines, hh, hall, hfs⟩ := readFields_lines lf _ d.length afterLine hf (by omega)
+        obtain ⟨lines, hh, hall, hfs⟩ := readFields_lines lf _ d.length _ afterLine hf (by omega)
         cases line with
         | nil =>
           rw [show parseRequestLine [] = .error (400, "Malformed request line") from rfl] at hp
@@ -417,9 +424,9 @@ theorem keepAlive_chunked {http10 : Bool} {headers : List (Bytes × Bytes)}
   | nil => rfl
   | cons _ _ => rw [chunked_with_length_closes (by simp [hcl])] at h; cases h
 
-theorem readBody_keep {maxSize : Nat} {hd : Head} {m t : String} {b rest : Bytes} {fr : Framing}
-    (h : readBody maxSize hd = (.req m t true b, rest))
-    (hf : frame maxSize hd.http10 hd.headers = .ok fr) :
+theorem readBody_keep {lim : Limits} {hd : Head} {m t : String} {b rest : Bytes} {fr : Framing}
+    (h : readBody lim hd = (.req m t true b, rest))
+    (hf : frame lim.maxBody hd.http10 hd.headers = .ok fr) :
     keepAlive hd.http10 (fr == .chunked) hd.headers = true := by
   unfold readBody at h
   simp only [hf] at h
@@ -456,8 +463,8 @@ theorem decimal_append {v w : Bytes} (hv : v ≠ []) (hd : v.all Char.isDigit = 
 
 /-- A member reads the head the reader accepted: it rejects, or agrees on the head length and the
 framing, given that the reader keeps the connection open. -/
-theorem members_agree (o : Opts) {maxSize : Nat} {s : Bytes} {hd : Head} {fr : Framing}
-    (hh : readHead s = .ok hd) (hf : frame maxSize hd.http10 hd.headers = .ok fr)
+theorem members_agree (o : Opts) {lim : Limits} {s : Bytes} {hd : Head} {fr : Framing}
+    (hh : readHead lim s = .ok hd) (hf : frame lim.maxBody hd.http10 hd.headers = .ok fr)
     (hk : keepAlive hd.http10 (fr == .chunked) hd.headers = true) :
     interp o s = none ∨ interp o s = some (s.length - hd.after.length, fr) := by
   obtain ⟨lines, hl, hall, hhd⟩ := readHead_lines o.lfLines hh
@@ -511,19 +518,19 @@ theorem members_agree (o : Opts) {maxSize : Nat} {s : Bytes} {hd : Head} {fr : F
 /-- No request smuggling, relative to the family: whenever the reader accepts a request and keeps
 the connection open after it, every member of the family rejects the head or finds the same head
 length and the same framing (`agrees`). -/
-theorem no_smuggling (maxSize : Nat) (s : Bytes) (r : Nat × Framing) (o : Opts)
-    (h : readerFraming maxSize s = some r) : agrees r o s = true := by
+theorem no_smuggling (lim : Limits) (s : Bytes) (r : Nat × Framing) (o : Opts)
+    (h : readerFraming lim s = some r) : agrees r o s = true := by
   unfold readerFraming at h
-  cases hh : readHead s with
+  cases hh : readHead lim s with
   | fail _ => simp [hh] at h
   | ok hd =>
     simp only [hh] at h
-    have hro : readOne maxSize s = readBody maxSize hd := by simp [readOne, hh]
+    have hro : readOne lim s = readBody lim hd := by simp [readOne, hh]
     rw [hro] at h
-    cases hb : readBody maxSize hd with
+    cases hb : readBody lim hd with
     | mk out rest =>
       rw [hb] at h
-      cases hf : frame maxSize hd.http10 hd.headers with
+      cases hf : frame lim.maxBody hd.http10 hd.headers with
       | error e => rw [hf] at h; split at h <;> simp_all
       | ok fr =>
         rw [hf] at h
@@ -541,7 +548,7 @@ theorem no_smuggling (maxSize : Nat) (s : Bytes) (r : Nat × Framing) (o : Opts)
 
 /-- The hypothesis holds for real requests: the reader frames this one by its length and keeps the
 connection open, so `no_smuggling` applies to it. -/
-example : readerFraming 100 "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nok".toList =
+example : readerFraming ⟨64, 128, 100⟩ "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 2\r\n\r\nok".toList =
     some (47, .length 2) := by
   decide
 

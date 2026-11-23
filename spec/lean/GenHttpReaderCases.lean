@@ -13,8 +13,10 @@ Usage: `lake exe gen-http-reader-cases [output path]`
 open UniSpec.HttpReader
 open UniSpec.HttpSmuggle
 
-/-- The body-size limit the cases run with: small, so a `Content-Length` just over it is short. -/
-def maxSize : Nat := 100
+/-- The limits the cases run with: small, so the cases can sit just under and just over each one. -/
+def lim : Limits := { maxLine := 64, maxHeader := 128, maxBody := 100 }
+
+def rep (n : Nat) (c : Char) : String := String.ofList (List.replicate n c)
 
 def get (path : String) : String := s!"GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n"
 
@@ -165,7 +167,40 @@ def inputs : List String := [
   "GET \r\n\r\n",
   "GET    \r\n\r\n",
   " GET / HTTP/1.1\r\n\r\n",
-  get "/1" ++ "BAD\r\n\r\n" ++ get "/never-read"
+  get "/1" ++ "BAD\r\n\r\n" ++ get "/never-read",
+  -- Size limits (`lim`): each one exactly at its limit and one byte over
+  -- The request line: `GET /` and ` HTTP/1.1` take 14 of its 64 bytes
+  s!"GET /{rep 50 'a'} HTTP/1.1\r\n\r\n",
+  s!"GET /{rep 51 'a'} HTTP/1.1\r\n\r\n",
+  -- Past the limit, the line's length wins over a bare LF or a missing version after it
+  s!"GET /{rep 51 'a'} HTTP/1.1\nHost: x\r\n\r\n",
+  s!"GET /{rep 70 'a'}",
+  -- Whitespace past the limit is not a clean close
+  rep 70 ' ',
+  -- The header block: 128 bytes from its first one; its CR LF and empty line may lie past them
+  s!"GET / HTTP/1.1\r\nX-A: {rep 123 'b'}\r\n\r\n",
+  s!"GET / HTTP/1.1\r\nX-A: {rep 124 'b'}\r\n\r\n",
+  -- The limit counts every header line, CR LF included
+  s!"GET / HTTP/1.1\r\nHost: localhost\r\nX-A: {rep 106 'b'}\r\n\r\n",
+  s!"GET / HTTP/1.1\r\nHost: localhost\r\nX-A: {rep 107 'b'}\r\n\r\n",
+  -- A line is checked at its end, so the limit wins over a bad name in the same line
+  s!"GET / HTTP/1.1\r\nX A: {rep 124 'b'}\r\n\r\n",
+  s!"GET / HTTP/1.1\r\nX A: b\r\nX-B: {rep 124 'b'}\r\n\r\n",
+  -- The headers of the next request get their own limit
+  s!"GET /1 HTTP/1.1\r\nX-A: {rep 123 'b'}\r\n\r\nGET /2 HTTP/1.1\r\nX-A: {rep 123 'b'}\r\n\r\n",
+  -- Trailers have the header limit
+  chunkedPost "/trailers-at-limit" s!"0\r\nX-T: {rep 123 'c'}\r\n\r\n",
+  chunkedPost "/trailers-over-limit" s!"0\r\nX-T: {rep 124 'c'}\r\n\r\n",
+  -- A chunk-size line has the request-line limit; leading zeros count
+  chunkedPost "/size-line-at-limit" s!"{rep 63 '0'}5\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/size-line-over-limit" s!"{rep 64 '0'}5\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/ext-at-limit" s!"5;{rep 62 'e'}\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/ext-over-limit" s!"5;{rep 63 'e'}\r\nhello\r\n0\r\n\r\n",
+  -- The `;` itself is not checked, an invalid extension byte wins over the limit, and the length
+  -- wins over a size above the body limit
+  chunkedPost "/semicolon-past-limit" s!"{rep 63 '0'}5;\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/ext-nul-past-limit" s!"5;{rep 62 'e'}\x00\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/size-too-large-and-long" s!"{rep 63 '0'}65\r\n"
 ]
 
 /-! ## Smuggling checks (`UniSpec/HttpSmuggle.lean`)
@@ -185,12 +220,12 @@ where
   go : Nat → Bytes → List String
     | 0, _ => []
     | fuel + 1, s =>
-      match readerFraming maxSize s with
+      match readerFraming lim s with
       | none => []
       | some r =>
         let here := (allOpts.filter (fun o => !agrees r o s)).map fun o =>
           s!"{repr o}: the reader frames {repr r}, the member {repr (interp o s)}"
-        match readOne maxSize s with
+        match readOne lim s with
         | (.req _ _ true _, rest) => here ++ go fuel rest
         | _ => here
 
@@ -203,7 +238,7 @@ def replacements : List Char := ['\r', '\n', ' ', '\t', ',']
 /-- Every one-edit variant of the head of the first request in `s`: an insertion, a replaced byte,
 or a header line repeated. -/
 def variants (s : Bytes) : List Bytes :=
-  match readHead s with
+  match readHead lim s with
   | .fail _ => []
   | .ok hd =>
     let n := s.length - hd.after.length
@@ -234,7 +269,7 @@ def flipsThatMatter (s : Bytes) : List String :=
 
 /-- The first outcome the reader gives for `s`, without the request target. -/
 def firstOutcomeKind (s : Bytes) : String :=
-  match readAll maxSize s with
+  match readAll lim s with
   | .req m _ k _ :: _ => s!"req {m} {k}"
   | .bad c msg :: _ => s!"bad {c} {msg}"
   | .incomplete msg :: _ => s!"bad 400 {msg}"
@@ -269,7 +304,7 @@ def smuggleReport : SmuggleReport := Id.run do
       count := count + 1
       for msg in disagreements v do
         failures := failures ++ [s!"{repr (String.ofList v)}: {msg}"]
-      if !inputSplits && (readerFraming maxSize v).isNone && (memberFramings v).length > 1 then
+      if !inputSplits && (readerFraming lim v).isNone && (memberFramings v).length > 1 then
         splitting := splitting + 1
         let fl := flipsThatMatter v
         for f in fl do
@@ -303,7 +338,7 @@ def scalaString (s : String) : String :=
   "\"" ++ String.join (s.toList.map esc) ++ "\""
 
 def caseLine (input : String) : String :=
-  let outcomes := (readAll maxSize input.toList).map outcomeLine
+  let outcomes := (readAll lim input.toList).map outcomeLine
   s!"    {scalaString (input ++ "␞" ++ "␟".intercalate outcomes)}"
 
 -- Formatted as scalafmt would, so the Code format check passes on the generated file
@@ -313,8 +348,10 @@ def scalaSource (smuggling : List String) : String :=
     "package wvlet.uni.http",
     "",
     "object HttpReaderSpecCases:",
-    s!"  // The Content-Length limit the outcomes assume",
-    s!"  val maxRequestSize: Int = {maxSize}",
+    "  // The HttpReaderLimits the outcomes assume",
+    s!"  val maxInitialLineLength: Int = {lim.maxLine}",
+    s!"  val maxHeaderSize: Int = {lim.maxHeader}",
+    s!"  val maxRequestSize: Int = {lim.maxBody}",
     "",
     "  // Each case: the bytes a client sends, ␞, then the reader's outcomes in order, separated by ␟.",
     "  // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,",

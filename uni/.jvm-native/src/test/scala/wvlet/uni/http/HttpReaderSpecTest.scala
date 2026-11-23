@@ -43,10 +43,10 @@ class HttpReaderSpecTest extends UniTest:
           pos += n
           n
       ,
-      // The model leaves out the line and header limits, so they never trip here
+      // The limits the model's outcomes assume
       HttpReaderLimits(
-        maxInitialLineLength = 1 << 20,
-        maxHeaderSize = 1 << 20,
+        maxInitialLineLength = HttpReaderSpecCases.maxInitialLineLength,
+        maxHeaderSize = HttpReaderSpecCases.maxHeaderSize,
         maxContentLength = HttpReaderSpecCases.maxRequestSize
       )
     )

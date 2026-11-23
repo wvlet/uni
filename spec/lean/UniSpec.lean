@@ -6,6 +6,7 @@ import UniSpec.HttpReader
 import UniSpec.HttpSmuggle
 import UniSpec.HttpSmuggleProof
 import UniSpec.HttpReaderExtend
+import UniSpec.HttpReaderLimits
 import UniSpec.RxLive
 import UniSpec.DomRender
 import UniSpec.RxLiveFanIn

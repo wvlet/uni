@@ -143,18 +143,26 @@ Do this in two stages, so the theorem has evidence before the proof is done:
 
 ### 4. Size limits
 
-Add `Limits` (`maxLine`, `maxHeader`, `maxBody`) in place of `maxSize`, matching
-`HttpReaderLimits`, with 414 for the request line, 431 for headers and trailers, and 400 for a long
-chunk-size line. Theorems:
+**Done.** `Limits` (`maxLine`, `maxHeader`, `maxBody`) replaces `maxSize` and matches
+`HttpReaderLimits`.
 
-- `readHead_reads`: once `maxLine + maxHeader + 4` bytes are buffered, the head outcome depends on
-  those bytes alone. This is the model-side rule that a slow client can't make the reader buffer
-  without bound.
-- Each limit rejects with its own status. For example, a request line one byte over the limit gets
-  414 whatever follows it.
-
-The generator then writes boundary cases (exactly at the limit, one byte over) with small limits.
-`HttpReaderSpecTest` passes the same small limits instead of `1 << 20`.
+- Each scanner counts a byte budget `left` down. A byte other than CR or LF past the budget is
+  `tooLong`, so a line's CR LF and the empty line may lie past the limit, as in the reader.
+  - The request line gets 414, the header block and trailers 431, and a chunk-size line 400.
+  - A chunk-size line's `;` is not checked against the limit, and an invalid extension byte wins
+    over it, as in `readChunked`.
+  - A header line is checked at its LF, so a limit reached earlier in the line wins.
+- `UniSpec/HttpReaderLimits.lean` has the theorems:
+  - `readHead_reads`: once `maxLine + maxHeader + 6` bytes follow the empty lines before a
+    request, the head has decided, and more bytes never change it (`readHead_decided`, then
+    `readHead_extend`). The `6` is the request line's CR LF plus four bytes past the header limit:
+    a last line's CR LF and the empty line.
+  - `requestLine_tooLong`: a request line longer than `maxLine` gets 414, whatever follows it.
+- The generator runs with `maxLine = 64` and `maxHeader = 128`. No existing case changed. 21 new
+  cases sit at and one byte over each limit, or check which error wins. `HttpReaderSpecTest`
+  passes the same limits, and all 157 cases pass on the JVM.
+- Changing the header limit check in `SocketHttpProtocol.scala` from `>=` to `>` fails 5 cases.
+- `no_smuggling` and the extension theorems carry over. The limits only add rejections.
 
 ### 5. Planted bugs in the Scala reader must fail the cases
 

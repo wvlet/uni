@@ -34,7 +34,7 @@ bodies are not covered here.
 
 namespace UniSpec.HttpSmuggle
 
-open UniSpec.HttpReader (Bytes Framing)
+open UniSpec.HttpReader (Bytes Framing Limits)
 
 structure Opts where
   lfLines : Bool
@@ -144,11 +144,11 @@ def interp (o : Opts) (s0 : Bytes) : Option (Nat × Framing) := do
 
 /-- Where the reader puts the end of the head at the front of `s` and how it frames the body, when
 it accepts the request and keeps the connection open after it. -/
-def readerFraming (maxSize : Nat) (s : Bytes) : Option (Nat × Framing) :=
-  match HttpReader.readHead s with
+def readerFraming (lim : Limits) (s : Bytes) : Option (Nat × Framing) :=
+  match HttpReader.readHead lim s with
   | .fail _ => none
   | .ok hd =>
-    match HttpReader.readOne maxSize s, HttpReader.frame maxSize hd.http10 hd.headers with
+    match HttpReader.readOne lim s, HttpReader.frame lim.maxBody hd.http10 hd.headers with
     | (.req _ _ true _, _), .ok fr => some (s.length - hd.after.length, fr)
     | _, _ => none
 
