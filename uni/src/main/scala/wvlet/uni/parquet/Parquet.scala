@@ -1042,21 +1042,16 @@ object Parquet:
       core: DatasetWriterCore,
       row: PureScalaBufferPacker,
       out: PureScalaBufferPacker,
+      reader: writer.MsgReader,
       rowId: Any
   ): Unit =
-    val bytes             = row.writtenArray
-    val size              = row.writtenSize
-    def u(i: Int): Int    = bytes(i) & 0xff
-    val (entries, header) =
-      u(0) match
-        case b if (b & 0xf0) == 0x80 =>
-          (b & 0x0f, 1)
-        case 0xde =>
-          ((u(1) << 8) | u(2), 3)
-        case 0xdf =>
-          ((u(1) << 24) | (u(2) << 16) | (u(3) << 8) | u(4), 5)
-        case _ =>
-          throw IllegalArgumentException("An updated row must pack as a map of column values")
+    val bytes = row.writtenArray
+    val size  = row.writtenSize
+    reader.reset(bytes, size)
+    if !reader.isMap then
+      throw IllegalArgumentException("An updated row must pack as a map of column values")
+    val entries = reader.readMapHeader()
+    val header  = reader.pos
     out.clear
     out.packMapHeader(entries + 2)
     out.writePayload(bytes, header, size - header)
@@ -1120,6 +1115,7 @@ object Parquet:
         )
         val packer  = PureScalaBufferPacker()
         val withIds = PureScalaBufferPacker()
+        val reader  = writer.MsgReader()
         val deletes = IndexedSeq.newBuilder[IcebergWrite.RowDeletes]
         try
           ds.foreachMatchingRows(filter, codec.decode) { m =>
@@ -1133,7 +1129,7 @@ object Parquet:
               codec.pack(packer, updated)
               if lineage then
                 // The row keeps its ID, and takes this commit's sequence number
-                writeWithLineage(core, packer, withIds, m.rowIds(i))
+                writeWithLineage(core, packer, withIds, reader, m.rowIds(i))
               else
                 core.writeRow(packer.writtenArray, packer.writtenSize)
               i += 1
