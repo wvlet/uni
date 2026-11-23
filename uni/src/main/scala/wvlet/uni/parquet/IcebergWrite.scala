@@ -2157,7 +2157,10 @@ private[parquet] object IcebergWrite:
                       // A compaction rebases only when no newer commit touched what it rewrote
                       // or removed; otherwise it plans again from the newer snapshot
                       if n >= MaxAttempts then
-                        throw LostRace(layout.root)
+                        throw ParquetException(
+                          s"Another writer kept committing to ${layout
+                              .root} first; gave up after ${n} attempts"
+                        )
                       flatMap(rewrite.get.canRebase(t)) { ok =>
                         if !ok then
                           throw LostRace(layout.root)
@@ -2792,13 +2795,9 @@ private[parquet] object IcebergWrite:
     end targets
 
     /** The folder for a new delete file of a data file: its own, if inside the table folder */
-    private def folderFor(dataUri: String): String =
-      val resolved = resolvePath(layout, t, dataUri)
-      if resolved.startsWith(layout.root) then
-        val cut = math.max(resolved.lastIndexOf('/'), resolved.lastIndexOf('\\'))
-        resolved.substring(0, cut + 1)
-      else
-        layout.metadataDir
+    private def folderFor(dataUri: String): String = folderOf(layout, t, dataUri).getOrElse(
+      layout.metadataDir
+    )
 
     private def writeDeleteFiles(found: Map[String, Target]): Step[IndexedSeq[AddedManifest]] =
       def manifests(files: IndexedSeq[(Target, Map[String, Any])]): IndexedSeq[AddedManifest] =
@@ -3204,9 +3203,10 @@ private[parquet] object IcebergWrite:
       .sortBy(_.head.key)
       .flatMap { fs =>
         val withDeletes = fs.filter(needsRewrite)
+        val deleteKeys  = withDeletes.map(_.key).toSet
         val small       =
           if options.fileMerging then
-            fs.filter(f => f.size < minSize && !withDeletes.contains(f))
+            fs.filter(f => f.size < minSize && !deleteKeys.contains(f.key))
           else
             IndexedSeq.empty
         if withDeletes.nonEmpty then
@@ -3296,20 +3296,24 @@ private[parquet] object IcebergWrite:
 
   end compactionFileSchema
 
-  /** The folder for a file that replaces or adds to `uri`: its own, if inside the table folder */
-  def folderOf(baseLayout: Layout, t: Table, uri: String): String =
+  /** The folder of a file at `uri`, if it is inside the table folder */
+  def folderOf(baseLayout: Layout, t: Table, uri: String): Option[String] =
     val layout   = tableLayout(baseLayout, t)
     val resolved = resolvePath(layout, t, uri)
-    if resolved.startsWith(layout.root) then
+    Option.when(resolved.startsWith(layout.root)) {
       val cut = math.max(resolved.lastIndexOf('/'), resolved.lastIndexOf('\\'))
       resolved.substring(0, cut + 1)
-    else
-      s"${layout.root}${DataDir}${
-          if layout.objects then
-            "/"
-          else
-            wvlet.uni.io.IOPath.separator
-        }"
+    }
+
+  /** The `data/` folder of a table, for new data files */
+  def dataFolder(baseLayout: Layout, t: Table): String =
+    val layout = tableLayout(baseLayout, t)
+    val sep    =
+      if layout.objects then
+        "/"
+      else
+        wvlet.uni.io.IOPath.separator
+    s"${layout.root}${DataDir}${sep}"
 
   /** The URI the manifest records for a file this table writes */
   def uriOf(baseLayout: Layout, t: Table, path: String): String = tableLayout(baseLayout, t).uriOf(

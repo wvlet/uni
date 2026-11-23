@@ -341,11 +341,13 @@ class ParquetDataset private[parquet] (
 
   /**
     * Reads every row of one file that the table hasn't deleted, with all of the dataset's columns,
-    * passing each batch with the positions of its rows in the file. For compacting an Iceberg
-    * table, whose new files keep the rows' lineage.
+    * passing each batch with the positions of its rows in the file and, for each of `longIds`, the
+    * values and null flags of the file's top-level INT64 column with that field ID for the same
+    * rows (None when the file lacks it). For compacting an Iceberg table, whose new files keep the
+    * rows' lineage; the extra columns are read one row group at a time.
     */
-  private[parquet] def foreachLiveBatch(file: DatasetFile)(
-      f: (ColumnBatch, Array[Long]) => Unit
+  private[parquet] def foreachLiveBatch(file: DatasetFile, longIds: Seq[Int] = Seq.empty)(
+      f: (ColumnBatch, Array[Long], Seq[Option[(Array[Long], Array[Boolean])]]) => Unit
   ): Unit =
     val options  = ParquetReadOptions.default
     val selected = IndexedSeq(Selected(file, None, None))
@@ -357,11 +359,22 @@ class ParquetDataset private[parquet] (
     try
       wrapErrors(file) {
         val opts  = fileOptions(s, plan, pf.schema)
+        val names = longIds.map(id =>
+          pf.schema
+            .fields
+            .collectFirst {
+              case p: ParquetField.Primitive
+                  if p.fieldId.contains(id) && p.physicalType == PhysicalType.INT64 =>
+                p.name
+            }
+        )
         var start = 0L
         pf.rowGroups
           .indices
           .foreach { i =>
-            val batches =
+            val groupStart = start
+            val extra      = longColumnsOf(pf, i, names)
+            val batches    =
               if opts.columns.exists(_.isEmpty) then
                 emptyBatches(pf.rowGroups(i).numRows, opts)
               else
@@ -378,7 +391,15 @@ class ParquetDataset private[parquet] (
                   out = ColumnBatch(rows.length, out.columns.map(ColumnVector.take(_, rows)))
                 }
               if out.numRows > 0 then
-                f(out, positions)
+                val aligned = extra.map(
+                  _.map { (vs, ns) =>
+                    (
+                      positions.map(p => vs((p - groupStart).toInt)),
+                      positions.map(p => ns((p - groupStart).toInt))
+                    )
+                  }
+                )
+                f(out, positions, aligned)
             }
           }
       }
@@ -387,65 +408,36 @@ class ParquetDataset private[parquet] (
 
   end foreachLiveBatch
 
-  /**
-    * The values of the top-level INT64 columns with these field IDs in one file, by row position,
-    * with null flags; None for a column the file lacks. For carrying row lineage through a rewrite.
-    */
-  private[parquet] def longColumnsById(
-      file: DatasetFile,
-      ids: Seq[Int]
+  /** The values and null flags of these top-level INT64 columns in one row group */
+  private def longColumnsOf(
+      pf: ParquetFile,
+      rowGroup: Int,
+      names: Seq[Option[String]]
   ): Seq[Option[(Array[Long], Array[Boolean])]] =
-    val meta = footer(file)
-    val pf   = ParquetFile(wrapErrors(file)(openSource(file)), meta)
-    try
-      val names = ids.map(id =>
-        pf.schema
-          .fields
-          .collectFirst {
-            case p: ParquetField.Primitive
-                if p.fieldId.contains(id) && p.physicalType == PhysicalType.INT64 =>
-              p.name
-          }
-      )
-      val wanted = names.flatten
-      if wanted.isEmpty then
-        names.map(_ => None)
-      else
-        val n      = pf.rowGroups.map(_.numRows).sum.toInt
-        val values = wanted.map(_ => Array.ofDim[Long](n))
-        val nulls  = wanted.map(_ => Array.ofDim[Boolean](n))
-        var start  = 0
-        wrapErrors(file) {
-          pf.rowGroups
+    val wanted = names.flatten
+    if wanted.isEmpty then
+      names.map(_ => None)
+    else
+      val n      = pf.rowGroups(rowGroup).numRows.toInt
+      val values = wanted.map(_ => Array.ofDim[Long](n))
+      val nulls  = wanted.map(_ => Array.ofDim[Boolean](n))
+      var at     = 0
+      pf.rowGroupBatches(rowGroup, ParquetReadOptions.default.withColumns(wanted*))
+        .foreach { b =>
+          wanted
             .indices
-            .foreach { i =>
-              pf.rowGroupBatches(i, ParquetReadOptions.default.withColumns(wanted*))
-                .foreach { b =>
-                  wanted
-                    .indices
-                    .foreach { k =>
-                      b.column(wanted(k)) match
-                        case c: ColumnVector.LongColumn =>
-                          var r = 0
-                          while r < b.numRows do
-                            values(k)(start + r) = c.getLong(r)
-                            nulls(k)(start + r) = c.isNull(r)
-                            r += 1
-                        case other =>
-                          throw ParquetException(s"${file.path}: column ${wanted(k)} is not INT64")
-                    }
-                  start += b.numRows
-                }
+            .foreach { k =>
+              val c = b.column(wanted(k)).asInstanceOf[ColumnVector.LongColumn]
+              var r = 0
+              while r < b.numRows do
+                values(k)(at + r) = c.getLong(r)
+                nulls(k)(at + r) = c.isNull(r)
+                r += 1
             }
+          at += b.numRows
         }
-        val byName = wanted.indices.map(k => wanted(k) -> (values(k), nulls(k))).toMap
-        names.map(_.map(byName))
-      end if
-    finally
-      pf.close()
-    end try
-
-  end longColumnsById
+      val byName = wanted.indices.map(k => wanted(k) -> (values(k), nulls(k))).toMap
+      names.map(_.map(byName))
 
   override def close(): Unit =
     val toClose = synchronized {

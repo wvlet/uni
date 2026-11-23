@@ -119,22 +119,21 @@ class IcebergCompactionTest extends UniTest:
     try
       ds.files
         .flatMap { file =>
-          val f      = files(file.path)
-          val stored = ds.longColumnsById(
+          val f   = files(file.path)
+          val out = Seq.newBuilder[(Long, (Long, Long))]
+          ds.foreachLiveBatch(
             file,
             Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
-          )
-          def value(k: Int, p: Long, inherited: => Long): Long = stored(k)
-            .filter((_, nulls) => !nulls(p.toInt))
-            .map((vs, _) => vs(p.toInt))
-            .getOrElse(inherited)
-          val out = Seq.newBuilder[(Long, (Long, Long))]
-          ds.foreachLiveBatch(file) { (b, positions) =>
+          ) { (b, positions, stored) =>
+            def value(k: Int, r: Int, inherited: => Long): Long = stored(k)
+              .filter((_, nulls) => !nulls(r))
+              .map((vs, _) => vs(r))
+              .getOrElse(inherited)
             val idColumn = b.column("id")
             (0 until b.numRows).foreach { r =>
               val p = positions(r)
               out += idColumn.getValue(r).asInstanceOf[Long] ->
-                (value(0, p, f.firstRowId.get + p), value(1, p, f.sequence))
+                (value(0, r, f.firstRowId.get + p), value(1, r, f.sequence))
             }
           }
           out.result()

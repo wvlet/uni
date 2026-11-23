@@ -1086,17 +1086,7 @@ object Parquet:
   private def commitRowChange(target: DatasetTarget, done: String)(
       prepare: (IcebergWrite.Layout, IcebergWrite.Table, Long) => Option[RowChange]
   ): Long =
-    val layout                            = DatasetWriterCore.icebergLayout(target)
-    def cleanUp(paths: Seq[String]): Unit = paths.foreach { p =>
-      try
-        DatasetWriterCore.runSync(
-          target,
-          DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
-        )
-      catch
-        case NonFatal(_) =>
-        // Left as an unreferenced file, as a failed write leaves one
-    }
+    val layout                = DatasetWriterCore.icebergLayout(target)
     def attempt(n: Int): Long =
       val t = DatasetWriterCore
         .runStepsSync(target, IcebergWrite.load(layout))
@@ -1107,58 +1097,83 @@ object Parquet:
         case None =>
           0L
         case Some(change) =>
-          val c         = change.commit
-          def written   = change.files ++ c.writtenFiles
-          val committed =
-            try
-              Some(DatasetWriterCore.runStepsSync(target, c.run()))
-            catch
-              case e: IcebergWrite.LostRace =>
-                cleanUp(written)
-                if n < IcebergWrite.MaxAttempts then
-                  None
-                else
-                  throw ParquetException(
-                    s"Another writer kept committing to ${target
-                        .rootName} first; gave up after ${n} attempts",
-                    e
-                  )
-              case NonFatal(e) =>
-                val verified =
-                  if c.mayHaveCommitted then
-                    try
-                      DatasetWriterCore.runStepsSync(target, c.verify())
-                    catch
-                      case NonFatal(_) =>
-                        None
-                  else
-                    None
-                if verified.isEmpty then
-                  cleanUp(written)
-                  throw e
-                verified
-          committed match
+          val c = change.commit
+          runTableCommit(target, layout, n, done)(
+            c.run(),
+            c.mayHaveCommitted,
+            c.verify(),
+            change.files ++ c.writtenFiles
+          ) match
             case None =>
               attempt(n + 1)
-            case Some(committed) =>
-              val (path, bytes) = IcebergWrite.hint(layout, committed)
-              DatasetWriterCore.runSync(
-                target,
-                DatasetWriterCore
-                  .RootAction
-                  .Put(
-                    path,
-                    bytes,
-                    s"${done} ${target.rootName} (${committed
-                        .metadataPath}), but writing ${path} failed"
-                  )
-              )
+            case Some(_) =>
               change.rows
       end match
     end attempt
     attempt(1)
 
   end commitRowChange
+
+  /**
+    * Runs a table commit and writes the version hint. A commit that lost a race and must be planned
+    * again (`IcebergWrite.LostRace`) deletes its files and returns None, up to the last attempt. An
+    * ambiguous failure is checked first, since the commit may have landed.
+    */
+  private def runTableCommit(
+      target: DatasetTarget,
+      layout: IcebergWrite.Layout,
+      n: Int,
+      what: String
+  )(
+      run: => IcebergWrite.Step[IcebergWrite.Committed],
+      mayHaveCommitted: => Boolean,
+      verify: => IcebergWrite.Step[Option[IcebergWrite.Committed]],
+      written: => Seq[String]
+  ): Option[IcebergWrite.Committed] =
+    val committed =
+      try
+        Some(DatasetWriterCore.runStepsSync(target, run))
+      catch
+        case e: IcebergWrite.LostRace =>
+          cleanUpFiles(target, written)
+          if n < IcebergWrite.MaxAttempts then
+            None
+          else
+            throw ParquetException(
+              s"Another writer kept committing to ${target
+                  .rootName} first; gave up after ${n} attempts",
+              e
+            )
+        case NonFatal(e) =>
+          val verified =
+            if mayHaveCommitted then
+              try
+                DatasetWriterCore.runStepsSync(target, verify)
+              catch
+                case NonFatal(_) =>
+                  None
+            else
+              None
+          if verified.isEmpty then
+            cleanUpFiles(target, written)
+            throw e
+          verified
+    committed.foreach { done =>
+      val (path, bytes) = IcebergWrite.hint(layout, done)
+      DatasetWriterCore.runSync(
+        target,
+        DatasetWriterCore
+          .RootAction
+          .Put(
+            path,
+            bytes,
+            s"${what} ${target.rootName} (${done.metadataPath}), but writing ${path} failed"
+          )
+      )
+    }
+    committed
+
+  end runTableCommit
 
   /**
     * Compacts the Apache Iceberg table at `root` (a Hadoop table, as Uni writes): rewrites data
@@ -1195,7 +1210,7 @@ object Parquet:
   def compactIcebergTable(store: ObjectStore, root: String): IcebergCompaction =
     compactIcebergTable(store, root, IcebergCompactionOptions.default)
 
-  /** Deletes files a failed commit wrote; one that fails to delete stays as an unreferenced file */
+  /** Deletes files a failed commit wrote; one that fails to delete stays unreferenced */
   private def cleanUpFiles(target: DatasetTarget, paths: Seq[String]): Unit = paths.foreach { p =>
     try
       DatasetWriterCore.runSync(
@@ -1243,51 +1258,16 @@ object Parquet:
                   case NonFatal(e) =>
                     cleanUpFiles(target, written.toSeq)
                     throw e
-              val c         = IcebergWrite.compactionCommit(layout, plan, files)
-              val committed =
-                try
-                  Some(DatasetWriterCore.runStepsSync(target, c.run()))
-                catch
-                  case e: IcebergWrite.LostRace =>
-                    cleanUpFiles(target, written.toSeq ++ c.writtenFiles)
-                    if n < IcebergWrite.MaxAttempts then
-                      None
-                    else
-                      throw ParquetException(
-                        s"Another writer kept committing to ${target
-                            .rootName} first; gave up after ${n} attempts",
-                        e
-                      )
-                  case NonFatal(e) =>
-                    val verified =
-                      if c.mayHaveCommitted then
-                        try
-                          DatasetWriterCore.runStepsSync(target, c.verify())
-                        catch
-                          case NonFatal(_) =>
-                            None
-                      else
-                        None
-                    if verified.isEmpty then
-                      cleanUpFiles(target, written.toSeq ++ c.writtenFiles)
-                      throw e
-                    verified
-              committed match
+              val c = IcebergWrite.compactionCommit(layout, plan, files)
+              runTableCommit(target, layout, n, "Compacted")(
+                c.run(),
+                c.mayHaveCommitted,
+                c.verify(),
+                written.toSeq ++ c.writtenFiles
+              ) match
                 case None =>
                   attempt(n + 1)
-                case Some(done) =>
-                  val (path, bytes) = IcebergWrite.hint(layout, done)
-                  DatasetWriterCore.runSync(
-                    target,
-                    DatasetWriterCore
-                      .RootAction
-                      .Put(
-                        path,
-                        bytes,
-                        s"Compacted ${target.rootName} (${done
-                            .metadataPath}), but writing ${path} failed"
-                      )
-                  )
+                case Some(_) =>
                   IcebergCompaction(
                     plan.rewritten.size,
                     files.size,
@@ -1318,7 +1298,7 @@ object Parquet:
       written: scala.collection.mutable.ArrayBuffer[String]
   ): IndexedSeq[IcebergWrite.CompactedFile] =
     val t        = plan.live.table
-    val lineage  = long(t.metadata, "format-version").exists(_ >= 3)
+    val lineage  = IcebergWrite.formatVersionOf(t) >= 3
     val schema   = IcebergWrite.compactionFileSchema(t, ds.schema)
     val maxSize  = IcebergWrite.targetFileSize(t, options)
     val shredder = writer.BatchShredder(schema, options.writeOptions.parallelism)
@@ -1330,16 +1310,18 @@ object Parquet:
       .groups
       .foreach { group =>
         val head   = group.head
-        val folder = IcebergWrite.folderOf(layout, t, head.uri)
-        var open: Option[(FileWriter, String, CountingStream)] = None
-        def finish(): Unit                                     =
-          open.foreach { (w, path, stream) =>
+        val folder = IcebergWrite
+          .folderOf(layout, t, head.uri)
+          .getOrElse(IcebergWrite.dataFolder(layout, t))
+        var open: Option[(FileWriter, String)] = None
+        def finish(): Unit                     =
+          open.foreach { (w, path) =>
             w.close()
             val f = IcebergWrite.DataFile(
               path,
               VectorMap.empty,
               w.numRows,
-              stream.count,
+              w.bytesWritten,
               w.rowGroupMetas
             )
             out +=
@@ -1356,15 +1338,18 @@ object Parquet:
           open = None
         def writer(): FileWriter =
           open match
-            case Some((w, _, _)) =>
+            case Some((w, _)) =>
               w
             case None =>
               val path = s"${folder}${writeId}-compacted-${count}.parquet"
               count += 1
               written += path
-              val stream = CountingStream(DatasetWriterCore.openOutputSync(target, path))
-              val w      = FileWriter(schema, options.writeOptions, () => stream)
-              open = Some((w, path, stream))
+              val w = FileWriter(
+                schema,
+                options.writeOptions,
+                () => DatasetWriterCore.openOutputSync(target, path)
+              )
+              open = Some((w, path))
               w
         try
           group.foreach { f =>
@@ -1372,15 +1357,12 @@ object Parquet:
               f.key,
               throw ParquetException(s"${f.key} is not a data file of ${target.rootName}")
             )
-            val stored =
+            val ids =
               if lineage then
-                ds.longColumnsById(
-                  file,
-                  Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
-                )
+                Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
               else
                 Seq.empty
-            ds.foreachLiveBatch(file) { (b, positions) =>
+            ds.foreachLiveBatch(file, ids) { (b, positions, stored) =>
               val batch =
                 if lineage then
                   b.copy(columns = b.columns ++ lineageColumns(schema, f, stored, positions))
@@ -1406,7 +1388,7 @@ object Parquet:
           finish()
         catch
           case NonFatal(e) =>
-            open.foreach((w, _, _) => w.abort())
+            open.foreach((w, _) => w.abort())
             throw e
         end try
       }
@@ -1416,8 +1398,8 @@ object Parquet:
 
   /**
     * The `_row_id` and `_last_updated_sequence_number` of the rows at these positions of a source
-    * file: the stored value, or the inherited one (the file's first row ID plus the position, and
-    * its data sequence number)
+    * file: the stored value (`stored`, aligned with the rows), or the inherited one (the file's
+    * first row ID plus the position, and its data sequence number)
     */
   private def lineageColumns(
       schema: ParquetSchema,
@@ -1431,10 +1413,9 @@ object Parquet:
       val nulls  = Array.ofDim[Boolean](n)
       var r      = 0
       while r < n do
-        val p = positions(r).toInt
         stored.lift(k).flatten match
-          case Some((vs, ns)) if !ns(p) =>
-            values(r) = vs(p)
+          case Some((vs, ns)) if !ns(r) =>
+            values(r) = vs(r)
           case _ =>
             inherited(positions(r)) match
               case Some(v) =>
@@ -1450,26 +1431,6 @@ object Parquet:
 
   /** The rows a compaction writes between checks of the file size */
   private val SizeCheckRows = 1024
-
-  /** An output stream that counts the bytes written, for the size the manifest records */
-  private final class CountingStream(out: java.io.OutputStream) extends java.io.OutputStream:
-    var count                        = 0L
-    override def write(b: Int): Unit =
-      out.write(b)
-      count += 1
-
-    override def write(b: Array[Byte], off: Int, len: Int): Unit =
-      out.write(b, off, len)
-      count += len
-
-    override def flush(): Unit = out.flush()
-    override def close(): Unit = out.close()
-
-  private def long(o: JSONObject, key: String): Option[Long] = o
-    .get(key)
-    .collect { case wvlet.uni.json.JSON.JSONLong(v) =>
-      v
-    }
 
   /**
     * Moves the Apache Iceberg table at local folder `from` to `to`, which must not exist yet, and
