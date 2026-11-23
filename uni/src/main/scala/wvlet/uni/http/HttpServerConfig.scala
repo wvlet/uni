@@ -147,15 +147,19 @@ case class HttpServerConfig(
     require(bytes > 0, "maxInitialLineLength must be positive")
     copy(maxInitialLineLength = Some(bytes))
 
-  /** Limit the request headers to this many bytes; larger ones get 431. Default: 8192. */
+  /**
+    * Limit the request headers to this many bytes; larger ones get 431. Default: 8192 (Node.js:
+    * 16384, counting the request line too).
+    */
   def withMaxHeaderSize(bytes: Int): HttpServerConfig =
     require(bytes > 0, "maxHeaderSize must be positive")
     copy(maxHeaderSize = Some(bytes))
 
   /**
     * Close a connection that doesn't deliver a whole request within this time once the request
-    * starts arriving, to bound clients that trickle bytes (slowloris). Default: 30 s (Node.js: 300
-    * s). 0 disables it.
+    * starts arriving, to bound clients that trickle bytes (slowloris). On Netty without
+    * [[withIdleTimeoutMillis]], the clock starts when the connection opens or the last response
+    * ends, so it also closes idle connections. Default: 30 s (Node.js: 300 s). 0 disables it.
     */
   def withRequestReadTimeoutMillis(millis: Int): HttpServerConfig =
     require(millis >= 0, "requestReadTimeoutMillis must be >= 0")

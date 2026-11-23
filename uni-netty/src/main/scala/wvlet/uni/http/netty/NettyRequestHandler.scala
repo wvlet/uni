@@ -699,6 +699,9 @@ object NettyRequestHandler:
         ex match
           case _: io.netty.handler.codec.PrematureChannelClosureException =>
             true
+          // A client that stopped reading a response, closed by the write timeout
+          case _: io.netty.handler.timeout.WriteTimeoutException =>
+            true
           case _: java.nio.channels.ClosedChannelException =>
             true
           case e: java.io.IOException =>

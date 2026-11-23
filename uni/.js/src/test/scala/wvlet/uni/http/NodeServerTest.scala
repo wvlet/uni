@@ -87,6 +87,10 @@ class NodeServerTest extends UniTest:
     // Node rejects a headersTimeout above requestTimeout
     options.headersTimeout.asInstanceOf[Int] shouldBe 20000
     options.keepAliveTimeout.asInstanceOf[Int] shouldBe 7000
+    NodeHttpServer
+      .serverOptions(NodeServerConfig().noRequestReadTimeout)
+      .headersTimeout
+      .asInstanceOf[Int] shouldBe 0
     // Unset limits keep Node's defaults
     scala
       .scalajs

@@ -507,8 +507,8 @@ object NodeHttpServer:
       .requestReadTimeoutMillis
       .foreach { ms =>
         options.requestTimeout = ms
-        if ms > 0 then
-          options.headersTimeout = math.min(ms, NodeHeadersTimeoutMillis)
+        // 0 disables both; otherwise headersTimeout may not exceed requestTimeout
+        options.headersTimeout = math.min(ms, NodeHeadersTimeoutMillis)
       }
     config.idleTimeoutMillis.foreach(ms => options.keepAliveTimeout = ms)
     options
