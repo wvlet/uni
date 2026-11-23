@@ -439,4 +439,205 @@ private[parquet] object IcebergDeletes:
 
   end Roaring64
 
+  // ---- Writing deletion vectors ----
+
+  /**
+    * The `deletion-vector-v1` blob of sorted, distinct, non-negative positions: the inverse of
+    * [[deletionVector]]
+    */
+  def deletionVectorBlob(positions: Array[Long]): Array[Byte] =
+    val bitmap = LittleEndianOut()
+    writeRoaring64(positions, bitmap)
+    val body = bitmap.toByteArray
+    val out  = new Array[Byte](12 + body.length)
+    putBeInt(out, 0, 4 + body.length)
+    System.arraycopy(Magic, 0, out, 4, 4)
+    System.arraycopy(body, 0, out, 8, body.length)
+    putBeInt(out, 8 + body.length, CRC32.compute(out, 4, 4 + body.length))
+    out
+
+  private def putBeInt(b: Array[Byte], i: Int, v: Int): Unit =
+    b(i) = (v >>> 24).toByte
+    b(i + 1) = (v >>> 16).toByte
+    b(i + 2) = (v >>> 8).toByte
+    b(i + 3) = v.toByte
+
+  private final class LittleEndianOut:
+    private val out = java.io.ByteArrayOutputStream()
+
+    def u16(v: Int): Unit =
+      out.write(v & 0xff)
+      out.write((v >>> 8) & 0xff)
+
+    def i32(v: Int): Unit =
+      u16(v & 0xffff)
+      u16(v >>> 16)
+
+    def i64(v: Long): Unit =
+      i32(v.toInt)
+      i32((v >>> 32).toInt)
+
+    def toByteArray: Array[Byte] = out.toByteArray
+
+  /**
+    * The portable serialization of a 64-bit roaring bitmap: the number of 32-bit bitmaps, then each
+    * one's high 32 bits and its positions in the portable 32-bit format without run containers
+    */
+  private def writeRoaring64(positions: Array[Long], out: LittleEndianOut): Unit =
+    // Starts of the runs of positions that share their high 32 bits
+    val starts = scala.collection.mutable.ArrayBuilder.ofInt()
+    var i      = 0
+    while i < positions.length do
+      if i == 0 || (positions(i) >>> 32) != (positions(i - 1) >>> 32) then
+        starts += i
+      i += 1
+    val s = starts.result()
+    out.i64(s.length.toLong)
+    var k = 0
+    while k < s.length do
+      val from = s(k)
+      val to   =
+        if k + 1 < s.length then
+          s(k + 1)
+        else
+          positions.length
+      out.i32((positions(from) >>> 32).toInt)
+      writeBitmap32(positions, from, to, out)
+      k += 1
+
+  private def writeBitmap32(
+      positions: Array[Long],
+      from: Int,
+      to: Int,
+      out: LittleEndianOut
+  ): Unit =
+    // Containers hold the values that share the high 16 of the low 32 bits
+    val starts = scala.collection.mutable.ArrayBuilder.ofInt()
+    var i      = from
+    while i < to do
+      if i == from || ((positions(i) >>> 16) & 0xffff) != ((positions(i - 1) >>> 16) & 0xffff) then
+        starts += i
+      i += 1
+    val s                = starts.result()
+    def end(c: Int): Int =
+      if c + 1 < s.length then
+        s(c + 1)
+      else
+        to
+    def bytesOf(c: Int): Int =
+      val card = end(c) - s(c)
+      if card <= 4096 then
+        2 * card
+      else
+        8192
+    out.i32(12346) // SERIAL_COOKIE_NO_RUNCONTAINER
+    out.i32(s.length)
+    var c = 0
+    while c < s.length do
+      out.u16(((positions(s(c)) >>> 16) & 0xffff).toInt)
+      out.u16(end(c) - s(c) - 1)
+      c += 1
+    var offset = 8 + 8 * s.length
+    c = 0
+    while c < s.length do
+      out.i32(offset)
+      offset += bytesOf(c)
+      c += 1
+    c = 0
+    while c < s.length do
+      val card = end(c) - s(c)
+      if card <= 4096 then
+        var j = s(c)
+        while j < end(c) do
+          out.u16((positions(j) & 0xffff).toInt)
+          j += 1
+      else
+        val words = new Array[Long](1024)
+        var j     = s(c)
+        while j < end(c) do
+          val low = (positions(j) & 0xffff).toInt
+          words(low >>> 6) |= 1L << (low & 63)
+          j += 1
+        words.foreach(out.i64)
+      c += 1
+    end while
+
+  end writeBitmap32
+
+  /** A deletion vector to write: the data file it applies to and its sorted, distinct positions */
+  case class NewVector(referencedDataFile: String, positions: Array[Long])
+
+  /** Where a vector's blob went in a Puffin file */
+  case class BlobRange(offset: Long, length: Long)
+
+  private val PuffinMagic = "PFA1".getBytes(java.nio.charset.StandardCharsets.US_ASCII)
+
+  /** The field ID of a row's position, which a deletion vector's blob names */
+  private val RowPositionFieldId = 2147483645L
+
+  /**
+    * A Puffin file of `deletion-vector-v1` blobs, one per vector, and each blob's range: the magic,
+    * the blobs, then a footer of the magic, its uncompressed JSON, the JSON's length, flags, and
+    * the magic again
+    */
+  def puffinFile(
+      vectors: IndexedSeq[NewVector],
+      createdBy: String
+  ): (Array[Byte], IndexedSeq[BlobRange]) =
+    import wvlet.uni.json.JSON.*
+    val out = java.io.ByteArrayOutputStream()
+    out.write(PuffinMagic)
+    val ranges = vectors.map { v =>
+      val blob  = deletionVectorBlob(v.positions)
+      val range = BlobRange(out.size().toLong, blob.length.toLong)
+      out.write(blob)
+      range
+    }
+    val footer = JSONObject(
+      Seq(
+        "blobs" ->
+          JSONArray(
+            vectors
+              .zip(ranges)
+              .map { (v, r) =>
+                JSONObject(
+                  Seq(
+                    "type"            -> JSONString("deletion-vector-v1"),
+                    "fields"          -> JSONArray(IndexedSeq(JSONLong(RowPositionFieldId))),
+                    "snapshot-id"     -> JSONLong(-1L),
+                    "sequence-number" -> JSONLong(-1L),
+                    "offset"          -> JSONLong(r.offset),
+                    "length"          -> JSONLong(r.length),
+                    "properties"      ->
+                      JSONObject(
+                        Seq(
+                          "referenced-data-file" -> JSONString(v.referencedDataFile),
+                          "cardinality"          -> JSONString(v.positions.length.toString)
+                        )
+                      )
+                  )
+                )
+              }
+          ),
+        "properties" -> JSONObject(Seq("created-by" -> JSONString(createdBy)))
+      )
+    ).toJSON.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    out.write(PuffinMagic)
+    out.write(footer)
+    val tail = LittleEndianOut()
+    tail.i32(footer.length)
+    tail.i32(0) // flags: the footer is uncompressed
+    out.write(tail.toByteArray)
+    out.write(PuffinMagic)
+    (out.toByteArray, ranges)
+
+  end puffinFile
+
+  /** The sorted union of two sorted, distinct position arrays */
+  def union(a: Array[Long], b: Array[Long]): Array[Long] =
+    val all = java.util.Arrays.copyOf(a, a.length + b.length)
+    System.arraycopy(b, 0, all, a.length, b.length)
+    java.util.Arrays.sort(all)
+    distinct(all)
+
 end IcebergDeletes

@@ -260,6 +260,8 @@ def typedDataset(root: String) = Parquet.dataset(
   column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.
   `Parquet.renameIcebergTable(from, to)` moves a local table and writes its manifests and
   position-delete files again with the moved paths (current snapshot only).
+  `Parquet.deleteIcebergRows(root, filter)` deletes the matching rows merge-on-read and returns
+  how many: deletion vectors (Puffin) in v3 tables, position-delete files in v2, data files kept.
   Identity partitions on string, int, long, or date only; overwrite modes, other transforms,
   schema changes, and catalog-owned tables (`00003-<uuid>.metadata.json`) fail by name.
 

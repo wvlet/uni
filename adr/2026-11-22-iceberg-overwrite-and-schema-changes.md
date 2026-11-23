@@ -25,6 +25,7 @@ tables with renamed columns.
   and metadata, so manifests from other writers (pyiceberg, Spark) round-trip. Position and
   equality delete files were rejected because Uni's reader doesn't read them, and every engine
   reads copy-on-write tables.
+- Update (2026-11-22): the reader now applies delete files, and `Parquet.deleteIcebergRows` writes merge-on-read deletes; copy-on-write stays the way to rewrite files. See [`2026-11-22-iceberg-merge-on-read-deletes.md`](2026-11-22-iceberg-merge-on-read-deletes.md).
 - **A removed file must still be live.** If it isn't (on the first attempt, or after rebasing on
   another writer's commit), the commit fails, so a concurrent delete or rewrite never brings rows
   back.

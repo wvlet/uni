@@ -915,6 +915,118 @@ object Parquet:
         e.snapshots
 
   /**
+    * Deletes the rows that `filter` matches from the Apache Iceberg table at `root` (a Hadoop
+    * table, as Uni writes), merge-on-read: one `delete` snapshot adds delete files and keeps the
+    * data files. A format version 3 table gets deletion vectors (one per data file, merged with the
+    * file's earlier deletes), and a version 2 table position-delete files. Files are skipped by
+    * partition values and column statistics, and only the filter's columns are read. When another
+    * writer commits first, the rows are found again and the commit retried. Rows of earlier
+    * snapshots stay readable by time travel until [[expireIcebergSnapshots]] removes them.
+    *
+    * @return
+    *   the number of rows deleted; 0, with nothing committed, when no row matches
+    */
+  def deleteIcebergRows(root: String, filter: ParquetFilter): Long =
+    withTarget(datasetTarget(root))(deleteRows(_, filter))
+
+  /** Deletes the rows that `filter` matches from the Iceberg table at `root` in the store */
+  def deleteIcebergRows(store: ObjectStore, root: String, filter: ParquetFilter): Long = deleteRows(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    filter
+  )
+
+  private def deleteRows(target: DatasetTarget, filter: ParquetFilter): Long =
+    val layout                            = DatasetWriterCore.icebergLayout(target)
+    def cleanUp(paths: Seq[String]): Unit = paths.foreach { p =>
+      try
+        DatasetWriterCore.runSync(
+          target,
+          DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
+        )
+      catch
+        case NonFatal(_) =>
+        // Left as an unreferenced file, as a failed write leaves one
+    }
+    def attempt(n: Int): Long =
+      val t = DatasetWriterCore
+        .runStepsSync(target, IcebergWrite.load(layout))
+        .getOrElse(throw ParquetException(s"${target.rootName} is not an Iceberg table"))
+      // The positions come from the snapshot the commit builds on; if a newer version arrives
+      // meanwhile, the commit loses the race and the positions are found again
+      val found = IcebergWrite
+        .currentSnapshotId(t)
+        .map { id =>
+          val options = ParquetDatasetOptions.default.withSnapshotId(id)
+          val ds      =
+            target match
+              case DatasetTarget.Local(root) =>
+                dataset(root.path, options)
+              case DatasetTarget.Objects(store, root, _) =>
+                dataset(store, root.toString, options)
+          try ds.matchingPositions(filter)
+          finally ds.close()
+        }
+        .getOrElse(IndexedSeq.empty)
+      if found.isEmpty then
+        0L
+      else
+        val c = IcebergWrite.RowDeleteCommit(
+          layout,
+          t,
+          found.map((f, added, existing) => IcebergWrite.RowDeletes(f.path, added, existing))
+        )
+        val committed =
+          try
+            Some(DatasetWriterCore.runStepsSync(target, c.run()))
+          catch
+            case e: IcebergWrite.LostRace =>
+              cleanUp(c.writtenFiles)
+              if n < IcebergWrite.MaxAttempts then
+                None
+              else
+                throw ParquetException(
+                  s"Another writer kept committing to ${target
+                      .rootName} first; gave up after ${n} attempts",
+                  e
+                )
+            case NonFatal(e) =>
+              val verified =
+                if c.mayHaveCommitted then
+                  try
+                    DatasetWriterCore.runStepsSync(target, c.verify())
+                  catch
+                    case NonFatal(_) =>
+                      None
+                else
+                  None
+              if verified.isEmpty then
+                cleanUp(c.writtenFiles)
+                throw e
+              verified
+        committed match
+          case None =>
+            attempt(n + 1)
+          case Some(done) =>
+            val (path, bytes) = IcebergWrite.hint(layout, done)
+            DatasetWriterCore.runSync(
+              target,
+              DatasetWriterCore
+                .RootAction
+                .Put(
+                  path,
+                  bytes,
+                  s"Deleted rows from ${target.rootName} (${done
+                      .metadataPath}), but writing ${path} failed"
+                )
+            )
+            c.deletedRows
+      end if
+    end attempt
+    attempt(1)
+
+  end deleteRows
+
+  /**
     * Moves the Apache Iceberg table at local folder `from` to `to`, which must not exist yet, and
     * points its metadata at the new location: the current snapshot's manifests are written again
     * with the new paths, so other engines read the moved table. Only the current snapshot is kept;

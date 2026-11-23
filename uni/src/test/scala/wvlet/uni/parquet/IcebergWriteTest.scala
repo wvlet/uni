@@ -582,6 +582,33 @@ class IcebergInteropTables extends UniTest:
           Seq(IcebergSale(1, "apple", LocalDate.of(2026, 11, 20), Some("JP"))),
           opts.withMode(ParquetWriteMode.Overwrite).withReplacedFiles(replace)
         )
+        // Merge-on-read deletes: deletion vectors (v3, the second merging the first) and
+        // position-delete files (v2)
+        val rows = (1 to 6).map { i =>
+          IcebergSale(
+            i,
+            s"item${i}",
+            LocalDate.of(2026, 11, 20 + i % 2),
+            Some(
+              if i % 3 == 0 then
+                "US"
+              else
+                "JP"
+            )
+          )
+        }
+        val dv = s"${d}/v3_dv"
+        Parquet.writeDataset(
+          dv,
+          rows,
+          opts.withTableProperties(Map(IcebergWrite.FormatVersionProperty -> "3"))
+        )
+        Parquet.deleteIcebergRows(dv, ParquetFilter.col("id") === 2L)
+        Parquet.deleteIcebergRows(dv, ParquetFilter.col("country") === "US")
+        val posdel = s"${d}/v2_posdel"
+        Parquet.writeDataset(posdel, rows, opts)
+        Parquet.deleteIcebergRows(posdel, ParquetFilter.col("id") === 2L)
+        Parquet.deleteIcebergRows(posdel, ParquetFilter.col("country") === "US")
   }
 
 end IcebergInteropTables
