@@ -1,8 +1,12 @@
 name = "uni-spec"
-defaultTargets = ["UniSpec", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-http-reader-cases", "gen-rx-live-cases", "gen-dom-render-cases", "gen-rx-r3-cases"]
+defaultTargets = ["UniSpec", "Check", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-http-reader-cases", "gen-rx-live-cases", "gen-dom-render-cases", "gen-rx-r3-cases"]
 
 [[lean_lib]]
 name = "UniSpec"
+
+# The proof gate (Check.lean): fails the build on sorry, native_decide, or an axiom
+[[lean_lib]]
+name = "Check"
 
 [[lean_exe]]
 name = "gen-rx-cases"

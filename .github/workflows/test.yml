@@ -83,9 +83,10 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-      # Builds the model, which checks every proof, and the case generator
+      # Builds the model, which checks every proof, and the case generator. Check.lean fails the
+      # build on sorry, native_decide, or an axiom; --wfail fails it on any warning.
       - name: Check proofs
-        run: lake build
+        run: lake build --wfail
       - name: Generated cases are up to date
         run: |
           lake exe gen-rx-cases

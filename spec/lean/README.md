@@ -26,7 +26,7 @@ picks the Lean version in `lean-toolchain`. A weekly workflow
 Lean release in a `deps/lean-toolchain` PR, which merges once the required `Lean spec` check passes. Then, in this directory:
 
 ```bash
-lake build              # check every proof and build the generator
+lake build --wfail      # check every proof, run the proof gate, and build the generators
 lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
 lake exe gen-rx-nested-cases # rewrite RxNestedSpecCases.scala from the nested-stream Rx model
 lake exe gen-rx-r3-cases     # rewrite RxR3SpecCases.scala from the R3 event model
