@@ -546,6 +546,11 @@ val catalogVersion = Parquet.dataset(
   or non-primitive column, an `initial-default` on a field inside a struct, encrypted tables,
   and data files that aren't Parquet. The
   manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
+- **Encrypted tables** (`encryption-keys` in the metadata, set up through `encryption.key-id`)
+  aren't read or written, and neither are encrypted Parquet files. Reading them needs a key
+  management service to unwrap keys, AES-GCM for manifests, and Parquet Modular Encryption for
+  data files, which Uni can't offer on every platform with its minimal dependencies. Read these
+  tables with an engine built on iceberg-java, such as Spark, Trino, or Flink.
 - **Properties.** `ds.tableProperties` holds the table's properties.
 - **Format.** `ParquetTableFormat.Iceberg` fails when the root has no metadata and lists only
   `metadata/`. A root with both `_delta_log/` and Iceberg metadata (Delta UniForm) reads as Delta.

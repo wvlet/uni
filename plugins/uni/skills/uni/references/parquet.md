@@ -250,8 +250,8 @@ def typedDataset(root: String) = Parquet.dataset(
   Format versions 1 to 3 are read: v3 `timestamp_ns` columns read as nanosecond
   timestamps, and a column older files lack reads as its `initial-default`. Position deletes,
   deletion vectors, and equality deletes (Flink upserts) are applied before row filters.
-  `variant` columns read as Scala values and `geometry`/`geography` as WKB bytes. Non-Parquet
-  data files fail by name.
+  `variant` columns read as Scala values and `geometry`/`geography` as WKB bytes. Encrypted
+  tables (`encryption-keys`; they need a KMS) and non-Parquet data files fail by name.
 - `ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)` writes an
   Iceberg table (Hadoop table, format v2; `withTableProperties(Map("format-version" -> "3"))`
   for v3 with row lineage and nanosecond timestamps): `ErrorIfExists` creates it, `Append` commits a
