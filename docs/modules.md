@@ -30,6 +30,7 @@ available unless a row says otherwise.
 | [Markdown](./text/markdown) | CommonMark + GFM parser and safe HTML renderer |
 | [Cron](./text/cron) | Cron expressions with next-run times and English descriptions |
 | [Parquet](./text/parquet) | Pure-Scala Apache Parquet reader and writer: files, bytes, and HTTP ranges, from and to case classes |
+| [Arrow IPC](./text/arrow) | Pure-Scala Apache Arrow IPC writer: stream and file formats from column batches, for pyarrow, polars, and Arrow JS clients |
 
 ## Files & Memory
 

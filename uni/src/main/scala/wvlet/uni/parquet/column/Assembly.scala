@@ -17,7 +17,7 @@ import wvlet.uni.parquet.format.PhysicalType
   * node is present in an instance when the definition level at the instance start reaches the
   * node's own level.
   */
-private[parquet] object Assembly:
+private[uni] object Assembly:
 
   private final class Leaf(val data: ColumnData):
     val m: Int                = data.numLevels
@@ -209,10 +209,10 @@ private[parquet] object Assembly:
           nullsOf(g, leaves, inst, n)
         )
 
-  private[parquet] def isList(g: ParquetField.Group): Boolean =
+  private[uni] def isList(g: ParquetField.Group): Boolean =
     g.logicalType.contains(LogicalType.List) && g.children.size == 1 && g.children(0).isRepeated
 
-  private[parquet] def isMap(g: ParquetField.Group): Boolean =
+  private[uni] def isMap(g: ParquetField.Group): Boolean =
     (g.logicalType.contains(LogicalType.Map) || g.logicalType.contains(LogicalType.MapKeyValue)) &&
       g.children.size == 1 && g.children(0).isRepeated && (
         g.children(0) match
@@ -223,7 +223,7 @@ private[parquet] object Assembly:
       )
 
   /** The backward-compatibility rules for LIST in the Parquet format spec */
-  private[parquet] def isThreeLevelList(g: ParquetField.Group, r: ParquetField): Boolean =
+  private[uni] def isThreeLevelList(g: ParquetField.Group, r: ParquetField): Boolean =
     r match
       case _: ParquetField.Primitive =>
         false
