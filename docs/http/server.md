@@ -101,10 +101,10 @@ virtual thread per connection. Like Netty, it limits the request line and header
 decodes chunked and gzip/deflate request bodies, answers `Expect: 100-continue`,
 and compresses responses for `Accept-Encoding`. As on Netty, a handler has no
 time limit, and `stop()` waits up to 30 s for in-flight requests to finish
-(closing idle connections, SSE streams, and WebSockets at once). It takes no
-options of its own; add `uni-netty` when you want Netty's tuning options (native
-transport, handler executor threads, a configurable shutdown timeout, ...) or an
-older JDK:
+(closing idle connections, SSE streams, and WebSockets at once). Its limits and
+timeouts are the shared `Http.server` settings below, so it takes no options of
+its own; add `uni-netty` when you want Netty's own options (native transport,
+handler executor threads, ...) or an older JDK:
 
 ```scala sbt
 // Optional: serve Http.server on Netty (JVM only; pulls in uni transitively)
@@ -116,16 +116,36 @@ serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 
 ### Tuning one backend
 
-`Http.server` also takes the size limits every backend has:
-`withMaxContentLength` (the body, as sent or after chunked decoding),
-`withWebSocketMaxFrameSize`, and `withWebSocketPingIntervalMillis`. Settings
-you leave unset keep the backend's own default.
+`Http.server` also takes the limits and timeouts the backends share, so they
+carry over when an app adds or drops `uni-netty` or builds for another
+platform. Settings you leave unset keep the backend's own default, and each
+backend applies the ones it supports:
 
-For an option only one backend has (Netty transport, graceful shutdown, Native
-worker threads, ...), pass that backend's options to `withBackend`:
+| Setting | Default | Ignored by |
+|---------|---------|------------|
+| `withMaxContentLength(bytes)` | 1 MiB (Netty: 64 KiB) | — |
+| `withMaxInitialLineLength(bytes)` | 4 KiB | Node.js (its `maxHeaderSize` covers the request line) |
+| `withMaxHeaderSize(bytes)` | 8 KiB (Node.js: 16 KiB) | — |
+| `withRequestReadTimeoutMillis(ms)` / `noRequestReadTimeout` | 30 s (Node.js: 300 s) | — |
+| `withIdleTimeoutMillis(ms)` | 30 s (Node.js: 5 s; Netty: the request read timeout covers it) | — |
+| `withWriteTimeoutMillis(ms)` / `noWriteTimeout` | 30 s (Netty: off) | Node.js |
+| `withRequestDecompression` / `noRequestDecompression` | on | Node.js (never decodes) |
+| `withMaxDecompressedRequestSize(bytes)` | 64 MiB | Node.js |
+| `withMaxStreamingConnections(n)` | 256 (Native: worker threads minus up to 4) | Node.js |
+| `withShutdownTimeoutMillis(ms)` | 30 s | Node.js |
+| `withWebSocketMaxFrameSize(bytes)`, `withWebSocketPingIntervalMillis(ms)` | 1 MiB, off | — |
+
+The built-in JVM server, Scala Native, and Netty count the request read
+timeout from the request's first bytes once an idle timeout is set; the wait
+before them is the idle timeout. Netty times each write as a whole rather than
+per 64 KiB piece, and counts only Server-Sent Events streams toward
+`maxStreamingConnections` (the socket servers also count WebSockets).
+
+For an option only one backend has (Netty transport and handler executor,
+Native worker threads, ...), pass that backend's options to `withBackend`:
 `Netty.options` (`wvlet.uni.http.netty.Netty`) on the JVM, or `Native.options`
 on Scala Native. They hold only that backend's own settings, so port, handler,
-and size limits are set in one place, on `Http.server`. Each backend applies
+limits, and timeouts are set in one place, on `Http.server`. Each backend applies
 only its own options, so options for several platforms can be passed together.
 (Node.js has no options of its own.)
 
@@ -572,15 +592,12 @@ Http
   .withHost("0.0.0.0")                 // Bind address (default: 127.0.0.1)
   .withName("my-server")               // Server name for logging
   .withMaxContentLength(1024 * 1024)   // Max request body size (Netty default: 64KB)
-  .withBackend(
-    Netty
-      .options
-      .withMaxHeaderSize(8192)             // Max header size
-      .withMaxInitialLineLength(4096)      // Max request line length
-      .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
-      .withMaxDecompressedRequestSize(64 * 1024 * 1024) // Max decoded size of a gzip/deflate body
-      .noNativeTransport                   // Disable native transport (epoll/kqueue)
-  )
+  .withMaxHeaderSize(8192)             // Max header size
+  .withMaxInitialLineLength(4096)      // Max request line length
+  .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
+  .withIdleTimeoutMillis(60000)        // Close keep-alive connections idle this long
+  .withMaxDecompressedRequestSize(64 * 1024 * 1024) // Max decoded size of a gzip/deflate body
+  .withBackend(Netty.options.noNativeTransport) // Netty-only: disable epoll/kqueue
   .withHandler(handler)
   .start()
 ```
@@ -595,7 +612,7 @@ The Netty, built-in JVM, and Scala Native servers decode request bodies sent wit
 - A compressed body that decodes to more than `withMaxDecompressedRequestSize` bytes (default 64 MiB) gets a plain-text `413`, and the connection is closed. Uncompressed requests are not counted against this limit.
 - A malformed compressed body gets a plain-text `400`, and the connection is closed.
 - The decoded body must also fit in `withMaxContentLength`, so raise both for large compressed uploads.
-- `Netty.options.noRequestDecompression` (`Native.options.noRequestDecompression` on Scala Native) passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it. The built-in JVM server always decodes; add `uni-netty` to turn it off.
+- `.noRequestDecompression` passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it.
 - On Scala Native, the server links zlib (`libz`), which almost every system and base image provides.
 
 ### Security Defaults
@@ -608,11 +625,11 @@ All three backends start with these defaults:
 | 500 responses say only `Internal Server Error`; RPC errors say `Internal error`; a thrown `ServiceException` sends its message but no stack trace | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config, which also covers `RouterHandler` controller exceptions; `RPCHandler(router).withDetailedErrors(true)` for RPC |
 | On a loopback server, requests whose `Host` is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` get 403 | DNS rebinding: a web page can point its own host name at 127.0.0.1 and then read the local server as same-origin. The browser still sends the page's host name in `Host` | `.withAllowedHosts("app.example.com", "*.internal.example")` to replace the list, `.noHostCheck` to accept any. A server bound to `0.0.0.0` accepts any host unless `withAllowedHosts` is set |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
-| Bounded request size | A single huge request cannot exhaust memory | `.withMaxContentLength` for the body (defaults: Netty 64 KB, Node 1 MB, built-in and Native 1 MB; 413 for larger bodies). The request line (4 KB, else 414) and headers (8 KB, else 431) have their own limits on Netty, the built-in server, and Native (`Native.options.withMaxInitialLineLength` / `.withMaxHeaderSize`). `withMaxDecompressedRequestSize` for gzip/deflate bodies (default 64 MiB) |
-| Request read timeout (30 s) | Bounds slowloris clients that trickle a request | `Netty.options.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`; `Native.options.withRequestReadTimeoutMillis(...)` on Native. The built-in and Native servers measure from the request's first bytes (408 when it expires); idle keep-alive connections close after the idle timeout |
-| Response write timeout (built-in and Native: 30 s) | A client that stops reading a response cannot hold a thread | `Native.options.withWriteTimeoutMillis(...)` / `.noWriteTimeout` |
+| Bounded request size | A single huge request cannot exhaust memory | `.withMaxContentLength` for the body (defaults: Netty 64 KB, Node 1 MB, built-in and Native 1 MB; 413 for larger bodies). The request line (4 KB, else 414) and headers (8 KB, else 431) have their own limits: `.withMaxInitialLineLength` / `.withMaxHeaderSize`. `withMaxDecompressedRequestSize` for gzip/deflate bodies (default 64 MiB) |
+| Request read timeout (30 s) | Bounds slowloris clients that trickle a request | `.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. The built-in and Native servers measure from the request's first bytes (408 when it expires); idle keep-alive connections close after `.withIdleTimeoutMillis(...)` |
+| Response write timeout (built-in and Native: 30 s) | A client that stops reading a response cannot hold a thread | `.withWriteTimeoutMillis(...)` / `.noWriteTimeout` (off by default on Netty) |
 | Strict request parsing | A front proxy and the server cannot disagree on where a request ends (request smuggling) | — A bare CR or LF, obs-fold, whitespace before a header colon, a header name that is not a token, control characters in a value, a non-numeric or repeated `Content-Length`, more than one `Host`, and a `Transfer-Encoding` other than `chunked` get 400 or 501. A request with both `Transfer-Encoding` and `Content-Length` is read as chunked and closes the connection |
-| Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `Netty.options.withMaxStreamingConnections(n)` / `Native.options.withMaxStreamingConnections(n)`. Netty default: 256 SSE streams. Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
+| Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `.withMaxStreamingConnections(n)`. Netty and built-in default: 256 (SSE streams only on Netty). Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
 | CR, LF, or NUL in a header name or value is rejected | Prevents HTTP response splitting when a header echoes user input | — (`addHeader`/`setHeader` throw `IllegalArgumentException`) |
 
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
@@ -627,9 +644,9 @@ The defaults suit a small internal service. A public API server usually reviews 
 
 | Setting | Default | When to change |
 |---------|---------|----------------|
-| `.withMaxContentLength(n)` | 64 KB | Raise it to the largest request body the API accepts, e.g. LLM prompts with images. A decompressed body must also fit in this limit |
-| `Netty.options.withRequestReadTimeoutMillis(ms)` | 30 s | The same timer closes idle keep-alive connections. Keep it longer than the idle timeout of the load balancer in front of the server, or the server closes connections the balancer still reuses |
-| `Netty.options.withMaxStreamingConnections(n)` | 256 | The maximum number of concurrent SSE streams per server; streams beyond it get 503. Size it to the expected number of concurrent streaming clients |
+| `.withMaxContentLength(n)` | 1 MB (Netty: 64 KB) | Raise it to the largest request body the API accepts, e.g. LLM prompts with images. A decompressed body must also fit in this limit |
+| `.withIdleTimeoutMillis(ms)` | 30 s | Keep it longer than the idle timeout of the load balancer in front of the server, or the server closes connections the balancer still reuses. On Netty without it, the request read timeout closes idle connections |
+| `.withMaxStreamingConnections(n)` | 256 | The maximum number of concurrent SSE streams per server; streams beyond it get 503. Size it to the expected number of concurrent streaming clients |
 | `.withHost("0.0.0.0")` / `.withAllowedHosts(...)` | `127.0.0.1`, loopback host check | Required behind a load balancer or in a container |
 | `.withDetailedErrors(true)` | off | Keep it off in production; the full exception is logged on the server |
 

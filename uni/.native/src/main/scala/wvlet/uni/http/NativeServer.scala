@@ -103,6 +103,8 @@ case class NativeServerConfig(
     // Maximum number of concurrent long-lived connections (Server-Sent Events, WebSocket); more get
     // 503. None: workerThreads minus a reserve of up to 4 workers kept for ordinary requests
     maxStreamingConnections: Option[Int] = None,
+    // Max time stop() waits for in-flight requests before closing their connections (0: at once)
+    shutdownTimeoutMillis: Long = 30000,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
     // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
@@ -254,6 +256,11 @@ case class NativeServerConfig(
   def effectiveMaxStreamingConnections: Int = maxStreamingConnections.getOrElse(
     workerThreads - math.min(4, workerThreads / 2)
   )
+
+  /** How long `stop()` waits for in-flight requests (default: 30 s); 0 closes them at once. */
+  def withShutdownTimeoutMillis(millis: Long): NativeServerConfig =
+    require(millis >= 0, "shutdownTimeoutMillis must be >= 0")
+    copy(shutdownTimeoutMillis = millis)
 
   def withDetailedErrors(enabled: Boolean): NativeServerConfig = copy(detailedErrors = enabled)
   def noDetailedErrors: NativeServerConfig                     = withDetailedErrors(false)

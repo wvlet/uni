@@ -74,7 +74,8 @@ class HttpServerProviderTest extends UniTest:
       .server
       .withPort(0)
       .withMaxContentLength(16)
-      .withBackend(Netty.options.withHandlerExecutorThreads(2).noRequestDecompression)
+      .noRequestDecompression
+      .withBackend(Netty.options.withHandlerExecutorThreads(2))
       .withHandler(_ => Response.ok("ok"))
       .start { server =>
         postStatus(server, "small") shouldBe 200
@@ -95,6 +96,47 @@ class HttpServerProviderTest extends UniTest:
       .withHandlerExecutorThreads(4)
       .applyTo(NettyServerConfig())
     config.handlerExecutorThreads shouldBe Some(4)
+  }
+
+  test("Http.server's shared limits reach the Netty config and win over Netty.options") {
+    val config = NettyServerProvider.nettyConfig(
+      Http
+        .server
+        .withMaxInitialLineLength(1024)
+        .withMaxHeaderSize(2048)
+        .withRequestReadTimeoutMillis(5000)
+        .withWriteTimeoutMillis(6000)
+        .withIdleTimeoutMillis(7000)
+        .noRequestDecompression
+        .withMaxDecompressedRequestSize(4096)
+        .withMaxStreamingConnections(8)
+        .withShutdownTimeoutMillis(2500)
+        .withBackend(Netty.options.withShutdownQuietPeriod(0).withHandlerExecutorThreads(2))
+    )
+    config.maxInitialLineLength shouldBe 1024
+    config.maxHeaderSize shouldBe 2048
+    config.requestReadTimeoutMillis shouldBe 5000
+    config.writeTimeoutMillis shouldBe 6000
+    config.idleTimeoutMillis shouldBe Some(7000)
+    config.requestDecompression shouldBe false
+    config.maxDecompressedRequestSize shouldBe 4096
+    config.maxStreamingConnections shouldBe 8
+    // Rounded up to whole seconds
+    config.shutdownTimeoutSeconds shouldBe 3
+    config.shutdownQuietPeriodSeconds shouldBe 0
+    config.handlerExecutorThreads shouldBe Some(2)
+  }
+
+  test("unset shared limits keep Netty's defaults") {
+    val config = NettyServerProvider.nettyConfig(Http.server)
+    val netty  = NettyServerConfig()
+    config.requestReadTimeoutMillis shouldBe netty.requestReadTimeoutMillis
+    config.writeTimeoutMillis shouldBe 0
+    config.idleTimeoutMillis shouldBe None
+    config.shutdownTimeoutSeconds shouldBe netty.shutdownTimeoutSeconds
+    NettyServerProvider
+      .nettyConfig(Http.server.withShutdownTimeoutMillis(0))
+      .shutdownTimeoutSeconds shouldBe 1
   }
 
 end HttpServerProviderTest

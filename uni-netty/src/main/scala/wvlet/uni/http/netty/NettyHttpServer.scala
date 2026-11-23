@@ -40,6 +40,7 @@ import io.netty.handler.codec.http.{
   HttpUtil
 }
 import io.netty.handler.stream.ChunkedWriteHandler
+import io.netty.handler.timeout.WriteTimeoutHandler
 import io.netty.util.concurrent.{DefaultEventExecutorGroup, EventExecutorGroup, GlobalEventExecutor}
 import wvlet.uni.http.{ConnectionLimiter, HttpServer}
 import wvlet.uni.log.LogSupport
@@ -138,15 +139,34 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               config.maxHeaderSize,
               config.maxContentLength
             )
+            // Times each write of encoded bytes, so a client that stops reading can't hold it
+            if config.writeTimeoutMillis > 0 then
+              pipeline.addLast(
+                "writeTimeout",
+                WriteTimeoutHandler(config.writeTimeoutMillis.toLong, TimeUnit.MILLISECONDS)
+              )
+            val idleTimeoutMillis = config.idleTimeoutMillis.getOrElse(0)
+            val readTimeout       =
+              if config.requestReadTimeoutMillis > 0 || idleTimeoutMillis > 0 then
+                Some(
+                  RequestReadTimeoutHandler(
+                    config.requestReadTimeoutMillis.toLong,
+                    idleTimeoutMillis.toLong
+                  )
+                )
+              else
+                None
+            if idleTimeoutMillis > 0 then
+              readTimeout.foreach(h =>
+                pipeline.addLast(NettyHttpServer.RequestArrivalProbeName, h.arrivalProbe)
+              )
             pipeline.addLast("decoder", codec.decoder)
             pipeline.addLast("encoder", codec.encoder)
             pipeline.addLast("decodeFailure", DecodeFailureHandler())
             pipeline.addLast("drain", ConnectionDrainHandler())
-            if config.requestReadTimeoutMillis > 0 then
-              pipeline.addLast(
-                NettyHttpServer.RequestReadTimeoutHandlerName,
-                RequestReadTimeoutHandler(config.requestReadTimeoutMillis.toLong)
-              )
+            readTimeout.foreach(h =>
+              pipeline.addLast(NettyHttpServer.RequestReadTimeoutHandlerName, h)
+            )
             pipeline.addLast("keepAlive", HttpServerKeepAliveHandler())
             if config.requestDecompression then
               val decompression = NettyRequestDecompression(config.maxDecompressedRequestSize)
@@ -377,6 +397,7 @@ private[netty] class IdentityRangeCompressor extends HttpContentCompressor:
 object NettyHttpServer:
   private[netty] val CompressorHandler             = "compressor"
   private[netty] val RequestReadTimeoutHandlerName = "requestReadTimeout"
+  private[netty] val RequestArrivalProbeName       = "requestArrivalProbe"
   private[netty] val WebSocketHandlerName          = "wsHandler"
 
   def apply(config: NettyServerConfig): NettyHttpServer = new NettyHttpServer(config)

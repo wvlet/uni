@@ -16,12 +16,13 @@ package wvlet.uni.http
 import wvlet.uni.rx.Rx
 
 /**
-  * An HTTP server configuration that runs unchanged on every platform: `start()` serves it with
-  * Netty on the JVM (from uni-netty, found on the classpath), `NativeServer` on Scala Native, and
-  * `NodeServer` on Scala.js. Create one with [[Http.server]].
+  * An HTTP server configuration that runs unchanged on every platform: `start()` serves it with the
+  * built-in server on the JVM (or Netty, when uni-netty is on the classpath), `NativeServer` on
+  * Scala Native, and `NodeServer` on Scala.js. Create one with [[Http.server]].
   *
-  * It holds the settings every backend shares. For backend-only options, pass [[ServerOptions]] to
-  * [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
+  * It holds the settings the backends share. Each backend applies the ones it supports, and the
+  * setter of each says which backends ignore it. For backend-only options, pass [[ServerOptions]]
+  * to [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
   * {{{
   * Http.server.withPort(8080).withBackend(Netty.options.withHandlerExecutorThreads(8))
   * }}}
@@ -49,6 +50,17 @@ case class HttpServerConfig(
     // Ping/pong heartbeat interval for WebSocket connections (0 disables it). None: the backend's
     // default
     webSocketPingIntervalMillis: Option[Int] = None,
+    // The limits and timeouts below take the backend's default when None. Each one's setter says
+    // which backends ignore it.
+    maxInitialLineLength: Option[Int] = None,
+    maxHeaderSize: Option[Int] = None,
+    requestReadTimeoutMillis: Option[Int] = None,
+    writeTimeoutMillis: Option[Int] = None,
+    idleTimeoutMillis: Option[Int] = None,
+    requestDecompression: Option[Boolean] = None,
+    maxDecompressedRequestSize: Option[Int] = None,
+    maxStreamingConnections: Option[Int] = None,
+    shutdownTimeoutMillis: Option[Long] = None,
     // Backend-only options; each backend applies the ones of its own type
     backendOptions: Seq[ServerOptions] = Nil
 ) extends HttpServerConfigBase:
@@ -128,6 +140,90 @@ case class HttpServerConfig(
     copy(webSocketPingIntervalMillis = Some(millis))
 
   /**
+    * Limit the request line (method, target, and version) to this many bytes; longer ones get 414.
+    * Default: 4096. Ignored on Node.js, whose `maxHeaderSize` covers the request line too.
+    */
+  def withMaxInitialLineLength(bytes: Int): HttpServerConfig =
+    require(bytes > 0, "maxInitialLineLength must be positive")
+    copy(maxInitialLineLength = Some(bytes))
+
+  /**
+    * Limit the request headers to this many bytes; larger ones get 431. Default: 8192 (Node.js:
+    * 16384, counting the request line too).
+    */
+  def withMaxHeaderSize(bytes: Int): HttpServerConfig =
+    require(bytes > 0, "maxHeaderSize must be positive")
+    copy(maxHeaderSize = Some(bytes))
+
+  /**
+    * Close a connection that doesn't deliver a whole request within this time once the request
+    * starts arriving, to bound clients that trickle bytes (slowloris). On Netty without
+    * [[withIdleTimeoutMillis]], the clock starts when the connection opens or the last response
+    * ends, so it also closes idle connections. Default: 30 s (Node.js: 300 s). 0 disables it.
+    */
+  def withRequestReadTimeoutMillis(millis: Int): HttpServerConfig =
+    require(millis >= 0, "requestReadTimeoutMillis must be >= 0")
+    copy(requestReadTimeoutMillis = Some(millis))
+
+  def noRequestReadTimeout: HttpServerConfig = withRequestReadTimeoutMillis(0)
+
+  /**
+    * Close a connection whose response write makes no progress for this long, so a client that
+    * stops reading can't hold the connection. Default: 30 s; disabled on Netty, which times each
+    * write as a whole. 0 disables it. Ignored on Node.js.
+    */
+  def withWriteTimeoutMillis(millis: Int): HttpServerConfig =
+    require(millis >= 0, "writeTimeoutMillis must be >= 0")
+    copy(writeTimeoutMillis = Some(millis))
+
+  def noWriteTimeout: HttpServerConfig = withWriteTimeoutMillis(0)
+
+  /**
+    * Close a kept-alive connection that waits this long for its next request. Default: 30 s
+    * (Node.js: 5 s).
+    */
+  def withIdleTimeoutMillis(millis: Int): HttpServerConfig =
+    require(millis > 0, "idleTimeoutMillis must be positive")
+    copy(idleTimeoutMillis = Some(millis))
+
+  /**
+    * Decode request bodies sent with `Content-Encoding: gzip` or `deflate` before any filter or
+    * handler sees them (the default), bounded by [[withMaxDecompressedRequestSize]]. Ignored on
+    * Node.js, which never decodes them.
+    */
+  def withRequestDecompression: HttpServerConfig = copy(requestDecompression = Some(true))
+
+  /**
+    * Pass compressed request bodies to the handler as sent, e.g. to authenticate a request before
+    * inflating it in a filter.
+    */
+  def noRequestDecompression: HttpServerConfig = copy(requestDecompression = Some(false))
+
+  /** Maximum decoded size of a compressed request body (default: 64 MiB); larger ones get 413. */
+  def withMaxDecompressedRequestSize(bytes: Int): HttpServerConfig =
+    require(bytes > 0, "maxDecompressedRequestSize must be positive")
+    copy(maxDecompressedRequestSize = Some(bytes))
+
+  /**
+    * Limit the number of concurrently open long-lived connections; more get 503. The built-in JVM
+    * server and Scala Native count Server-Sent Events streams and WebSockets, Netty only
+    * Server-Sent Events streams. Default: 256 (Scala Native: the worker threads minus a reserve of
+    * up to 4). Ignored on Node.js.
+    */
+  def withMaxStreamingConnections(n: Int): HttpServerConfig =
+    require(n > 0, "maxStreamingConnections must be positive")
+    copy(maxStreamingConnections = Some(n))
+
+  /**
+    * How long `stop()` waits for in-flight requests before closing their connections. Idle
+    * connections close at once. Default: 30 s. 0 closes every connection at once. Netty rounds it
+    * up to whole seconds, at least 1. Ignored on Node.js.
+    */
+  def withShutdownTimeoutMillis(millis: Long): HttpServerConfig =
+    require(millis >= 0, "shutdownTimeoutMillis must be >= 0")
+    copy(shutdownTimeoutMillis = Some(millis))
+
+  /**
     * Add backend-only options: `Netty.options` on the JVM, `Native.options` on Scala Native. The
     * backend of their type applies them, in the order added; the others ignore them, so options for
     * several platforms can be passed to the same config.
@@ -137,9 +233,9 @@ case class HttpServerConfig(
   )
 
   /**
-    * Start the server on this platform's backend. On the JVM this fails with
-    * `IllegalStateException` when no backend (uni-netty) is on the classpath. On Scala.js the bind
-    * is asynchronous: use [[startAndAwait]] or `whenReady` before reading `localPort`.
+    * Start the server on this platform's backend. On the JVM without uni-netty, the built-in server
+    * needs JDK 24 or later and fails with `IllegalStateException` on older JDKs. On Scala.js the
+    * bind is asynchronous: use [[startAndAwait]] or `whenReady` before reading `localPort`.
     */
   override def start(): HttpServer = HttpCompat.startServer(this)
 

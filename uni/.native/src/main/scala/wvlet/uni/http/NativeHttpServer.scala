@@ -41,7 +41,8 @@ class NativeHttpServer(config: NativeServerConfig)
         readTimeoutMillis = config.readTimeoutMillis,
         webSocketMaxFrameSize = config.webSocketMaxFrameSize,
         webSocketPingIntervalMillis = config.webSocketPingIntervalMillis,
-        maxStreamingConnections = config.effectiveMaxStreamingConnections
+        maxStreamingConnections = config.effectiveMaxStreamingConnections,
+        shutdownTimeoutMillis = config.shutdownTimeoutMillis
       )
     ):
 

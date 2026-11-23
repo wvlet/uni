@@ -59,12 +59,8 @@ class SocketServerHardeningTest extends UniTest:
           Response.ok.withTextContent("hello")
     }
 
-  private def withServer[A](
-      config: HttpServerConfig = echo,
-      update: SocketServerLimits => SocketServerLimits = identity
-  )(body: HttpServer => A): A =
-    val c      = config.withPort(0)
-    val server = JvmHttpServer(c, update(JvmHttpServer.limits(c)))
+  private def withServer[A](config: HttpServerConfig = echo)(body: HttpServer => A): A =
+    val server = JvmHttpServer(config.withPort(0))
     server.start()
     try body(server)
     finally server.stop()
@@ -163,8 +159,56 @@ class SocketServerHardeningTest extends UniTest:
     }
   }
 
+  test("Http.server's limits reach the built-in server") {
+    val limits = JvmHttpServer.limits(
+      Http
+        .server
+        .withMaxInitialLineLength(1024)
+        .withMaxHeaderSize(2048)
+        .withMaxContentLength(4096)
+        .withRequestReadTimeoutMillis(5000)
+        .noWriteTimeout
+        .withIdleTimeoutMillis(7000)
+        .noRequestDecompression
+        .withMaxDecompressedRequestSize(8192)
+        .withMaxStreamingConnections(3)
+        .withShutdownTimeoutMillis(2500)
+    )
+    limits.request shouldBe HttpReaderLimits(1024, 2048, 4096)
+    limits.requestTimeoutMillis shouldBe 5000
+    limits.writeTimeoutMillis shouldBe 0
+    limits.idleTimeoutMillis shouldBe 7000
+    limits.requestDecompression shouldBe false
+    limits.maxDecompressedRequestSize shouldBe 8192
+    limits.maxStreamingConnections shouldBe 3
+    limits.shutdownTimeoutMillis shouldBe 2500
+  }
+
+  test("apply custom request line and header limits") {
+    withServer(echo.withMaxInitialLineLength(64).withMaxHeaderSize(128)) { server =>
+      request(server, s"GET /${"a" * 100} HTTP/1.1\r\nHost: localhost\r\n\r\n").status shouldBe 414
+      request(server, s"GET / HTTP/1.1\r\nHost: localhost\r\nX-Big: ${"b" * 200}\r\n\r\n")
+        .status shouldBe 431
+      request(server, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").status shouldBe 200
+    }
+  }
+
+  test("close a kept-alive connection after the idle timeout") {
+    withServer(echo.withIdleTimeoutMillis(300)) { server =>
+      val s = connect(server)
+      try
+        send(s, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        readResponse(s.getInputStream).status shouldBe 200
+        val started = System.nanoTime()
+        isClosed(s) shouldBe true
+        ((System.nanoTime() - started) / 1000000 < 5000) shouldBe true
+      finally
+        s.close()
+    }
+  }
+
   test("close a connection that trickles a request past the request deadline (slowloris)") {
-    withServer(update = _.copy(requestTimeoutMillis = 500)) { server =>
+    withServer(echo.withRequestReadTimeoutMillis(500)) { server =>
       val s = connect(server)
       try
         val started = System.nanoTime()
@@ -190,7 +234,7 @@ class SocketServerHardeningTest extends UniTest:
   }
 
   test("close a connection whose client stops reading the response") {
-    withServer(update = _.copy(writeTimeoutMillis = 300)) { server =>
+    withServer(echo.withWriteTimeoutMillis(300)) { server =>
       val s = java.net.Socket()
       s.setReceiveBufferSize(4096)
       s.connect(java.net.InetSocketAddress("127.0.0.1", server.localPort))
@@ -352,8 +396,20 @@ class SocketServerHardeningTest extends UniTest:
     }
   }
 
+  test("pass compressed bodies as sent with noRequestDecompression") {
+    withServer(echo.noRequestDecompression) { server =>
+      val r = request(
+        server,
+        "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Encoding: gzip\r\nContent-Length: 4\r\n\r\nnope"
+      )
+      r.status shouldBe 200
+      r.text shouldBe "nope"
+      r.headers("x-content-encoding") shouldBe "gzip"
+    }
+  }
+
   test("reject a compressed request that expands past the decompressed size limit") {
-    withServer(update = _.copy(maxDecompressedRequestSize = 10000)) { server =>
+    withServer(echo.withMaxDecompressedRequestSize(10000)) { server =>
       val bomb = gzip(new Array[Byte](1000000))
       val s    = connect(server)
       try

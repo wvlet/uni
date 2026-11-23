@@ -278,6 +278,8 @@ class NettyRequestHandler(
             // A WebSocket connection is long-lived: stop waiting for the next HTTP request
             if pipeline.get(NettyHttpServer.RequestReadTimeoutHandlerName) != null then
               pipeline.remove(NettyHttpServer.RequestReadTimeoutHandlerName)
+            if pipeline.get(NettyHttpServer.RequestArrivalProbeName) != null then
+              pipeline.remove(NettyHttpServer.RequestArrivalProbeName)
             val future = handshaker.handshake(ctx.channel(), nettyRequest)
             // Coalesce continuation frames so the handler sees whole messages.
             pipeline.addLast("wsAggregator", WebSocketFrameAggregator(webSocketMaxFrameSize))
@@ -696,6 +698,9 @@ object NettyRequestHandler:
       else
         ex match
           case _: io.netty.handler.codec.PrematureChannelClosureException =>
+            true
+          // A client that stopped reading a response, closed by the write timeout
+          case _: io.netty.handler.timeout.WriteTimeoutException =>
             true
           case _: java.nio.channels.ClosedChannelException =>
             true

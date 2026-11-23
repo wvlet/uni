@@ -24,7 +24,8 @@ private[http] object HttpCompat extends HttpCompatApi:
   override val defaultHttpChannelFactory: HttpChannelFactory = JSHttpChannelFactory
 
   override def startServer(config: HttpServerConfig): HttpServer =
-    // Node has no backend-only options: all its settings are shared
+    // Node has no backend-only options: all its settings are shared. It ignores the limits it has
+    // no counterpart for (see HttpServerConfig)
     val base = NodeServerConfig()
     base
       .copy(
@@ -41,7 +42,10 @@ private[http] object HttpCompat extends HttpCompatApi:
         webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(base.webSocketMaxFrameSize),
         webSocketPingIntervalMillis = config
           .webSocketPingIntervalMillis
-          .getOrElse(base.webSocketPingIntervalMillis)
+          .getOrElse(base.webSocketPingIntervalMillis),
+        maxHeaderSize = config.maxHeaderSize,
+        requestReadTimeoutMillis = config.requestReadTimeoutMillis,
+        idleTimeoutMillis = config.idleTimeoutMillis
       )
       .start()
 

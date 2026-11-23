@@ -14,9 +14,11 @@
 package wvlet.uni.http
 
 /**
-  * Scala Native-only options for `Http.server`, created with [[Native.options]]. Each setter is
+  * Scala Native-only options for `Http.server`, created with [[Native.options]]: the worker pool
+  * and the timeouts that only a fixed pool needs. Limits that every backend shares, such as
+  * `withMaxHeaderSize` or `withIdleTimeoutMillis`, are set on `Http.server` itself. Each setter is
   * checked when called, and the options are applied to the `NativeServerConfig` built from
-  * `Http.server`'s settings.
+  * `Http.server`'s settings, which win over them.
   */
 case class NativeOptions private (updates: Seq[NativeServerConfig => NativeServerConfig])
     extends ServerOptions:
@@ -35,24 +37,7 @@ case class NativeOptions private (updates: Seq[NativeServerConfig => NativeServe
     _.withHandlerTimeoutMillis(millis)
   )
 
-  def withIdleTimeoutMillis(millis: Int): NativeOptions  = add(_.withIdleTimeoutMillis(millis))
-  def withReadTimeoutMillis(millis: Int): NativeOptions  = add(_.withReadTimeoutMillis(millis))
-  def withMaxStreamingConnections(n: Int): NativeOptions = add(_.withMaxStreamingConnections(n))
-
-  def withMaxInitialLineLength(length: Int): NativeOptions = add(_.withMaxInitialLineLength(length))
-  def withMaxHeaderSize(bytes: Int): NativeOptions         = add(_.withMaxHeaderSize(bytes))
-  def withRequestReadTimeoutMillis(millis: Int): NativeOptions = add(
-    _.withRequestReadTimeoutMillis(millis)
-  )
-
-  def noRequestReadTimeout: NativeOptions                = add(_.noRequestReadTimeout)
-  def withWriteTimeoutMillis(millis: Int): NativeOptions = add(_.withWriteTimeoutMillis(millis))
-  def noWriteTimeout: NativeOptions                      = add(_.noWriteTimeout)
-  def withRequestDecompression: NativeOptions            = add(_.withRequestDecompression)
-  def noRequestDecompression: NativeOptions              = add(_.noRequestDecompression)
-  def withMaxDecompressedRequestSize(bytes: Int): NativeOptions = add(
-    _.withMaxDecompressedRequestSize(bytes)
-  )
+  def withReadTimeoutMillis(millis: Int): NativeOptions = add(_.withReadTimeoutMillis(millis))
 
 end NativeOptions
 

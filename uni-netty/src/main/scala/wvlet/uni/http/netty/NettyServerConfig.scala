@@ -63,6 +63,11 @@ case class NettyServerConfig(
     // connection open or the end of the previous response (0 disables). Bounds slowloris and idle
     // keep-alive connections.
     requestReadTimeoutMillis: Int = 30000,
+    // Close a connection that waits this long for its next request; the request read timeout then
+    // starts with the request's first bytes. None: the request read timeout also covers the wait
+    idleTimeoutMillis: Option[Int] = None,
+    // Close a connection when one write of its response bytes takes this long (0 disables)
+    writeTimeoutMillis: Int = 0,
     // Decode request bodies sent with Content-Encoding gzip/deflate (and x- aliases) before any
     // filter or handler sees them
     requestDecompression: Boolean = true,
@@ -178,6 +183,25 @@ case class NettyServerConfig(
     copy(requestReadTimeoutMillis = millis)
 
   def noRequestReadTimeout: NettyServerConfig = withRequestReadTimeoutMillis(0)
+
+  /**
+    * Close a kept-alive connection that waits this long for its next request, as the built-in
+    * server does. The request read timeout then starts when the request's first bytes arrive.
+    */
+  def withIdleTimeoutMillis(millis: Int): NettyServerConfig =
+    require(millis > 0, "idleTimeoutMillis must be positive")
+    copy(idleTimeoutMillis = Some(millis))
+
+  /**
+    * Close a connection when a single write of response bytes takes longer than this, e.g. a client
+    * that stopped reading. A large body is written in pieces only when sent as a file. 0 disables
+    * it (the default).
+    */
+  def withWriteTimeoutMillis(millis: Int): NettyServerConfig =
+    require(millis >= 0, "writeTimeoutMillis must be >= 0")
+    copy(writeTimeoutMillis = millis)
+
+  def noWriteTimeout: NettyServerConfig = withWriteTimeoutMillis(0)
 
   /**
     * Decode request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` /

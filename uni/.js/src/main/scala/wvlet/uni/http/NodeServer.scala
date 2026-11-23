@@ -57,6 +57,13 @@ case class NodeServerConfig(
     webSocketPingIntervalMillis: Int = 0,
     // Maximum size (bytes) of a request body; larger requests get 413
     maxContentLength: Int = 1024 * 1024,
+    // Maximum size of the request line and headers (Node's maxHeaderSize). None: Node's default
+    maxHeaderSize: Option[Int] = None,
+    // Max time to receive a whole request (Node's requestTimeout; 0 disables). None: Node's default
+    requestReadTimeoutMillis: Option[Int] = None,
+    // Max time a kept-alive connection waits for its next request (Node's keepAliveTimeout). None:
+    // Node's default
+    idleTimeoutMillis: Option[Int] = None,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
     // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
@@ -117,6 +124,23 @@ case class NodeServerConfig(
   def withMaxContentLength(sizeInBytes: Int): NodeServerConfig =
     require(sizeInBytes > 0, "maxContentLength must be positive")
     copy(maxContentLength = sizeInBytes)
+
+  /** Limit the request line and headers together to this many bytes (431 when exceeded). */
+  def withMaxHeaderSize(bytes: Int): NodeServerConfig =
+    require(bytes > 0, "maxHeaderSize must be positive")
+    copy(maxHeaderSize = Some(bytes))
+
+  /** Close a connection that doesn't deliver a whole request within this time (0 disables). */
+  def withRequestReadTimeoutMillis(millis: Int): NodeServerConfig =
+    require(millis >= 0, "requestReadTimeoutMillis must be >= 0")
+    copy(requestReadTimeoutMillis = Some(millis))
+
+  def noRequestReadTimeout: NodeServerConfig = withRequestReadTimeoutMillis(0)
+
+  /** Close a kept-alive connection that waits this long for its next request. */
+  def withIdleTimeoutMillis(millis: Int): NodeServerConfig =
+    require(millis > 0, "idleTimeoutMillis must be positive")
+    copy(idleTimeoutMillis = Some(millis))
 
   /**
     * Allow WebSocket connections from these browser origins (e.g. `https://app.example.com`) in

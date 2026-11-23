@@ -56,6 +56,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     val http = NodeModules.builtin("http")
     server =
       http.applyDynamic("createServer")(
+        NodeHttpServer.serverOptions(config),
         ((req: js.Dynamic, res: js.Dynamic) => handleRequest(req, res)): js.Function2[
           js.Dynamic,
           js.Dynamic,
@@ -494,3 +495,20 @@ end NodeHttpServer
 
 object NodeHttpServer:
   def apply(config: NodeServerConfig): NodeHttpServer = new NodeHttpServer(config)
+
+  // Node's default headersTimeout, which may not exceed requestTimeout
+  private final val NodeHeadersTimeoutMillis = 60000
+
+  /** The `http.createServer` options for the limits set on the config. */
+  private[http] def serverOptions(config: NodeServerConfig): js.Dynamic =
+    val options = js.Dynamic.literal()
+    config.maxHeaderSize.foreach(n => options.maxHeaderSize = n)
+    config
+      .requestReadTimeoutMillis
+      .foreach { ms =>
+        options.requestTimeout = ms
+        // 0 disables both; otherwise headersTimeout may not exceed requestTimeout
+        options.headersTimeout = math.min(ms, NodeHeadersTimeoutMillis)
+      }
+    config.idleTimeoutMillis.foreach(ms => options.keepAliveTimeout = ms)
+    options

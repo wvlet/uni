@@ -47,13 +47,16 @@ private[http] case class SocketServerLimits(
     webSocketMaxFrameSize: Int,
     webSocketPingIntervalMillis: Int,
     // Maximum number of concurrent long-lived connections (SSE, WebSocket); more get 503
-    maxStreamingConnections: Int
+    maxStreamingConnections: Int,
+    // Max time stop() waits for in-flight requests before closing their connections
+    shutdownTimeoutMillis: Long = SocketServerLimits.DefaultShutdownTimeoutMillis
 )
 
 private[http] object SocketServerLimits:
   final val DefaultMaxContentLength           = 1024 * 1024
   final val DefaultTimeoutMillis              = 30000
   final val DefaultMaxDecompressedRequestSize = 64 * 1024 * 1024
+  final val DefaultShutdownTimeoutMillis      = 30000L
 
 /**
   * An HTTP/1.1 server over blocking sockets, shared by Scala Native (`NativeHttpServer`) and the
@@ -831,7 +834,7 @@ abstract class SocketHttpServer private[http] (
     drainConnections(onlyIdle = true)
     Option(workerPool).foreach { pool =>
       pool.shutdown()
-      if !pool.awaitTermination(SocketHttpServer.ShutdownTimeoutMillis, TimeUnit.MILLISECONDS) then
+      if !pool.awaitTermination(limits.shutdownTimeoutMillis, TimeUnit.MILLISECONDS) then
         drainConnections(onlyIdle = false)
         pool.shutdownNow()
         pool.awaitTermination(SocketHttpServer.ForcedShutdownTimeoutMillis, TimeUnit.MILLISECONDS)
@@ -882,7 +885,6 @@ private[http] object SocketHttpServer:
   // Bytes read from a file per send of a streamed response
   private val FileChunkSize = 64 * 1024
   // How long stop() waits for in-flight requests, as Netty's default shutdown timeout
-  private final val ShutdownTimeoutMillis       = 30000L
   private final val ForcedShutdownTimeoutMillis = 1000L
   private final val MinAcceptBackoffMillis      = 10L
   private final val MaxAcceptBackoffMillis      = 1000L
