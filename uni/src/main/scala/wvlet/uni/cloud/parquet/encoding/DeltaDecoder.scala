@@ -80,13 +80,23 @@ private[parquet] object DeltaDecoder:
       throw ParquetException.corrupt(s"DELTA_BINARY_PACKED has ${values.length} values, need ${n}")
     tpe match
       case PhysicalType.INT32 =>
-        val b = out.asInstanceOf[IntBuffer]
-        b.ensure(n)
-        var i = 0
-        while i < n do
-          b.values(b.size + i) = values(i).toInt
-          i += 1
-        b.size += n
+        out match
+          case b: LongBuffer =>
+            // INT32 values read as Long: truncate to 32 bits as an Int column would, then widen
+            b.ensure(n)
+            var i = 0
+            while i < n do
+              b.values(b.size + i) = values(i).toInt.toLong
+              i += 1
+            b.size += n
+          case _ =>
+            val b = out.asInstanceOf[IntBuffer]
+            b.ensure(n)
+            var i = 0
+            while i < n do
+              b.values(b.size + i) = values(i).toInt
+              i += 1
+            b.size += n
       case PhysicalType.INT64 =>
         val b = out.asInstanceOf[LongBuffer]
         b.ensure(n)
@@ -94,6 +104,8 @@ private[parquet] object DeltaDecoder:
         b.size += n
       case other =>
         throw ParquetException.unsupported(s"DELTA_BINARY_PACKED encoding for ${other} values")
+
+  end decodeBinaryPacked
 
   def decodeLengthByteArray(
       buf: Array[Byte],

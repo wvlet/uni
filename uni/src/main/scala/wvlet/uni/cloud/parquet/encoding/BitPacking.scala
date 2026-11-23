@@ -209,4 +209,30 @@ private[parquet] final class RleBitPackedDecoder(
       else
         nextRun()
 
+  /**
+    * Reads `n` values into `dst` as bytes, for levels. A value past 255 keeps its low 8 bits, so
+    * callers check the levels' range. Throws when the data ends first.
+    */
+  def readBytes(dst: Array[Byte], offset: Int, n: Int): Unit =
+    var i = 0
+    while i < n do
+      if rleRemaining > 0 then
+        val k = math.min(rleRemaining, n - i)
+        java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue.toByte)
+        rleRemaining -= k
+        i += k
+      else if packedRemaining > 0 then
+        val k = math.min(packedRemaining, n - i)
+        var j = 0
+        while j < k do
+          dst(offset + i + j) = packed(packedPos + j).toByte
+          j += 1
+        packedPos += k
+        packedRemaining -= k
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun()
+
 end RleBitPackedDecoder

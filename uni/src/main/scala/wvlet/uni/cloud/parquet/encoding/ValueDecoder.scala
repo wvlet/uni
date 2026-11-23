@@ -10,10 +10,16 @@ import wvlet.uni.cloud.parquet.io.ByteReader
 /** Decodes the non-null values of a page into a value buffer */
 private[parquet] object ValueDecoder:
 
-  def newBuffer(tpe: PhysicalType, capacity: Int): ValueBuffer =
+  /**
+    * A buffer for values of `tpe`. With `int32AsLong`, INT32 values go in a [[LongBuffer]], widened
+    * as they are decoded, so a column read as Long needs no Int array and no widening copy.
+    */
+  def newBuffer(tpe: PhysicalType, capacity: Int, int32AsLong: Boolean = false): ValueBuffer =
     tpe match
       case PhysicalType.BOOLEAN =>
         BooleanBuffer(capacity)
+      case PhysicalType.INT32 if int32AsLong =>
+        LongBuffer(capacity)
       case PhysicalType.INT32 =>
         IntBuffer(capacity)
       case PhysicalType.INT64 =>
@@ -41,6 +47,9 @@ private[parquet] object ValueDecoder:
       case PhysicalType.BOOLEAN | PhysicalType.BYTE_ARRAY =>
         -1
 
+  /** How many dictionary indices are expanded at a time */
+  final val DictionaryBlock = 1024
+
   def decode(
       encoding: Encoding,
       tpe: PhysicalType,
@@ -64,14 +73,21 @@ private[parquet] object ValueDecoder:
           if start >= end then
             throw ParquetException.corrupt("dictionary index data is empty")
           val bitWidth = buf(start) & 0xff
-          // Indices go in `scratch` when it is large enough, so pages do not allocate their own
+          // Indices are expanded and looked up one block at a time, so a page never needs an index
+          // array of its own size. They go in `scratch` when it holds a block.
+          val block   = math.min(n, DictionaryBlock)
           val indices =
-            if scratch != null && scratch.length >= n then
+            if scratch != null && scratch.length >= block then
               scratch
             else
-              new Array[Int](n)
-          RleBitPackedDecoder(buf, start + 1, end, bitWidth).read(indices, 0, n)
-          out.appendFromDictionary(dict, indices, n)
+              new Array[Int](block)
+          val dec  = RleBitPackedDecoder(buf, start + 1, end, bitWidth)
+          var done = 0
+          while done < n do
+            val k = math.min(block, n - done)
+            dec.read(indices, 0, k)
+            out.appendFromDictionary(dict, indices, k)
+            done += k
         case Encoding.RLE if tpe == PhysicalType.BOOLEAN =>
           // A 4-byte length, then RLE with bit width 1
           val r   = ByteReader(buf, start, end)
@@ -119,13 +135,23 @@ private[parquet] object ValueDecoder:
         b.size += n
       case PhysicalType.INT32 =>
         ensureBytes(r, n.toLong * 4)
-        val b = out.asInstanceOf[IntBuffer]
-        b.ensure(n)
-        var i = 0
-        while i < n do
-          b.values(b.size + i) = Bytes.intLE(buf, start + i * 4)
-          i += 1
-        b.size += n
+        out match
+          case b: LongBuffer =>
+            // INT32 values read as Long (see [[newBuffer]]) are widened as they are decoded
+            b.ensure(n)
+            var i = 0
+            while i < n do
+              b.values(b.size + i) = Bytes.intLE(buf, start + i * 4).toLong
+              i += 1
+            b.size += n
+          case _ =>
+            val b = out.asInstanceOf[IntBuffer]
+            b.ensure(n)
+            var i = 0
+            while i < n do
+              b.values(b.size + i) = Bytes.intLE(buf, start + i * 4)
+              i += 1
+            b.size += n
       case PhysicalType.INT64 =>
         ensureBytes(r, n.toLong * 8)
         val b = out.asInstanceOf[LongBuffer]

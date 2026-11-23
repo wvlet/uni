@@ -3,6 +3,7 @@ package wvlet.uni.cloud.parquet
 import wvlet.uni.io.codec.Bytes
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.msgpack.spi.MessagePack
+import wvlet.uni.cloud.parquet.column.Assembly
 import wvlet.uni.cloud.parquet.column.ChunkInput
 import wvlet.uni.cloud.parquet.column.ColumnChunkCursor
 import wvlet.uni.cloud.parquet.column.RowGroupBatches
@@ -437,10 +438,29 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
         batchHardLimit
       else
         batchSoftLimit
+    // Top-level INT32 decimals that Assembly widens to Long are decoded as Long from the start
+    val asLong: Set[Int] =
+      if !options.int32DecimalAsLong then
+        Set.empty
+      else
+        plan
+          .fields
+          .collect {
+            case p: ParquetField.Primitive if !p.isRepeated && Assembly.isInt32Decimal(p) =>
+              p.columnIndex
+          }
+          .toSet
     val cursors = plan
       .chunks
       .map(c =>
-        ColumnChunkCursor(c.field, c.meta, inputs(c.field.columnIndex), soft, batchHardLimit)
+        ColumnChunkCursor(
+          c.field,
+          c.meta,
+          inputs(c.field.columnIndex),
+          soft,
+          batchHardLimit,
+          int32AsLong = asLong.contains(c.field.columnIndex)
+        )
       )
     val batchSize =
       if whole then
