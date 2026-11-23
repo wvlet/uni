@@ -55,3 +55,10 @@ DuckDB (`iceberg_scan`) read the metadata instead. The Delta ADR set up the tabl
 - Not covered: delete files (row masking), catalog clients (REST, Glue, Hive), snapshot as of a
   timestamp, branches and tags, pruning by manifest column bounds, gzip-compressed metadata,
   format v3, and writing Iceberg tables.
+- Update (2026-11-22): gzip-compressed metadata files (`vN.gz.metadata.json`,
+  `NNNNN-<uuid>.gz.metadata.json`, and the legacy `vN.metadata.json.gz`) are read. One file-name
+  rule (`IcebergTable.HadoopMetadata`, `CatalogMetadata`, `isMetadataFile`) serves the reader,
+  the writer's load, rename, and drop. A file is gunzipped when its bytes start with the gzip
+  magic number, whatever its name, using the pure-Scala `Inflate` on every platform: metadata
+  files are small, and this avoids the platform zlib differences. Uni writes the next version as
+  plain JSON, since it has no DEFLATE compressor and readers accept mixed tables.

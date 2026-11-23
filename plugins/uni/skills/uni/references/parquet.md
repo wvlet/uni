@@ -246,7 +246,8 @@ def typedDataset(root: String) = Parquet.dataset(
   snapshot schema's columns (dropped columns hidden). Identity partitions on string, int, long, or
   date columns are partition columns. It reads `version-hint.text` or else the newest metadata
   file; pass the catalog's `.metadata.json` path as the root to read exactly the catalog's
-  version. Format versions 1 to 3 are read: v3 `timestamp_ns` columns read as nanosecond
+  version. Gzip-compressed metadata files (`.gz.metadata.json`, `.metadata.json.gz`) read too.
+  Format versions 1 to 3 are read: v3 `timestamp_ns` columns read as nanosecond
   timestamps, and a column older files lack reads as its `initial-default`. Position deletes,
   deletion vectors, and equality deletes (Flink upserts) are applied before row filters.
   `variant` columns read as Scala values and `geometry`/`geography` as WKB bytes. Non-Parquet

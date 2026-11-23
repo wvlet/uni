@@ -507,6 +507,10 @@ val catalogVersion = Parquet.dataset(
   authority on which file is current, and a rollback or a failed commit can leave a newer file
   that isn't. When that matters, pass the catalog's metadata file as the root, as above. Two
   files for the newest version fail, and the error asks for that file.
+- **Compressed metadata.** Metadata files that iceberg-java gzip-compresses
+  (`write.metadata.compression-codec = gzip`), named `vN.gz.metadata.json`,
+  `NNNNN-<uuid>.gz.metadata.json`, or the older `vN.metadata.json.gz`, are read on every
+  platform. A write to such a table commits the next version as plain JSON.
 - **Snapshots.** The current snapshot is read by default. `withSnapshotId(id)` reads an older one
   that the metadata still lists, and an unknown id fails with the list of snapshots. The current
   snapshot reads with the table's current schema, so a schema change shows up without a new
