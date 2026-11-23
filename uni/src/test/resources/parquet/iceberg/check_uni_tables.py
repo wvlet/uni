@@ -37,3 +37,13 @@ con.execute("INSTALL iceberg; LOAD iceberg;")
 meta = newest("sales_v3")
 print("sales_v3", "format-version:", json.load(open(meta))["format-version"], "next-row-id:", json.load(open(meta))["next-row-id"])
 print("sales_v3", "duckdb:", con.execute(f"SELECT * FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
+
+# Merge-on-read deletes: rows 2, 3, and 6 are deleted; DuckDB reads Uni's deletion vectors (v3)
+# and position-delete files (v2), and pyiceberg the position deletes
+for table in ["v3_dv", "v2_posdel"]:
+    meta = newest(table)
+    print(table, "duckdb:", con.execute(f"SELECT id FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
+print("v2_posdel", "pyiceberg:", [r["id"] for r in StaticTable.from_metadata(newest("v2_posdel")).scan().to_arrow().sort_by("id").to_pylist()])
+for p in glob.glob(f"{d}/v*_*/metadata/*.avro"):
+    with open(p, "rb") as f:
+        list(fastavro.reader(f))

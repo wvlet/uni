@@ -168,6 +168,73 @@ class ParquetDataset private[parquet] (
       equalityDeletes
     )
 
+  /**
+    * The rows a filter matches that the table hasn't deleted yet, by file: each file with matches,
+    * their positions in the file (sorted), and the positions its delete files already delete. For
+    * committing row deletes; an Iceberg table's dataset only.
+    */
+  private[parquet] def matchingPositions(
+      filter: ParquetFilter
+  ): IndexedSeq[(DatasetFile, Array[Long], Array[Long])] =
+    val options  = ParquetReadOptions.default.withColumns().withFilter(filter)
+    val selected = selectByPartition(options)
+    val metas    = selected.map(s => footer(s.file))
+    val plan     = buildPlan(options, selected, metas)
+    selected
+      .zip(metas)
+      .flatMap { (s, meta) =>
+        val deleted = rowDeletes.getOrElse(s.file.path, Array.emptyLongArray)
+        val found   = scala.collection.mutable.ArrayBuilder.ofLong()
+        val file    = ParquetFile(wrapErrors(s.file)(openSource(s.file)), meta)
+        try
+          wrapErrors(s.file) {
+            val opts = fileOptions(s, plan, file.schema)
+            file
+              .selectRowGroups(opts)
+              .foreach { i =>
+                var start   = file.rowGroups.take(i).map(_.numRows).sum
+                val batches =
+                  if opts.columns.exists(_.isEmpty) then
+                    emptyBatches(file.rowGroups(i).numRows, opts)
+                  else
+                    file.rowGroupBatches(i, opts)
+                batches.foreach { b =>
+                  // The positions of the batch's rows that aren't deleted, then fewer at each step
+                  var positions = livePositions(deleted, start, b.numRows)
+                  var out       = toOutput(dropRows(b, deleted, start), s.file, plan)
+                  start += b.numRows
+                  equalityDeletes
+                    .get(s.file.path)
+                    .foreach { ds =>
+                      val rows = notEqual(out, ds, plan)
+                      positions = rows.map(positions(_))
+                      out = ColumnBatch(rows.length, out.columns.map(ColumnVector.take(_, rows)))
+                    }
+                  if s.rowResidual.isDefined then
+                    plan
+                      .rowFilter
+                      .foreach { f =>
+                        val m    = f.matches(out)
+                        val kept = scala.collection.mutable.ArrayBuilder.ofLong()
+                        var r    = 0
+                        while r < m.length do
+                          if m(r) then
+                            kept += positions(r)
+                          r += 1
+                        positions = kept.result()
+                      }
+                  found ++= positions
+                }
+              }
+          }
+        finally file.close()
+        end try
+        val positions = found.result()
+        Option.when(positions.nonEmpty)((s.file, positions, deleted))
+      }
+
+  end matchingPositions
+
   override def close(): Unit =
     val toClose = synchronized {
       val fs = openFiles.toSeq
@@ -892,6 +959,18 @@ class ParquetDataset private[parquet] (
       deletes: IndexedSeq[IcebergDeletes.EqualityDelete],
       plan: Plan
   ): ColumnBatch =
+    val rows = notEqual(b, deletes, plan)
+    if rows.length == b.numRows then
+      b
+    else
+      ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
+
+  /** The indexes of the batch's rows that no equality delete removes, as [[withoutEqual]] */
+  private def notEqual(
+      b: ColumnBatch,
+      deletes: IndexedSeq[IcebergDeletes.EqualityDelete],
+      plan: Plan
+  ): Array[Int] =
     // Deletes on the same key columns share one key per row
     val groups = deletes
       .groupBy(_.columns)
@@ -915,13 +994,9 @@ class ParquetDataset private[parquet] (
       if !deleted then
         keep += r
       r += 1
-    val rows = keep.result()
-    if rows.length == b.numRows then
-      b
-    else
-      ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
+    keep.result()
 
-  end withoutEqual
+  end notEqual
 
   /** The batch with the plan's columns: the file's vectors, nulls, and partition values */
   private def toOutput(b: ColumnBatch, file: DatasetFile, plan: Plan): ColumnBatch =
@@ -2374,6 +2449,23 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
         g.copy(repetition = r)
 
   // ---- Vectors ----
+
+  /** The positions `start` until `start + n` that aren't in `deleted` (sorted) */
+  private def livePositions(deleted: Array[Long], start: Long, n: Int): Array[Long] =
+    val out = scala.collection.mutable.ArrayBuilder.ofLong()
+    var lo  = java.util.Arrays.binarySearch(deleted, start)
+    if lo < 0 then
+      lo = -lo - 1
+    var d = lo
+    var r = 0
+    while r < n do
+      val pos = start + r
+      while d < deleted.length && deleted(d) < pos do
+        d += 1
+      if d >= deleted.length || deleted(d) != pos then
+        out += pos
+      r += 1
+    out.result()
 
   /** The batch without the rows whose positions, `start` for its first row, are in `deleted` */
   private def dropRows(b: ColumnBatch, deleted: Array[Long], start: Long): ColumnBatch =

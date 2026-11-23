@@ -90,7 +90,8 @@ private[parquet] object IcebergWrite:
   import IcebergTable.CatalogMetadata
   import IcebergTable.HadoopMetadata
 
-  private val MaxAttempts = 4
+  /** How many times a commit tries before giving up on a table other writers keep changing */
+  val MaxAttempts = 4
 
   // ---- Loading ----
 
@@ -1402,13 +1403,68 @@ private[parquet] object IcebergWrite:
     else
       ParquetDataset.localPath(n)
 
+  /** The field ID of a position-delete file's `file_path` column */
+  private val FilePathFieldId = 2147483546
+
+  /** The field ID of a position-delete file's `pos` column */
+  private val PosFieldId = 2147483545
+
+  /** A delete manifest a row-delete commit adds: its delete files, all of one partition spec */
+  case class DeleteManifest(
+      specId: Int,
+      /** The Avro type of the `partition` record, as the spec's data manifests write it */
+      partitionType: String,
+      /** The manifest's key-value metadata: the schema and spec, as the data manifests have them */
+      metadata: Seq[(String, String)],
+      /** The `data_file` records of the delete files */
+      files: IndexedSeq[Map[String, Any]]
+  )
+
+  /** The delete files a row-delete commit adds, and which old ones they replace */
+  case class DeleteChange(
+      manifests: IndexedSeq[DeleteManifest],
+      /**
+        * Data files (as [[ParquetDataset.files]] lists them) whose file-scoped deletes the new
+        * deletion vectors hold, so their old entries are marked deleted
+        */
+      replaces: Set[String],
+      /** The number of partitions the deletes touch */
+      partitions: Int
+  ):
+    def isEmpty: Boolean = manifests.isEmpty
+
+  object DeleteChange:
+    val empty: DeleteChange = DeleteChange(IndexedSeq.empty, Set.empty, 0)
+
+  /** Another writer committed first; a row delete finds its positions again */
+  final class LostRace(root: String)
+      extends ParquetException(s"Another writer committed to ${root} during this delete")
+
+  /** A delete manifest's Avro schema, with the partition record of its spec's data manifests */
+  private def deleteManifestSchema(partitionType: String, formatVersion: Int): String =
+    val schema        = manifestSchema(IndexedSeq.empty, formatVersion)
+    val empty         = """{"type":"record","name":"r102","fields":[]}"""
+    val withPartition = schema.replace(empty, partitionType)
+    if formatVersion >= 3 then
+      withPartition
+    else
+      // Version 2 delete manifests may name the data file of a file-scoped delete
+      withPartition.replace(
+        """{"name":"sort_order_id",""",
+        """{"name":"referenced_data_file","type":["null","string"],"default":null,"field-id":143},{"name":"sort_order_id","""
+      )
+
   /**
     * The commit: writes the manifest, then for each attempt a manifest list on the current parent
     * and `v{N+1}.metadata.json` (only if absent). Losing the race reloads the table and retries, up
     * to [[MaxAttempts]] times. Files of a failed commit are deleted by `onFailure` of the caller,
     * which gets them from [[CommitState.written]].
     */
-  final class CommitState(val plan: Plan, files: IndexedSeq[DataFile]):
+  final class CommitState(
+      val plan: Plan,
+      files: IndexedSeq[DataFile],
+      deletes: DeleteChange = DeleteChange.empty
+  ):
     val snapshotId: Long = newId()
     private val commitId = newUuid()
     private var written  = List.empty[String]
@@ -1425,9 +1481,60 @@ private[parquet] object IcebergWrite:
     private val spec   = plan.spec
 
     def run(): Step[Committed] =
-      val manifestPath = layout.metadata(s"${commitId}-m0.avro")
-      val manifest     = manifestBytes()
-      put(manifestPath, manifest)(attempt(1, plan.base, manifestPath, manifest.length.toLong))
+      writeDeleteManifests(0) {
+        if files.isEmpty && !deletes.isEmpty then
+          attempt(1, plan.base, "", 0L)
+        else
+          val manifestPath = layout.metadata(s"${commitId}-m0.avro")
+          val manifest     = manifestBytes()
+          put(manifestPath, manifest)(attempt(1, plan.base, manifestPath, manifest.length.toLong))
+      }
+
+    /** The manifest list entries of the delete manifests this commit adds */
+    private var deleteListEntries = Vector.empty[Map[String, Any]]
+
+    private def writeDeleteManifests(i: Int)(next: => Step[Committed]): Step[Committed] =
+      if i >= deletes.manifests.size then
+        next
+      else
+        val d       = deletes.manifests(i)
+        val entries = d
+          .files
+          .map(f =>
+            Map(
+              "status"               -> 1,
+              "snapshot_id"          -> snapshotId,
+              "sequence_number"      -> null,
+              "file_sequence_number" -> null,
+              "data_file"            -> f
+            )
+          )
+        val bytes = Avro.write(
+          deleteManifestSchema(d.partitionType, plan.formatVersion),
+          d.metadata ++ Seq(
+            "format-version" -> plan.formatVersion.toString,
+            "content"        -> "deletes"
+          ),
+          entries
+        )
+        val path = layout.metadata(s"${commitId}-d${i}.avro")
+        // The sequence numbers are set when the attempt knows its own
+        deleteListEntries :+= Map(
+          "manifest_path"        -> layout.uriOf(path),
+          "manifest_length"      -> bytes.length.toLong,
+          "partition_spec_id"    -> d.specId,
+          "content"              -> 1,
+          "added_snapshot_id"    -> snapshotId,
+          "added_files_count"    -> d.files.size,
+          "existing_files_count" -> 0,
+          "deleted_files_count"  -> 0,
+          "added_rows_count"     -> d.files.map(num(_, "record_count")).sum,
+          "existing_rows_count"  -> 0L,
+          "deleted_rows_count"   -> 0L,
+          "partitions"           -> null,
+          "key_metadata"         -> null
+        )
+        put(path, bytes)(writeDeleteManifests(i + 1)(next))
 
     private def manifestBytes(): Array[Byte] =
       val entries = files.map { f =>
@@ -1508,17 +1615,95 @@ private[parquet] object IcebergWrite:
     }
 
     /** What a commit removed from the base snapshot */
-    private case class Removed(paths: Set[String], files: Long, rows: Long, bytes: Long):
+    private case class Removed(
+        paths: Set[String],
+        files: Long,
+        rows: Long,
+        bytes: Long,
+        /** Delete files a row-delete commit replaced, with their positions and sizes */
+        deleteFiles: Long = 0,
+        positions: Long = 0,
+        deleteBytes: Long = 0,
+        vectors: Long = 0
+    ):
       def +(e: Map[String, Any], path: String): Removed =
         val d = dataFileOf(e)
-        Removed(
-          paths + path,
-          files + 1,
-          rows + num(d, "record_count"),
-          bytes + num(d, "file_size_in_bytes")
-        )
+        if num(d, "content") != 0 then
+          copy(
+            deleteFiles = deleteFiles + 1,
+            positions = positions + num(d, "record_count"),
+            deleteBytes = deleteBytes + deleteFileSize(d),
+            vectors =
+              vectors + (
+                if isVector(d) then
+                  1
+                else
+                  0
+              )
+          )
+        else
+          copy(
+            paths = paths + path,
+            files = files + 1,
+            rows = rows + num(d, "record_count"),
+            bytes = bytes + num(d, "file_size_in_bytes")
+          )
+
+    end Removed
 
     private val NoneRemoved = Removed(Set.empty, 0, 0, 0)
+
+    /**
+      * A delete file's size in the summary: a vector's blob, not its Puffin file, which other
+      * vectors share (as iceberg-java counts it)
+      */
+    private def deleteFileSize(d: Map[String, Any]): Long =
+      if isVector(d) then
+        num(d, "content_size_in_bytes")
+      else
+        num(d, "file_size_in_bytes")
+
+    private def isVector(d: Map[String, Any]): Boolean = d
+      .get("file_format")
+      .exists(f => String.valueOf(f).equalsIgnoreCase("puffin"))
+
+    /**
+      * The data file a delete file applies to alone, if any: its `referenced_data_file`, or for a
+      * position-delete file, the one path its `file_path` bounds allow (as iceberg-java decides)
+      */
+    private def fileScopedTarget(base: Table, d: Map[String, Any]): Option[String] =
+      def bound(key: String): Option[Seq[Byte]] =
+        d.get(key) match
+          case Some(xs: Seq[?]) =>
+            xs.collectFirst {
+                case e: Map[?, ?]
+                    if e.asInstanceOf[Map[String, Any]].get("key").contains(FilePathFieldId) =>
+                  e.asInstanceOf[Map[String, Any]].get("value")
+              }
+              .flatten
+              .collect { case b: Array[Byte] =>
+                b.toSeq
+              }
+          case _ =>
+            None
+      val target = d
+        .get("referenced_data_file")
+        .collect { case p: String =>
+          p
+        }
+        .orElse {
+          (bound("lower_bounds"), bound("upper_bounds")) match
+            case (Some(lo), Some(hi)) if lo == hi =>
+              Some(String(lo.toArray, StandardCharsets.UTF_8))
+            case _ =>
+              None
+        }
+      target.map(p => pathKey(resolve(base, p)))
+
+    /** Whether a live delete entry is one of those the commit's new deletion vectors replace */
+    private def replacedDelete(base: Table, e: Map[String, Any]): Boolean =
+      val d = dataFileOf(e)
+      num(d, "content") == 1 && fileScopedTarget(base, d).exists(deletes.replaces.contains)
 
     private def dataFileOf(e: Map[String, Any]): Map[String, Any] =
       e.get("data_file") match
@@ -1619,14 +1804,7 @@ private[parquet] object IcebergWrite:
         ).toJSON
 
     /** A path as [[ParquetDataset.files]] lists it, for matching the files to remove */
-    private def pathKey(p: String): String =
-      if layout.objects then
-        if p.startsWith("s3a://") || p.startsWith("s3n://") then
-          s"s3${p.substring(3)}"
-        else
-          p
-      else
-        ParquetDataset.localPath(p)
+    private def pathKey(p: String): String = pathKeyOf(layout, p)
 
     private val removedKeys: Set[String] =
       plan.removal match
@@ -1676,11 +1854,12 @@ private[parquet] object IcebergWrite:
               ).exists(r.get(_).exists(_ != null)) &&
               num(r, "added_files_count") + num(r, "existing_files_count") +
               num(r, "added_data_files_count") + num(r, "existing_data_files_count") == 0
+          val replacing = deletes.replaces.nonEmpty && num(r, "content") == 1
           if dead then
             loop(i + 1, acc, removed, out)
-          else if plan.removal == Removal.Keep then
+          else if plan.removal == Removal.Keep && !replacing then
             loop(i + 1, acc :+ parentEntry(r), removed, out)
-          else if num(r, "content") != 0 then
+          else if num(r, "content") != 0 && !replacing then
             // Delete files of removed rows don't matter once every row is gone
             if plan.removal == Removal.All then
               loop(i + 1, acc, removed, out)
@@ -1702,13 +1881,15 @@ private[parquet] object IcebergWrite:
               bytes =>
                 val c           = Avro.read(bytes, listed)
                 val manifestSeq = num(r, "sequence_number")
-                val live        = withRowIds(
-                  c,
-                  r,
-                  c.records
-                    .map(_.asInstanceOf[Map[String, Any]])
-                    .filter(e => num(e, "status") != Deleted)
-                )
+                val records     = c
+                  .records
+                  .map(_.asInstanceOf[Map[String, Any]])
+                  .filter(e => num(e, "status") != Deleted)
+                val live =
+                  if replacing then
+                    records
+                  else
+                    withRowIds(c, r, records)
                 def keyOf(e: Map[String, Any]): String = pathKey(
                   resolve(
                     base,
@@ -1721,11 +1902,14 @@ private[parquet] object IcebergWrite:
                   )
                 )
                 val (gone, kept) = live.partition(e =>
-                  plan.removal match
-                    case Removal.All =>
-                      true
-                    case _ =>
-                      removedKeys.contains(keyOf(e))
+                  if replacing then
+                    replacedDelete(base, e)
+                  else
+                    plan.removal match
+                      case Removal.All =>
+                        true
+                      case _ =>
+                        removedKeys.contains(keyOf(e))
                 )
                 if live.isEmpty then
                   loop(i + 1, acc, removed, out)
@@ -1771,7 +1955,7 @@ private[parquet] object IcebergWrite:
                     "manifest_path"        -> layout.uriOf(path),
                     "manifest_length"      -> out2.length.toLong,
                     "partition_spec_id"    -> r.getOrElse("partition_spec_id", 0),
-                    "content"              -> 0,
+                    "content"              -> num(r, "content").toInt,
                     "sequence_number"      -> seq,
                     "min_sequence_number"  -> seqs.minOption.getOrElse(seq),
                     "added_snapshot_id"    -> snapshotId,
@@ -1845,7 +2029,7 @@ private[parquet] object IcebergWrite:
                 )
       withParentManifests { parents =>
         rewriteParents(n, base.orNull, parents, seq, Nil) { (parentEntries, removed, rewritten) =>
-          val newEntry = Map(
+          lazy val newEntry = Map(
             "manifest_path"        -> layout.uriOf(manifestPath),
             "manifest_length"      -> manifestLength,
             "partition_spec_id"    -> plan.specId,
@@ -1861,12 +2045,15 @@ private[parquet] object IcebergWrite:
             "deleted_rows_count"   -> 0L,
             "partitions"           -> partitionSummaries
           )
-          // A commit that only removes files lists no manifest of its own
+          // A commit that only removes files, or only adds delete files, lists no data manifest
+          val ownDeletes = deleteListEntries.map(
+            _ ++ Seq("sequence_number" -> seq, "min_sequence_number" -> seq)
+          )
           val listed =
-            if files.isEmpty && plan.removal != Removal.Keep then
-              parentEntries
+            if files.isEmpty && (plan.removal != Removal.Keep || !deletes.isEmpty) then
+              ownDeletes ++ parentEntries
             else
-              newEntry +: parentEntries
+              newEntry +: (ownDeletes ++ parentEntries)
           // Row lineage (format version 3): a data manifest without a first row ID gets the next
           // IDs, one per added or existing row, as Iceberg's Java library assigns them
           val firstRowId        = m.flatMap(long(_, "next-row-id")).getOrElse(0L)
@@ -1920,6 +2107,10 @@ private[parquet] object IcebergWrite:
                   flatMap(load(layout)) {
                     case Some(t) if hasSnapshot(t, snapshotId) =>
                       Step.Done(Committed(snapshotId, t.version, t.path))
+                    case Some(_) if !deletes.isEmpty =>
+                      // The other commit may have deleted rows of the same files: find the
+                      // positions again rather than rebase these deletes
+                      throw LostRace(layout.root)
                     case Some(t) if n < MaxAttempts =>
                       checkRebase(t)
                       deleteAll(listPath :: rewritten)(
@@ -2044,35 +2235,90 @@ private[parquet] object IcebergWrite:
       val partitions =
         files.map(f => plan.partitionBy.map(k => f.partitions.getOrElse(k, null))).distinct.size
       val operation =
-        if plan.removal == Removal.Keep then
+        if !deletes.isEmpty then
+          if files.isEmpty then
+            "delete"
+          else
+            "overwrite"
+        else if plan.removal == Removal.Keep then
           "append"
         else if files.isEmpty then
           "delete"
         else
           "overwrite"
+      val addedDeletes   = deletes.manifests.flatMap(_.files)
+      val addedPositions = addedDeletes.map(num(_, "record_count")).sum
+      val addedVectors   = addedDeletes.count(isVector).toLong
+      val deleteBytes    = addedDeletes.map(deleteFileSize).sum
+      def kindCounts(prefix: String, vectors: Long, files: Long): Seq[(String, JSONValue)] = Seq(
+        s"${prefix}-dvs"                   -> vectors,
+        s"${prefix}-position-delete-files" -> (files - vectors)
+      ).collect {
+        case (k, v) if v > 0 =>
+          k -> JSONString(v.toString)
+      }
+      val deleteSummary =
+        (
+          if addedDeletes.isEmpty then
+            Seq.empty
+          else
+            Seq(
+              "added-delete-files"     -> JSONString(addedDeletes.size.toString),
+              "added-position-deletes" -> JSONString(addedPositions.toString)
+            ) ++ kindCounts("added", addedVectors, addedDeletes.size.toLong)
+        ) ++ (
+          if removed.deleteFiles == 0 then
+            Seq.empty
+          else
+            Seq(
+              "removed-delete-files"     -> JSONString(removed.deleteFiles.toString),
+              "removed-position-deletes" -> JSONString(removed.positions.toString)
+            ) ++ kindCounts("removed", removed.vectors, removed.deleteFiles)
+        )
       val removedSummary =
-        if removed.files == 0 then
-          Seq.empty
+        (
+          if removed.files == 0 then
+            Seq.empty
+          else
+            Seq(
+              "deleted-data-files" -> JSONString(removed.files.toString),
+              "deleted-records"    -> JSONString(removed.rows.toString)
+            )
+        ) ++ (
+          if removed.files == 0 && removed.deleteFiles == 0 then
+            Seq.empty
+          else
+            Seq(
+              "removed-files-size" -> JSONString(
+                (
+                  removed.bytes + removed.deleteBytes
+                ).toString
+              )
+            )
+        )
+      val changedPartitions =
+        if files.isEmpty then
+          deletes.partitions
         else
-          Seq(
-            "deleted-data-files" -> JSONString(removed.files.toString),
-            "deleted-records"    -> JSONString(removed.rows.toString),
-            "removed-files-size" -> JSONString(removed.bytes.toString)
-          )
+          partitions
       val summary = JSONObject(
         Seq(
-          "operation"               -> JSONString(operation),
-          "added-data-files"        -> JSONString(added.toString),
-          "added-records"           -> JSONString(rows.toString),
-          "added-files-size"        -> JSONString(bytes.toString),
-          "changed-partition-count" -> JSONString(partitions.toString)
-        ) ++ removedSummary ++
+          "operation"        -> JSONString(operation),
+          "added-data-files" -> JSONString(added.toString),
+          "added-records"    -> JSONString(rows.toString),
+          "added-files-size" -> JSONString(
+            (
+              bytes + deleteBytes
+            ).toString
+          ),
+          "changed-partition-count" -> JSONString(changedPartitions.toString)
+        ) ++ deleteSummary ++ removedSummary ++
           Seq(
             total("total-records", rows, removed.rows),
-            total("total-files-size", bytes, removed.bytes),
+            total("total-files-size", bytes + deleteBytes, removed.bytes + removed.deleteBytes),
             total("total-data-files", added, removed.files),
-            total("total-delete-files", 0),
-            total("total-position-deletes", 0),
+            total("total-delete-files", addedDeletes.size.toLong, removed.deleteFiles),
+            total("total-position-deletes", addedPositions, removed.positions),
             total("total-equality-deletes", 0)
           ).flatten
       )
@@ -2228,6 +2474,326 @@ private[parquet] object IcebergWrite:
     end metadataJson
 
   end CommitState
+
+  /** A path as [[ParquetDataset.files]] lists it, for matching a table's files to dataset files */
+  private def pathKeyOf(layout: Layout, p: String): String =
+    if layout.objects then
+      if p.startsWith("s3a://") || p.startsWith("s3n://") then
+        s"s3${p.substring(3)}"
+      else
+        p
+    else
+      ParquetDataset.localPath(p)
+
+  // ---- Row deletes ----
+
+  /** The table's current snapshot, if it has one */
+  def currentSnapshotId(t: Table): Option[Long] = long(t.metadata, "current-snapshot-id").filter(
+    _ >= 0
+  )
+
+  /**
+    * The rows to delete from one data file: its path as [[ParquetDataset.files]] lists it, the
+    * newly matched positions, and the positions its delete files already delete (both sorted)
+    */
+  case class RowDeletes(path: String, added: Array[Long], existing: Array[Long])
+
+  /**
+    * A merge-on-read row delete of `t`, the table version the positions were found in: deletion
+    * vectors for format version 3 (one Puffin file, one vector per data file, each merging the
+    * file's earlier deletes, whose file-scoped entries it replaces), position-delete files for
+    * version 2 (one per data file). The commit fails with [[LostRace]] when another writer commits
+    * first, since the positions must be found again.
+    */
+  final class RowDeleteCommit(baseLayout: Layout, t: Table, rows: IndexedSeq[RowDeletes]):
+    private val layout   = tableLayout(baseLayout, t)
+    private val version  = formatVersionOf(t)
+    private val commitId = newUuid()
+    private var written  = List.empty[String]
+    private var commit   = Option.empty[CommitState]
+
+    /** Every file this delete wrote, which a failed delete removes */
+    def writtenFiles: Seq[String] = written ++ commit.toSeq.flatMap(_.writtenFiles)
+
+    def mayHaveCommitted: Boolean = commit.exists(_.mayHaveCommitted)
+
+    def verify(): Step[Option[Committed]] = commit.map(_.verify()).getOrElse(Step.Done(None))
+
+    /** The number of rows the commit deletes */
+    def deletedRows: Long = rows.map(_.added.length.toLong).sum
+
+    /** A touched data file as its manifest lists it */
+    private case class Target(
+        uri: String,
+        specId: Int,
+        partition: Any,
+        partitionType: String,
+        metadata: Seq[(String, String)]
+    )
+
+    private def put[A](path: String, bytes: Array[Byte])(next: => Step[A]): Step[A] =
+      written = path :: written
+      Step.Put(path, bytes, () => next)
+
+    def run(): Step[Committed] =
+      val (schemaId, schema) = currentSchema(t)
+      val m                  = t.metadata
+      val snapshot           = long(m, "current-snapshot-id")
+        .filter(_ >= 0)
+        .flatMap(id => objects(m, "snapshots").find(s => long(s, "snapshot-id").contains(id)))
+        .getOrElse(throw ParquetException(s"${layout.root} has no current snapshot"))
+      val list = string(snapshot, "manifest-list").getOrElse(
+        throw ParquetException(
+          s"The current snapshot of ${layout
+              .root} lists its manifests inline (format version 1); Uni can't commit to it"
+        )
+      )
+      Step.Fetch(
+        resolvePath(layout, t, list),
+        bytes =>
+          val dataManifests = Avro
+            .read(bytes, list)
+            .records
+            .map(_.asInstanceOf[Map[String, Any]])
+            .filter(r => !r.get("content").exists(c => c != null && c != 0))
+          flatMap(targets(dataManifests)) { found =>
+            val missing = rows.map(_.path).filterNot(found.contains)
+            if missing.nonEmpty then
+              throw ParquetException(
+                s"${missing.mkString(", ")} is not a live data file of ${layout.root}"
+              )
+            flatMap(writeDeleteFiles(found)) { manifests =>
+              val plan = Plan(
+                layout,
+                Some(t),
+                ParquetSchema(
+                  ParquetField.Group(
+                    "schema",
+                    Repetition.REQUIRED,
+                    None,
+                    Seq.empty,
+                    0,
+                    0,
+                    IndexedSeq.empty
+                  )
+                ),
+                IndexedSeq.empty,
+                schemaId,
+                schema,
+                long(m, "default-spec-id").map(_.toInt).getOrElse(0),
+                IndexedSeq.empty,
+                long(m, "last-column-id").map(_.toInt).getOrElse(0),
+                formatVersion = version
+              )
+              val change = DeleteChange(
+                manifests,
+                if version >= 3 then
+                  rows.map(_.path).toSet
+                else
+                  Set.empty
+                ,
+                rows.map(r => (found(r.path).specId, found(r.path).partition)).distinct.size
+              )
+              val c = CommitState(plan, IndexedSeq.empty, change)
+              commit = Some(c)
+              c.run()
+            }
+          }
+      )
+
+    end run
+
+    /** The live entries of the touched data files, by path key */
+    private def targets(manifests: IndexedSeq[Map[String, Any]]): Step[Map[String, Target]] =
+      val wanted                                                            = rows.map(_.path).toSet
+      def loop(i: Int, acc: Map[String, Target]): Step[Map[String, Target]] =
+        if i >= manifests.size || acc.size == wanted.size then
+          Step.Done(acc)
+        else
+          val r      = manifests(i)
+          val listed = String.valueOf(r.getOrElse("manifest_path", ""))
+          Step.Fetch(
+            resolvePath(layout, t, listed),
+            bytes =>
+              val c      = Avro.read(bytes, listed)
+              val specId = c
+                .meta("partition-spec-id")
+                .flatMap(_.toIntOption)
+                .orElse(
+                  r.get("partition_spec_id")
+                    .collect { case i: Int =>
+                      i
+                    }
+                )
+                .getOrElse(0)
+              lazy val partitionType = partitionTypeOf(c, listed)
+              lazy val metadata = Seq("schema", "schema-id", "partition-spec", "partition-spec-id")
+                .flatMap(k => c.meta(k).map(k -> _))
+              val more = c
+                .records
+                .map(_.asInstanceOf[Map[String, Any]])
+                .filter(e => !e.get("status").contains(Deleted))
+                .flatMap { e =>
+                  e.get("data_file") match
+                    case Some(d: Map[?, ?]) =>
+                      val df  = d.asInstanceOf[Map[String, Any]]
+                      val uri = String.valueOf(df.getOrElse("file_path", ""))
+                      val key = pathKeyOf(layout, resolvePath(layout, t, uri))
+                      Option.when(wanted.contains(key))(
+                        key ->
+                          Target(
+                            uri,
+                            specId,
+                            df.getOrElse("partition", Map.empty),
+                            partitionType,
+                            metadata
+                          )
+                      )
+                    case _ =>
+                      None
+                }
+              loop(i + 1, acc ++ more)
+          )
+      loop(0, Map.empty)
+
+    end targets
+
+    /** The Avro type of a manifest's `partition` record, from its schema */
+    private def partitionTypeOf(c: Avro.Container, path: String): String =
+      def fail: Nothing = throw ParquetException(s"${path} has no partition record in its schema")
+      def fieldsOf(o: JSONValue): IndexedSeq[JSONObject] =
+        o match
+          case r: JSONObject =>
+            array(r, "fields").collect { case f: JSONObject =>
+              f
+            }
+          case _ =>
+            IndexedSeq.empty
+      def typeOf(fields: IndexedSeq[JSONObject], name: String): JSONValue = fields
+        .find(f => string(f, "name").contains(name))
+        .flatMap(_.get("type"))
+        .getOrElse(fail)
+      val schema = JSON.parse(c.meta("avro.schema").getOrElse(fail))
+      typeOf(fieldsOf(typeOf(fieldsOf(schema), "data_file")), "partition").toJSON
+
+    /** The folder for a new delete file of a data file: its own, if inside the table folder */
+    private def folderFor(dataUri: String): String =
+      val resolved = resolvePath(layout, t, dataUri)
+      if resolved.startsWith(layout.root) then
+        val cut = math.max(resolved.lastIndexOf('/'), resolved.lastIndexOf('\\'))
+        resolved.substring(0, cut + 1)
+      else
+        layout.metadataDir
+
+    private def writeDeleteFiles(found: Map[String, Target]): Step[IndexedSeq[DeleteManifest]] =
+      def manifests(files: IndexedSeq[(Target, Map[String, Any])]): IndexedSeq[DeleteManifest] =
+        files
+          .groupBy(_._1.specId)
+          .toIndexedSeq
+          .sortBy(_._1)
+          .map { (specId, fs) =>
+            DeleteManifest(specId, fs.head._1.partitionType, fs.head._1.metadata, fs.map(_._2))
+          }
+      if version >= 3 then
+        val vectors = rows.map { r =>
+          IcebergDeletes.NewVector(found(r.path).uri, IcebergDeletes.union(r.existing, r.added))
+        }
+        val (bytes, ranges) = IcebergDeletes.puffinFile(vectors, CreatedBy)
+        val path = s"${folderFor(vectors.head.referencedDataFile)}${commitId}-deletes.puffin"
+        put(path, bytes) {
+          Step.Done(
+            manifests(
+              rows
+                .zip(vectors)
+                .zip(ranges)
+                .map { case ((r, v), range) =>
+                  val target = found(r.path)
+                  target ->
+                    Map(
+                      "content"               -> 1,
+                      "file_path"             -> layout.uriOf(path),
+                      "file_format"           -> "PUFFIN",
+                      "partition"             -> target.partition,
+                      "record_count"          -> v.positions.length.toLong,
+                      "file_size_in_bytes"    -> bytes.length.toLong,
+                      "referenced_data_file"  -> target.uri,
+                      "content_offset"        -> range.offset,
+                      "content_size_in_bytes" -> range.length
+                    )
+                }
+            )
+          )
+        }
+      else
+        def loop(
+            i: Int,
+            acc: Vector[(Target, Map[String, Any])]
+        ): Step[IndexedSeq[DeleteManifest]] =
+          if i >= rows.size then
+            Step.Done(manifests(acc))
+          else
+            val r      = rows(i)
+            val target = found(r.path)
+            val out    = java.io.ByteArrayOutputStream()
+            val w      = Parquet.newRecordWriter(out, PositionDeleteSchema)
+            try r.added.foreach(n => w.write(Map("file_path" -> target.uri, "pos" -> n)))
+            finally w.close()
+            val bytes = out.toByteArray
+            val path  = s"${folderFor(target.uri)}${commitId}-${i}-deletes.parquet"
+            val uri   = target.uri.getBytes(StandardCharsets.UTF_8)
+            def le(v: Long): Array[Byte] =
+              Array.tabulate(8)(k =>
+                (
+                  v >>> (8 * k)
+                ).toByte
+              )
+            def bounds(path: Array[Byte], pos: Long): Seq[Map[String, Any]] = Seq(
+              Map("key" -> FilePathFieldId, "value" -> path),
+              Map("key" -> PosFieldId, "value"      -> le(pos))
+            )
+            val entry = Map(
+              "content"              -> 1,
+              "file_path"            -> layout.uriOf(path),
+              "file_format"          -> "PARQUET",
+              "partition"            -> target.partition,
+              "record_count"         -> r.added.length.toLong,
+              "file_size_in_bytes"   -> bytes.length.toLong,
+              "lower_bounds"         -> bounds(uri, r.added.head),
+              "upper_bounds"         -> bounds(uri, r.added.last),
+              "referenced_data_file" -> target.uri
+            )
+            put(path, bytes)(loop(i + 1, acc :+ (target -> entry)))
+        loop(0, Vector.empty)
+      end if
+
+    end writeDeleteFiles
+
+  end RowDeleteCommit
+
+  /** What Puffin files record as their writer */
+  private val CreatedBy = "wvlet uni"
+
+  /** A position-delete file's columns, with the reserved field IDs */
+  private lazy val PositionDeleteSchema: ParquetSchema =
+    val s = ParquetSchema
+      .builder()
+      .required("file_path", ParquetType.STRING)
+      .required("pos", ParquetType.INT64)
+      .build()
+    ParquetSchema(
+      s.root
+        .copy(children =
+          s.fields
+            .map {
+              case p: ParquetField.Primitive if p.name == "file_path" =>
+                p.copy(fieldId = Some(FilePathFieldId))
+              case p: ParquetField.Primitive =>
+                p.copy(fieldId = Some(PosFieldId))
+              case f =>
+                f
+            }
+        )
+    )
 
   private def specFieldJson(p: PartitionField): JSONObject = JSONObject(
     Seq(

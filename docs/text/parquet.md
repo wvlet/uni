@@ -541,7 +541,9 @@ val catalogVersion = Parquet.dataset(
   such as Flink use for upserts, remove the rows whose key columns equal one of their rows (null
   equals null), in data files strictly older than the delete and, for a partitioned delete, in
   the same partition. Deletes are read when the dataset opens, a row filter sees only the rows
-  that remain, and key columns are read even when `withColumns` leaves them out.
+  that remain, and key columns are read even when `withColumns` leaves them out. Uni writes
+  position deletes and deletion vectors with
+  [`Parquet.deleteIcebergRows`](#deleting-rows-merge-on-read).
 - **What fails** when the dataset opens, with the reason: equality deletes keyed on a nested
   or non-primitive column, an `initial-default` on a field inside a struct, encrypted tables,
   and data files that aren't Parquet. The
@@ -755,9 +757,44 @@ Parquet.writeDataset(
 - **Properties.** `withTableProperties(Map(...))` sets table properties in the commit, keeping
   the others.
 
+#### Deleting Rows (Merge-on-Read)
+
+`Parquet.deleteIcebergRows` deletes the rows a filter matches without rewriting data files: one
+`delete` snapshot adds delete files that say which rows of which files are gone, as DuckDB and
+Trino do.
+
+```scala
+import wvlet.uni.parquet.ParquetFilter
+
+val deleted = Parquet.deleteIcebergRows(
+  "s3://my-bucket/warehouse/visits/",
+  ParquetFilter.col("user") === "bot" && ParquetFilter.col("dt") === LocalDate.of(2026, 11, 20)
+)
+```
+
+- **What it writes.** A format version 3 table gets deletion vectors: one Puffin file per commit,
+  with one vector per data file. A vector holds the file's earlier deletes as well, so the vectors
+  and file-scoped position-delete files it replaces are marked `DELETED`; a partition-scoped
+  position-delete file stays. A version 2 table gets a position-delete file per data file, next to
+  it, which names it in `referenced_data_file`. Both are the delete files the Iceberg spec
+  defines, and DuckDB reads the ones Uni writes.
+- **Which rows.** The filter is the one reads take, checked against the table's current schema.
+  Files are skipped by partition values and column statistics, only the filter's columns are read,
+  and rows that earlier deletes or equality deletes removed aren't counted again. It returns the
+  number of rows deleted; when none match, nothing is committed.
+- **Commits.** The positions are found in the current snapshot and committed on top of it. If
+  another writer commits first, the positions are found again on the new snapshot and the commit
+  retried, up to 4 times, so no other writer's deletes are lost. A failed delete removes the
+  files it wrote.
+- **Afterwards.** Readers stop seeing the rows; time travel to an earlier snapshot still shows
+  them, until `expireIcebergSnapshots` deletes the files only expired snapshots need. The delete
+  always writes delete files, whatever the table's `write.delete.mode` says; to rewrite files
+  instead, use copy-on-write below. Tables that a catalog owns and format version 1 tables fail, as
+  for appends.
+
 #### Replacing Data Files (Copy-on-Write)
 
-An update or delete rewrites only the data files it touches. Read them one at a time with
+An update, or a delete that should leave no delete files, rewrites only the data files it touches. Read them one at a time with
 `ds.withFiles`, write the rows to keep, and commit them with `withReplacedFiles`: one snapshot
 removes the old files and adds the new ones.
 
