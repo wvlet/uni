@@ -166,25 +166,22 @@ Do this in two stages, so the theorem has evidence before the proof is done:
 
 ### 5. Planted bugs in the Scala reader must fail the cases
 
-Add `spec/lean/mutants/http-reader.txt`. Each entry is an `old`/`new` replacement in
-`SocketHttpProtocol.scala`, in the format of h5i's `[[mutant]]`. Start with about 10, each a bug a
-lenient parser has shipped:
+**Done.** `spec/lean/mutants/mutate_http_reader.py` holds 17 mutants of `SocketHttpProtocol.scala`,
+each an exact text replacement for a bug a lenient parser has shipped:
 
-- accept a bare LF
-- trim whitespace before the colon
-- the last `Content-Length` wins
-- `Content-Length` beats `Transfer-Encoding`
-- accept `chunked` applied twice
-- allow `Transfer-Encoding` on HTTP/1.0
-- `>` instead of `>=` at the body limit
-- keep the connection open after a request framed both ways
-- accept a `Host` header twice
-- an off-by-one in `readChunked`'s CRLF check
+- header syntax: a bare LF, whitespace before the colon, obs-fold, trailing whitespace kept;
+- framing: the last `Content-Length` wins, `Content-Length` beats `Transfer-Encoding`, keep-alive
+  after both, `chunked` twice, `Transfer-Encoding` on HTTP/1.0;
+- other checks: two `Host` headers, `Connection: close` ignored, control bytes in the target, chunk
+  data ending at a CR without its LF;
+- an off-by-one at the body, chunk, request-line and header limits.
 
-A script, `scripts/mutate-http-reader.sh`, applies each one in a scratch copy of the worktree, runs
-`./sbt "uniJVM/testOnly *HttpReaderSpecTest"`, and reports the survivors. (`testOnly` forces the
-run, because sbt 2's test cache can report a run as cached.) A surviving mutant means a missing case, which gets added to `inputs`. Run the
-script on demand and when this model changes, not in CI: each mutant recompiles `uni`.
+It refuses to run on an uncommitted reader and always restores it. It applies each mutant, runs
+`HttpReaderSpecTest`, and reports each one as killed, survived, or invalid.
+
+The first run killed 16 of 17. `chunk-data-without-crlf` survived: the only chunk-data case sent an
+LF without its CR, not a CR without its LF. A new input, `/data-cr-without-lf`, kills it. The
+script runs on demand, not in CI, because each mutant recompiles `uni`.
 
 ## Docs
 
