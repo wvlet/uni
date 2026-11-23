@@ -15,6 +15,7 @@ import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
+import scala.collection.immutable.VectorMap
 import scala.util.control.NonFatal
 
 /**
@@ -1158,6 +1159,317 @@ object Parquet:
     attempt(1)
 
   end commitRowChange
+
+  /**
+    * Compacts the Apache Iceberg table at `root` (a Hadoop table, as Uni writes): rewrites data
+    * files with their deletes applied, merges small files, and removes the delete files that no
+    * remaining data file needs (deletion vectors, position deletes, and equality deletes), in one
+    * `replace` snapshot. The rows don't change. Files are grouped by partition spec and partition
+    * value, and each new file keeps its group's spec and partition, so any partition transform
+    * works. A format version 3 table keeps its row lineage: the new files store each row's
+    * `_row_id` and `_last_updated_sequence_number`. The new files keep the data sequence number of
+    * the snapshot that was read, so equality deletes committed meanwhile still apply to them. When
+    * another writer commits first, the commit rebases if that commit touched nothing this one
+    * rewrote or removed, and otherwise the compaction plans and rewrites again. Rows of earlier
+    * snapshots stay readable by time travel until [[expireIcebergSnapshots]] removes the old files.
+    *
+    * @return
+    *   what was committed; all zeros, with nothing committed, when nothing needed a rewrite
+    */
+  def compactIcebergTable(
+      root: String,
+      options: IcebergCompactionOptions = IcebergCompactionOptions.default
+  ): IcebergCompaction = withTarget(datasetTarget(root))(compactTable(_, options))
+
+  /** Compacts the Iceberg table at `root` in the store */
+  def compactIcebergTable(
+      store: ObjectStore,
+      root: String,
+      options: IcebergCompactionOptions
+  ): IcebergCompaction = compactTable(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    options
+  )
+
+  /** Compacts the Iceberg table at `root` in the store with the default options */
+  def compactIcebergTable(store: ObjectStore, root: String): IcebergCompaction =
+    compactIcebergTable(store, root, IcebergCompactionOptions.default)
+
+  /** Deletes files a failed commit wrote; one that fails to delete stays as an unreferenced file */
+  private def cleanUpFiles(target: DatasetTarget, paths: Seq[String]): Unit = paths.foreach { p =>
+    try
+      DatasetWriterCore.runSync(
+        target,
+        DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
+      )
+    catch
+      case NonFatal(_) =>
+  }
+
+  private def compactTable(
+      target: DatasetTarget,
+      options: IcebergCompactionOptions
+  ): IcebergCompaction =
+    val layout                             = DatasetWriterCore.icebergLayout(target)
+    def attempt(n: Int): IcebergCompaction =
+      val t = DatasetWriterCore
+        .runStepsSync(target, IcebergWrite.load(layout))
+        .getOrElse(throw ParquetException(s"${target.rootName} is not an Iceberg table"))
+      IcebergWrite.currentSnapshotId(t) match
+        case None =>
+          IcebergCompaction.empty
+        case Some(id) =>
+          val live   = DatasetWriterCore.runStepsSync(target, IcebergWrite.liveFiles(layout, t))
+          val dsOpts = ParquetDatasetOptions.default.withSnapshotId(id)
+          val ds     =
+            target match
+              case DatasetTarget.Local(root) =>
+                dataset(root.path, dsOpts)
+              case DatasetTarget.Objects(store, root, _) =>
+                dataset(store, root.toString, dsOpts)
+          val written = scala.collection.mutable.ArrayBuffer.empty[String]
+          try
+            val selected = options
+              .filter
+              .map(f => ds.selectFiles(ParquetReadOptions.default.withFilter(f)).map(_.path).toSet)
+            val plan = IcebergWrite.planCompaction(live, options, selected)
+            if plan.isEmpty then
+              IcebergCompaction.empty
+            else
+              val files =
+                try
+                  rewriteGroups(target, layout, plan, ds, options, written)
+                catch
+                  case NonFatal(e) =>
+                    cleanUpFiles(target, written.toSeq)
+                    throw e
+              val c         = IcebergWrite.compactionCommit(layout, plan, files)
+              val committed =
+                try
+                  Some(DatasetWriterCore.runStepsSync(target, c.run()))
+                catch
+                  case e: IcebergWrite.LostRace =>
+                    cleanUpFiles(target, written.toSeq ++ c.writtenFiles)
+                    if n < IcebergWrite.MaxAttempts then
+                      None
+                    else
+                      throw ParquetException(
+                        s"Another writer kept committing to ${target
+                            .rootName} first; gave up after ${n} attempts",
+                        e
+                      )
+                  case NonFatal(e) =>
+                    val verified =
+                      if c.mayHaveCommitted then
+                        try
+                          DatasetWriterCore.runStepsSync(target, c.verify())
+                        catch
+                          case NonFatal(_) =>
+                            None
+                      else
+                        None
+                    if verified.isEmpty then
+                      cleanUpFiles(target, written.toSeq ++ c.writtenFiles)
+                      throw e
+                    verified
+              committed match
+                case None =>
+                  attempt(n + 1)
+                case Some(done) =>
+                  val (path, bytes) = IcebergWrite.hint(layout, done)
+                  DatasetWriterCore.runSync(
+                    target,
+                    DatasetWriterCore
+                      .RootAction
+                      .Put(
+                        path,
+                        bytes,
+                        s"Compacted ${target.rootName} (${done
+                            .metadataPath}), but writing ${path} failed"
+                      )
+                  )
+                  IcebergCompaction(
+                    plan.rewritten.size,
+                    files.size,
+                    plan.removedDeletes.size,
+                    files.map(f => f.record("record_count").asInstanceOf[Long]).sum
+                  )
+            end if
+          finally
+            ds.close()
+          end try
+      end match
+    end attempt
+    attempt(1)
+
+  end compactTable
+
+  /**
+    * Writes the rows of each group of files to new files of the target size, next to the group's
+    * first file, with the row-lineage columns in a format version 3 table. Paths go to `written` as
+    * each file opens, so a failure can delete them.
+    */
+  private[parquet] def rewriteGroups(
+      target: DatasetTarget,
+      layout: IcebergWrite.Layout,
+      plan: IcebergWrite.CompactionPlan,
+      ds: ParquetDataset,
+      options: IcebergCompactionOptions,
+      written: scala.collection.mutable.ArrayBuffer[String]
+  ): IndexedSeq[IcebergWrite.CompactedFile] =
+    val t        = plan.live.table
+    val lineage  = long(t.metadata, "format-version").exists(_ >= 3)
+    val schema   = IcebergWrite.compactionFileSchema(t, ds.schema)
+    val maxSize  = IcebergWrite.targetFileSize(t, options)
+    val shredder = writer.BatchShredder(schema, options.writeOptions.parallelism)
+    val byPath   = ds.files.map(f => f.path -> f).toMap
+    val out      = IndexedSeq.newBuilder[IcebergWrite.CompactedFile]
+    val writeId  = IcebergWrite.newWriteId()
+    var count    = 0
+    plan
+      .groups
+      .foreach { group =>
+        val head   = group.head
+        val folder = IcebergWrite.folderOf(layout, t, head.uri)
+        var open: Option[(FileWriter, String, CountingStream)] = None
+        def finish(): Unit                                     =
+          open.foreach { (w, path, stream) =>
+            w.close()
+            val f = IcebergWrite.DataFile(
+              path,
+              VectorMap.empty,
+              w.numRows,
+              stream.count,
+              w.rowGroupMetas
+            )
+            out +=
+              IcebergWrite.CompactedFile(
+                head,
+                IcebergWrite.dataFileRecord(
+                  schema,
+                  f,
+                  IcebergWrite.uriOf(layout, t, path),
+                  head.partition
+                )
+              )
+          }
+          open = None
+        def writer(): FileWriter =
+          open match
+            case Some((w, _, _)) =>
+              w
+            case None =>
+              val path = s"${folder}${writeId}-compacted-${count}.parquet"
+              count += 1
+              written += path
+              val stream = CountingStream(DatasetWriterCore.openOutputSync(target, path))
+              val w      = FileWriter(schema, options.writeOptions, () => stream)
+              open = Some((w, path, stream))
+              w
+        try
+          group.foreach { f =>
+            val file = byPath.getOrElse(
+              f.key,
+              throw ParquetException(s"${f.key} is not a data file of ${target.rootName}")
+            )
+            val stored =
+              if lineage then
+                ds.longColumnsById(
+                  file,
+                  Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
+                )
+              else
+                Seq.empty
+            ds.foreachLiveBatch(file) { (b, positions) =>
+              val batch =
+                if lineage then
+                  b.copy(columns = b.columns ++ lineageColumns(schema, f, stored, positions))
+                else
+                  b
+              val vectors = shredder.check(batch)
+              try
+                // In slices, so a file is cut near the target size within a large batch
+                var from = 0
+                while from < batch.numRows do
+                  val to = math.min(batch.numRows, from + SizeCheckRows)
+                  val w  = writer()
+                  w.writeColumns(to - from)((ws, a, b) =>
+                    shredder.write(vectors, ws, from + a, from + b)
+                  )
+                  if w.estimatedSize >= maxSize then
+                    finish()
+                  from = to
+              finally
+                shredder.release()
+            }
+          }
+          finish()
+        catch
+          case NonFatal(e) =>
+            open.foreach((w, _, _) => w.abort())
+            throw e
+        end try
+      }
+    out.result()
+
+  end rewriteGroups
+
+  /**
+    * The `_row_id` and `_last_updated_sequence_number` of the rows at these positions of a source
+    * file: the stored value, or the inherited one (the file's first row ID plus the position, and
+    * its data sequence number)
+    */
+  private def lineageColumns(
+      schema: ParquetSchema,
+      f: IcebergWrite.LiveData,
+      stored: Seq[Option[(Array[Long], Array[Boolean])]],
+      positions: Array[Long]
+  ): IndexedSeq[ColumnVector] =
+    def column(name: String, k: Int, inherited: Long => Option[Long]): ColumnVector =
+      val n      = positions.length
+      val values = Array.ofDim[Long](n)
+      val nulls  = Array.ofDim[Boolean](n)
+      var r      = 0
+      while r < n do
+        val p = positions(r).toInt
+        stored.lift(k).flatten match
+          case Some((vs, ns)) if !ns(p) =>
+            values(r) = vs(p)
+          case _ =>
+            inherited(positions(r)) match
+              case Some(v) =>
+                values(r) = v
+              case None =>
+                nulls(r) = true
+        r += 1
+      ColumnVector.LongColumn(schema.field(name).get, values, nulls)
+    IndexedSeq(
+      column(IcebergWrite.RowIdName, 0, p => f.firstRowId.map(_ + p)),
+      column(IcebergWrite.LastUpdatedName, 1, _ => Some(f.sequence))
+    )
+
+  /** The rows a compaction writes between checks of the file size */
+  private val SizeCheckRows = 1024
+
+  /** An output stream that counts the bytes written, for the size the manifest records */
+  private final class CountingStream(out: java.io.OutputStream) extends java.io.OutputStream:
+    var count                        = 0L
+    override def write(b: Int): Unit =
+      out.write(b)
+      count += 1
+
+    override def write(b: Array[Byte], off: Int, len: Int): Unit =
+      out.write(b, off, len)
+      count += len
+
+    override def flush(): Unit = out.flush()
+    override def close(): Unit = out.close()
+
+  private def long(o: JSONObject, key: String): Option[Long] = o
+    .get(key)
+    .collect { case wvlet.uni.json.JSON.JSONLong(v) =>
+      v
+    }
 
   /**
     * Moves the Apache Iceberg table at local folder `from` to `to`, which must not exist yet, and

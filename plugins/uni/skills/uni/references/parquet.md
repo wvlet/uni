@@ -266,6 +266,10 @@ def typedDataset(root: String) = Parquet.dataset(
   merge-on-read in one `overwrite` snapshot (new data files for the new rows, deletes for the old;
   v3 rows keep their `_row_id`) and returns how many; on a lost race it reads the rows and calls
   the function again, so keep the function free of side effects.
+  `Parquet.compactIcebergTable(root)` (or with `IcebergCompactionOptions.default
+  .withTargetFileSize(bytes).withFilter(f).noFileMerging()`) rewrites files with deletes applied,
+  merges small files per partition, and removes delete files no file needs, in one `replace`
+  snapshot; v3 row IDs are kept. It returns an `IcebergCompaction` with the counts.
   Identity partitions on string, int, long, or date only; overwrite modes, other transforms,
   schema changes, and catalog-owned tables (`00003-<uuid>.metadata.json`) fail by name.
 

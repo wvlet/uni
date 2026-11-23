@@ -621,6 +621,17 @@ class IcebergInteropTables extends UniTest:
           )
         updated(s"${d}/v3_update", Map(IcebergWrite.FormatVersionProperty -> "3"))
         updated(s"${d}/v2_update", Map.empty)
+        // Compacted copies: the deletes are applied and their files removed
+        Seq(
+          "v3_compacted" -> Map(IcebergWrite.FormatVersionProperty -> "3"),
+          "v2_compacted" -> Map.empty[String, String]
+        ).foreach { (name, props) =>
+          val root = s"${d}/${name}"
+          Parquet.writeDataset(root, rows, opts.withTableProperties(props))
+          Parquet.deleteIcebergRows(root, ParquetFilter.col("id") === 2L)
+          Parquet.deleteIcebergRows(root, ParquetFilter.col("country") === "US")
+          Parquet.compactIcebergTable(root)
+        }
   }
 
 end IcebergInteropTables

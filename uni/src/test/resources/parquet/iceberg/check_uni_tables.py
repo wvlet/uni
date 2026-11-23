@@ -55,3 +55,11 @@ for table in ["v3_update", "v2_update"]:
     print(table, "duckdb:", con.execute(f"SELECT id, item, dt FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
 print("v3_update", "duckdb row ids:", con.execute(f"SELECT id, _row_id FROM iceberg_scan('{newest('v3_update')}') ORDER BY id").fetchall())
 print("v2_update", "pyiceberg:", [(r["id"], r["item"]) for r in StaticTable.from_metadata(newest("v2_update")).scan().to_arrow().sort_by("id").to_pylist()])
+# Compaction: the same rows as v3_dv and v2_posdel, with no delete files left; DuckDB reads the
+# v3 table's row IDs, which compaction keeps
+for table in ["v3_compacted", "v2_compacted"]:
+    meta = newest(table)
+    print(table, "duckdb:", con.execute(f"SELECT id FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
+print("v3_compacted", "row ids:", con.execute(f"SELECT id, _row_id FROM iceberg_scan('{newest('v3_compacted')}') ORDER BY id").fetchall())
+print("v3_dv", "row ids:", con.execute(f"SELECT id, _row_id FROM iceberg_scan('{newest('v3_dv')}') ORDER BY id").fetchall())
+print("v2_compacted", "pyiceberg:", [r["id"] for r in StaticTable.from_metadata(newest("v2_compacted")).scan().to_arrow().sort_by("id").to_pylist()])

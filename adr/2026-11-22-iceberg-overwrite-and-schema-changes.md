@@ -50,5 +50,8 @@ tables with renamed columns.
   Iceberg tables atomic, and other engines read the results.
 - Overwrites and rewrites keep the old data files until snapshots are expired, which Uni doesn't
   do yet.
+- Update (2026-11-22): `withReplacedFiles` keeps the delete files of the files it removes;
+  `Parquet.compactIcebergTable` removes them, and rewrites files with their deletes applied. See
+  [`2026-11-22-iceberg-compaction.md`](2026-11-22-iceberg-compaction.md).
 - Nested columns can't be added, renamed, or dropped by `alterIcebergTable` yet. Nested renames
   made by other tools read by field ID only at the top level.
