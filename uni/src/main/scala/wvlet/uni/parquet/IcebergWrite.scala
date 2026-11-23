@@ -2367,14 +2367,17 @@ private[parquet] object IcebergWrite:
 
   end manifestsOf
 
-  /** Whether a manifest entry is a live position-delete file (Parquet), not a deletion vector */
+  /**
+    * Whether a manifest entry is a live position-delete file (Parquet), not a deletion vector or an
+    * equality delete, which hold no paths
+    */
   private def isLivePositionDelete(e: Map[String, Any]): Boolean =
     e.get("status").forall(_ != Deleted) &&
       e.get("data_file")
         .exists {
           case d: Map[?, ?] =>
             val df = d.asInstanceOf[Map[String, Any]]
-            df.get("content").exists(_ != 0) &&
+            df.get("content").contains(1) &&
             !df.get("file_format").exists(f => String.valueOf(f).equalsIgnoreCase("puffin"))
           case _ =>
             false

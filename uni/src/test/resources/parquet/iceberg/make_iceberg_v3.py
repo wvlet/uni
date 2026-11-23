@@ -5,7 +5,7 @@
 #   CATALOG_WAREHOUSE=file:///tmp/uni-iceberg-v3 CATALOG_URI=jdbc:sqlite:file:/tmp/uni-iceberg-v3.db \
 #     REST_PORT=8181 java -cp <iceberg-open-api 1.12.0 test-fixtures, iceberg-core, sqlite-jdbc, jetty 12.1, hadoop> \
 #     org.apache.iceberg.rest.RESTCatalogServer
-# then run: uv run --with duckdb --with fastavro python make_iceberg_v3.py <out>
+# then run: uv run --with duckdb --with fastavro --with pyarrow python make_iceberg_v3.py <out>
 import sys, os, shutil, glob
 import duckdb
 import fastavro

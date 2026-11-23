@@ -317,6 +317,29 @@ class IcebergV3WriteTest extends UniTest:
     ids(to) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
   }
 
+  test("rename a table with equality deletes") {
+    val root = hadoopCopy("equality_deletes")
+    // Leave out DuckDB's position delete (id 7), which a rename refuses; equality deletes hold no
+    // paths
+    val list = IOPath.parse(s"${root}/metadata/snap-4000000000000000004-eq.avro")
+    val c    = Avro.read(FileSystem.readBytes(list), list.path)
+    val kept = c
+      .records
+      .filterNot { r =>
+        val m = r.asInstanceOf[Map[String, Any]]
+        m("content") == 1 && !m("manifest_path").toString.contains("/eq-")
+      }
+    (c.records.size - kept.size) shouldBe 1
+    FileSystem.writeBytes(
+      list,
+      Avro.write(String(c.metadata("avro.schema"), StandardCharsets.UTF_8), Seq.empty, kept)
+    )
+    ids(root) shouldBe Seq(2L, 4L, 5L, 6L, 7L)
+    val to = s"${root}-renamed"
+    Parquet.renameIcebergTable(root, to)
+    ids(to) shouldBe Seq(2L, 4L, 5L, 6L, 7L)
+  }
+
   test("refuse to rename a table with position delete files") {
     val root = hadoopCopy("v2_deletes")
     intercept[ParquetException](Parquet.renameIcebergTable(root, s"${root}-renamed"))

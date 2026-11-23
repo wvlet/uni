@@ -247,9 +247,10 @@ def typedDataset(root: String) = Parquet.dataset(
   date columns are partition columns. It reads `version-hint.text` or else the newest metadata
   file; pass the catalog's `.metadata.json` path as the root to read exactly the catalog's
   version. Format versions 1 to 3 are read: v3 `timestamp_ns` columns read as nanosecond
-  timestamps, and a column older files lack reads as its `initial-default`. Position deletes
-  and deletion vectors are applied. `variant` columns read as Scala values and
-  `geometry`/`geography` as WKB bytes. Equality deletes and non-Parquet data files fail by name.
+  timestamps, and a column older files lack reads as its `initial-default`. Position deletes,
+  deletion vectors, and equality deletes (Flink upserts) are applied before row filters.
+  `variant` columns read as Scala values and `geometry`/`geography` as WKB bytes. Non-Parquet
+  data files fail by name.
 - `ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)` writes an
   Iceberg table (Hadoop table, format v2; `withTableProperties(Map("format-version" -> "3"))`
   for v3 with row lineage and nanosecond timestamps): `ErrorIfExists` creates it, `Append` commits a
