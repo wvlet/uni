@@ -326,37 +326,58 @@ theorem readHead_extend (lim : Limits) (s t : Bytes)
     readHead lim (s ++ t) = (readHead lim s).extend t := by
   unfold readHead at h ⊢
   rw [List.dropWhile_append]
-  generalize hd : s.dropWhile isNewline = d at h ⊢
+  have htw := List.takeWhile_append (p := isNewline) (xs := s) (ys := t)
+  have hsplit := List.takeWhile_append_dropWhile (p := isNewline) (l := s)
+  generalize hd : s.dropWhile isNewline = d at h ⊢ hsplit
   cases d with
   | nil =>
-    have := h .closed (by simp [scanLine])
-    simp [Outcome.atEof] at this
+    -- Only CR and LF so far: a bare CR among them stays bare, and otherwise the end decided
+    simp only [List.append_nil] at hsplit
+    rw [hsplit] at htw h
+    simp only [ite_true] at htw
+    rw [htw, hsplit]
+    simp only [List.isEmpty_nil, ite_true, List.take_nil, List.append_nil] at h ⊢
+    by_cases hb : bareCR s = true
+    · simp only [hb, bareCR_append _ (bareCR_append _ hb), ite_true]; rfl
+    · have := h .closed (by simp [hb, scanLine])
+      simp [Outcome.atEof] at this
   | cons c d =>
+    have hne : (s.takeWhile isNewline).length ≠ s.length := by
+      have := congrArg List.length hsplit
+      simp at this
+      omega
+    simp only [hne, ite_false] at htw
     simp only [List.isEmpty_cons, Bool.false_eq_true, ite_false]
-    cases hl : scanLine false lim.maxLine (c :: d) with
-    | incomplete =>
-      simp only [hl] at h
-      have := h _ rfl
-      split at this <;> simp [Outcome.atEof] at this
-    | bad => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
-    | tooLong => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
-    | ok line after =>
-      rw [scanLine_extend false _ _ t (by simp [hl]), hl]
-      simp only [hl] at h
-      simp only [Line.extend]
-      cases hp : parseRequestLine line with
-      | error e => obtain ⟨_, _⟩ := e; simp only; rfl
-      | ok v =>
-        obtain ⟨method, target, http10⟩ := v
-        simp only [hp] at h ⊢
-        cases hf : readFields (after.length + 1) lim.maxHeader after with
-        | incomplete =>
-          simp only [hf] at h
-          have := h _ rfl
-          simp [Outcome.atEof] at this
-        | _ =>
-          rw [readFields_extend (after.length + 1) ((after ++ t).length + 1) _ after t (by simp)
-            (by simp [hf]), hf]; rfl
+    rw [htw, show List.take 1 ((c :: d) ++ t) = [c] from rfl]
+    simp only at h ⊢
+    rw [show List.take 1 (c :: d) = [c] from rfl] at h ⊢
+    by_cases hb : bareCR (s.takeWhile isNewline ++ [c]) = true
+    · simp only [hb, ite_true]; rfl
+    · simp only [hb, Bool.false_eq_true, ite_false] at h ⊢
+      cases hl : scanLine false lim.maxLine (c :: d) with
+      | incomplete =>
+        simp only [hl] at h
+        have := h _ rfl
+        split at this <;> simp [Outcome.atEof] at this
+      | bad => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
+      | tooLong => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
+      | ok line after =>
+        rw [scanLine_extend false _ _ t (by simp [hl]), hl]
+        simp only [hl] at h
+        simp only [Line.extend]
+        cases hp : parseRequestLine line with
+        | error e => obtain ⟨_, _⟩ := e; simp only; rfl
+        | ok v =>
+          obtain ⟨method, target, http10⟩ := v
+          simp only [hp] at h ⊢
+          cases hf : readFields (after.length + 1) lim.maxHeader after with
+          | incomplete =>
+            simp only [hf] at h
+            have := h _ rfl
+            simp [Outcome.atEof] at this
+          | _ =>
+            rw [readFields_extend (after.length + 1) ((after ++ t).length + 1) _ after t (by simp)
+              (by simp [hf]), hf]; rfl
 
 theorem readBody_extend (lim : Limits) (hd : Head) (t : Bytes)
     (h : (readBody lim hd).1.atEof = false) :

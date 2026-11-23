@@ -45,6 +45,18 @@ def inputs : List String := [
   get "/1" ++ "\r\n",
   "\r\n" ++ get "/after-blank-line",
   "\r\n\r\n\n" ++ get "/after-blank-lines",
+  "\n" ++ get "/after-bare-lf",
+  "\r\n\n" ++ get "/after-crlf-and-lf",
+  -- A CR without its LF is no empty line (RFC 9112 §2.2)
+  "\r" ++ get "/after-bare-cr",
+  "\r\r\n" ++ get "/after-cr-crlf",
+  "\r\n\r" ++ get "/after-crlf-cr",
+  get "/1" ++ "\r" ++ get "/never-read",
+  get "/1" ++ "\r\n" ++ get "/2",
+  "\rGET /ok HTTP/1.1\r\nHost: localhost\r\n\r\nGET /cut",
+  "\r",
+  "\r\r",
+  "\n\r",
   post "/body-looks-like-a-request" "GET / HTTP/1.1\r\n\r\n",
   -- Connection and HTTP/1.0 keep-alive
   "GET /close HTTP/1.1\r\nConnection: close\r\n\r\n" ++ get "/never-read",

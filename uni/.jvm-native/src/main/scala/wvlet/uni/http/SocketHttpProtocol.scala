@@ -124,14 +124,29 @@ private[http] class HttpConnectionReader(
     n
 
   /**
-    * Between requests: drop CR and LF left before the next request line (which [[readRequest]]
-    * skips anyway), and return whether no bytes remain buffered, so the connection can wait for its
-    * next request elsewhere. A buffer grown for a large request shrinks back, so an idle connection
-    * holds only a small one.
+    * Skip the empty lines (CRLF, or a bare LF) at the front of the buffer. RFC 9112 Section 2.2
+    * lets a server ignore them before a request line; a CR without its LF is not one, so it stays
+    * for the request-line scan to reject. A CR that is the last byte buffered stays too: whether
+    * its LF follows is not known yet.
+    */
+  private def skipEmptyLines(): Unit =
+    var skipping = true
+    while skipping && buffered > 0 do
+      if buf(start) == '\n' then
+        start += 1
+      else if buf(start) == '\r' && buffered > 1 && buf(start + 1) == '\n' then
+        start += 2
+      else
+        skipping = false
+
+  /**
+    * Between requests: drop the empty lines left before the next request line (which
+    * [[readRequest]] skips anyway), and return whether no bytes remain buffered, so the connection
+    * can wait for its next request elsewhere. A buffer grown for a large request shrinks back, so
+    * an idle connection holds only a small one.
     */
   def drainLineBreaks(): Boolean =
-    while buffered > 0 && (buf(start) == '\r' || buf(start) == '\n') do
-      start += 1
+    skipEmptyLines()
     if buffered == 0 then
       start = 0
       end = 0
@@ -314,18 +329,23 @@ private[http] class HttpConnectionReader(
     * [[finishBody]] once the response is decided, before reading the next request.
     */
   def readRequest(streaming: Request => Boolean = null): ReadResult =
-    // Skip CR and LF before the request line (RFC 9112 §2.2), as Netty does
+    // Skip the empty lines before the request line (RFC 9112 §2.2). A bare CR there is no empty
+    // line: the scan below rejects it
     var skipping = true
     while skipping do
-      while buffered > 0 && (buf(start) == '\r' || buf(start) == '\n') do
-        start += 1
-      if buffered > 0 then
-        skipping = false
-      else
+      skipEmptyLines()
+      if buffered == 0 then
         start = 0
         end = 0
         if fill() <= 0 then
           return ReadResult.Closed
+      else if buffered == 1 && buf(start) == '\r' then
+        // A CR whose next byte has not arrived yet. Ending there closes quietly, as after an
+        // empty line
+        if fill() <= 0 then
+          return ReadResult.Closed
+      else
+        skipping = false
 
     // The request line: scan to its LF, checking line endings and its length
     var i       = 0

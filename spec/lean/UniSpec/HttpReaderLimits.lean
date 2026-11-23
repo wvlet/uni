@@ -118,6 +118,8 @@ theorem readHead_decided (lim : Limits) (s : Bytes)
   unfold readHead at ho
   generalize hd : s.dropWhile isNewline = d at h ho
   simp only at ho
+  split at ho
+  · simp only [HeadResult.fail.injEq] at ho; subst ho; rfl
   have hdec := scanLine_decided false lim.maxLine d (by omega)
   cases hl : scanLine false lim.maxLine d with
   | incomplete => exact absurd hl hdec
@@ -168,12 +170,13 @@ theorem scanLine_tooLong : ∀ (left : Nat) (l t : Bytes), (∀ c ∈ l, c ≠ '
       have hl : left ≠ 0 := by simpa using h4
       rw [scanLine_tooLong (left - 1) l t (fun x hx => hc x (by simp [hx])) (by simp at h; omega)]
 
-/-- A request line longer than `maxLine` gets 414, whatever follows it. -/
+/-- A request line longer than `maxLine`, after empty lines only, gets 414, whatever follows it. -/
 theorem requestLine_tooLong (lim : Limits) (s l t : Bytes)
     (hs : s.dropWhile isNewline = l ++ t) (hc : ∀ c ∈ l, c ≠ '\r' ∧ c ≠ '\n')
-    (hlen : lim.maxLine < l.length) :
+    (hlen : lim.maxLine < l.length)
+    (hcr : bareCR (s.takeWhile isNewline ++ (l ++ t).take 1) = false) :
     readHead lim s = .fail (.bad 414 "Request line too long") := by
   unfold readHead
-  simp only [hs, scanLine_tooLong lim.maxLine l t hc hlen]
+  simp only [hs, hcr, Bool.false_eq_true, ite_false, scanLine_tooLong lim.maxLine l t hc hlen]
 
 end UniSpec.HttpReader

@@ -32,6 +32,16 @@ MUTANTS = [
         [("if !cr then\n            scanError", "if false then\n            scanError")],
     ),
     (
+        "bare-cr-before-request-line",
+        "a CR without its LF is skipped before the request line, like an empty line",
+        [
+            (
+                "else if buf(start) == '\\r' && buffered > 1 && buf(start + 1) == '\\n' then\n        start += 2",
+                "else if buf(start) == '\\r' then\n        start += 1",
+            )
+        ],
+    ),
+    (
         "ws-before-colon",
         "a header name may hold whitespace, so `Content-Length :` names another field",
         [("if !isTokenChar(at(i)) then", "if !isTokenChar(at(i)) && !isBlank(at(i)) then")],
