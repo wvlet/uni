@@ -173,6 +173,72 @@ class IcebergV3WriteTest extends UniTest:
     ).getMessage shouldContain "must be 2 or 3"
   }
 
+  test("a manifest from before an upgrade keeps its rows' IDs when rewritten") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    Parquet.writeDataset(root, second, append.withTableProperties(v3))
+    // The version 2 manifest got IDs from 1 in the upgrade commit
+    val old = manifestList(metadata(root, 2))(1)
+    old("first_row_id") shouldBe 1L
+    val oldFiles = avro(old("manifest_path").asInstanceOf[String])
+      .records
+      .map(_.asInstanceOf[Map[String, Any]]("data_file").asInstanceOf[Map[String, Any]])
+    val inherited =
+      oldFiles
+        .map(_("file_path"))
+        .zip(oldFiles.scanLeft(1L)((id, d) => id + d("record_count").asInstanceOf[Long]))
+        .toMap
+    val ds      = Parquet.dataset(root)
+    val removed =
+      try ds.files.filter(_.partitions("dt") == d1).map(_.path)
+      finally ds.close()
+    Parquet.writeDataset(
+      root,
+      Seq.empty[IcebergSale],
+      asIceberg.withMode(ParquetWriteMode.Overwrite).withReplacedFiles(removed)
+    )
+    val list      = manifestList(metadata(root, 3))
+    val rewritten = avro(list.find(_("existing_files_count") == 1).get("manifest_path").toString)
+    rewritten.meta("format-version") shouldBe Some("3")
+    val ids =
+      rewritten
+        .records
+        .map(_.asInstanceOf[Map[String, Any]]("data_file").asInstanceOf[Map[String, Any]])
+        .map(d => d("file_path") -> d("first_row_id"))
+        .toMap
+    // Every entry, kept or deleted, carries the ID it inherited from the old manifest
+    ids shouldBe inherited
+    readSales(root) shouldBe Seq(first(2)) ++ second
+  }
+
+  test("alterIcebergTable upgrades with format-version and checks types") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    val ns = ParquetColumn("ts", ParquetType.timestamp(TimeUnit.NANOS), Repetition.OPTIONAL)
+    intercept[ParquetException](Parquet.alterIcebergTable(root, IcebergTableChange.AddColumn(ns)))
+      .getMessage shouldContain "format version 2 can't hold"
+    Parquet.alterIcebergTable(
+      root,
+      IcebergTableChange.SetProperty(IcebergWrite.FormatVersionProperty, "3"),
+      IcebergTableChange.AddColumn(ns)
+    )
+    val m = metadata(root, 2)
+    long(m, "format-version") shouldBe Some(3L)
+    long(m, "next-row-id") shouldBe Some(0L)
+    m.get("properties") shouldMatch {
+      case Some(JSONObject(ps)) if ps.isEmpty =>
+    }
+    // The next commit assigns IDs to the version 2 manifest
+    Parquet.writeDataset(root, second, append)
+    long(metadata(root, 3), "next-row-id") shouldBe Some(4L)
+    intercept[ParquetException](
+      Parquet.alterIcebergTable(
+        root,
+        IcebergTableChange.SetProperty(IcebergWrite.FormatVersionProperty, "2")
+      )
+    ).getMessage shouldContain "can't go down"
+  }
+
   test("nanosecond timestamps need format version 3") {
     val schema = ParquetSchema.fromColumns(
       "schema",

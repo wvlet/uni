@@ -675,7 +675,9 @@ Parquet.writeDataset(
   `version-hint.text`.
 - **Format versions.** New tables are format version 2, which every engine reads.
   `withTableProperties(Map("format-version" -> "3"))` creates a version 3 table instead, or
-  upgrades a version 2 table in the commit (a version never goes down). Commits to a version 3
+  upgrades a version 2 table in the commit (a version never goes down);
+  `Parquet.alterIcebergTable(root, IcebergTableChange.SetProperty("format-version", "3"))`
+  upgrades without writing rows. Commits to a version 3
   table keep row lineage: each snapshot records `first-row-id` and `added-rows`, data manifests
   get their first row IDs, and a rewritten manifest writes out the IDs its files inherited, so a
   row keeps its ID. Alter, expire, and rename keep the version 3 fields.
