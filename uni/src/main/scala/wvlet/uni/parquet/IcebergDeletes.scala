@@ -44,12 +44,11 @@ private[parquet] object IcebergDeletes:
       .mutable
       .HashMap
       .empty[String, scala.collection.mutable.ArrayBuilder.ofLong]
-    def add(dataPath: String, del: DeleteFile, pos: Long): Unit =
-      dataFiles.get(dataPath) match
-        case Some(seq) if seq <= del.sequenceNumber =>
-          byFile.getOrElseUpdate(dataPath, scala.collection.mutable.ArrayBuilder.ofLong()) += pos
-        case _ =>
-          ()
+    def applies(dataPath: String, del: DeleteFile): Boolean = dataFiles
+      .get(dataPath)
+      .exists(_ <= del.sequenceNumber)
+    def positionsOf(dataPath: String): scala.collection.mutable.ArrayBuilder.ofLong = byFile
+      .getOrElseUpdate(dataPath, scala.collection.mutable.ArrayBuilder.ofLong())
     deletes.foreach { d =>
       val b = bytes(d.path)
       if d.isDeletionVector then
@@ -64,8 +63,8 @@ private[parquet] object IcebergDeletes:
           .getOrElse(
             throw ParquetException(s"Deletion vector in ${d.path} has no content_size_in_bytes")
           )
-        if dataFiles.get(target).exists(_ <= d.sequenceNumber) then
-          deletionVector(b, offset, size, d.path).foreach(add(target, d, _))
+        if applies(target, d) then
+          positionsOf(target) ++= deletionVector(b, offset, size, d.path)
       else if d.format.equalsIgnoreCase("parquet") then
         val f = Parquet.open(b)
         try f
@@ -73,15 +72,25 @@ private[parquet] object IcebergDeletes:
             .foreach { batch =>
               val paths = batch.column("file_path")
               val pos   = batch.column("pos")
-              var i     = 0
+              // Rows are sorted by file_path, so the previous row's target is usually this one's
+              var lastPath: Any                                        = null
+              var target: scala.collection.mutable.ArrayBuilder.ofLong = null
+              var i                                                    = 0
               while i < batch.numRows do
                 val p = paths.getValue(i)
                 val n = pos.getValue(i)
                 if p == null || n == null then
                   throw ParquetException(s"Position delete file ${d.path} has a null row")
-                val target = resolve(p.toString)
-                if d.referencedDataFile.forall(_ == target) then
-                  add(target, d, n.asInstanceOf[Long])
+                if p != lastPath then
+                  lastPath = p
+                  val dataPath = resolve(p.toString)
+                  target =
+                    if d.referencedDataFile.forall(_ == dataPath) && applies(dataPath, d) then
+                      positionsOf(dataPath)
+                    else
+                      null
+                if target != null then
+                  target += n.asInstanceOf[Long]
                 i += 1
             }
         finally f.close()

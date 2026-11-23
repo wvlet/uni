@@ -74,14 +74,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     * column's values in it pass 1 GiB.
     */
   def readBatches(options: ParquetReadOptions = ParquetReadOptions.default): Iterator[ColumnBatch] =
-    val fl   = filtering(options)
-    val opts = readOptions(options, fl)
-    selectRowGroups(options)
-      .iterator
-      .flatMap { i =>
-        val plan = planRowGroup(i, opts)
-        filtered(batches(plan, fetch(plan), opts, whole = false), fl)
-      }
+    selectRowGroups(options).iterator.flatMap(i => rowGroupBatches(i, options))
 
   /** Reads every row into `A` through Weaver. Columns are matched to fields by name. */
   def readAs[A](options: ParquetReadOptions = ParquetReadOptions.default)(using

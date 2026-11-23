@@ -2287,7 +2287,6 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   // ---- Vectors ----
 
-  /** A vector of n copies of a partition value */
   /** The batch without the rows whose positions, `start` for its first row, are in `deleted` */
   private def dropRows(b: ColumnBatch, deleted: Array[Long], start: Long): ColumnBatch =
     val end = start + b.numRows
@@ -2310,6 +2309,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       val rows = keep.result()
       ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
 
+  /** A vector of n copies of a partition value */
   private[parquet] def constantVector(f: ParquetField.Primitive, v: Any, n: Int): ColumnVector =
     if v == null then
       nullVector(f, n)
