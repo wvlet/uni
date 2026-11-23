@@ -1,5 +1,7 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.cloud.delta.*
+import wvlet.uni.cloud.iceberg.*
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
 import wvlet.uni.io.FileSystem
@@ -1438,7 +1440,7 @@ object Parquet:
     * first file, with the row-lineage columns in a format version 3 table. Paths go to `written` as
     * each file opens, so a failure can delete them.
     */
-  private[parquet] def rewriteGroups(
+  private[cloud] def rewriteGroups(
       target: DatasetTarget,
       layout: IcebergWrite.Layout,
       plan: IcebergWrite.CompactionPlan,

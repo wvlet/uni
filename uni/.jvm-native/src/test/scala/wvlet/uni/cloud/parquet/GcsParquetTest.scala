@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.cloud.iceberg.IcebergSale
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.storage.ObjectStore

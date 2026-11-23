@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 import wvlet.uni.io.CRC32
 import wvlet.uni.json.JSON
@@ -19,7 +21,7 @@ import scala.collection.mutable
   * Scala value (`null` for null). Logical types are not applied. Codecs: null, deflate, snappy, and
   * zstandard.
   */
-private[parquet] object Avro:
+private[cloud] object Avro:
 
   /** A schema node */
   sealed trait Schema

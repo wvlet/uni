@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
@@ -19,7 +21,7 @@ import scala.collection.immutable.VectorMap
   *
   * The I/O is a chain of [[Step]]s, so the sync and async writers run the same commit.
   */
-private[parquet] object IcebergWrite:
+private[cloud] object IcebergWrite:
   import IcebergTable.MetadataDir
   import IcebergTable.VersionHint
 

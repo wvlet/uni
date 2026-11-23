@@ -1,5 +1,7 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.cloud.delta.*
+import wvlet.uni.cloud.iceberg.*
 import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.cloud.parquet.DatasetWriterCore.Committed
 import wvlet.uni.cloud.parquet.DatasetWriterCore.RootAction

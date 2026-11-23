@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 import wvlet.uni.io.codec.CodecException
 import wvlet.uni.io.codec.Inflate
@@ -23,7 +25,7 @@ import scala.collection.mutable
   * Each level needs the bytes of the one before it, so the read is a chain of [[Step]]s: fetch
   * these files, then continue with their bytes. The sync and async readers run the same steps.
   */
-private[parquet] object IcebergTable:
+private[cloud] object IcebergTable:
   val MetadataDir = "metadata"
   val VersionHint = "version-hint.text"
 

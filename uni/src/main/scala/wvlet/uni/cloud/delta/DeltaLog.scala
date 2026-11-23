@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.delta
+
+import wvlet.uni.cloud.parquet.*
 
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
@@ -18,7 +20,7 @@ import scala.collection.mutable
   * Reading is split in two, so the sync and async readers share it: [[plan]] picks the log files a
   * version needs from a listing, and [[replay]] turns their bytes into the table's live files.
   */
-private[parquet] object DeltaLog:
+private[cloud] object DeltaLog:
   val LogDir = "_delta_log"
 
   /** A live data file: its path as the log records it, partition values (null for null), size */

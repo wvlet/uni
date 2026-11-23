@@ -40,7 +40,7 @@ object ParquetType:
     * describe what a table holds, such as an Iceberg `variant` column. Files may shred it into a
     * different layout; reads decode either one.
     */
-  private[parquet] case object VariantGroup extends ParquetType
+  private[cloud] case object VariantGroup extends ParquetType
 
   val BOOLEAN: Primitive = Primitive(PhysicalType.BOOLEAN)
   val INT8: Primitive    = Primitive(PhysicalType.INT32, Some(LogicalType.Integer(8, true)))

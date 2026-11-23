@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 /**
   * A change to an Apache Iceberg table, for [[Parquet.alterIcebergTable]]. Each is a metadata-only

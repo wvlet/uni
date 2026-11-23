@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 import wvlet.uni.io.CRC32
 import wvlet.uni.cloud.parquet.ColumnVector.*
@@ -11,7 +13,7 @@ import scala.collection.immutable.ArraySeq
   * row position, format version 2), deletion vectors (a roaring bitmap of row positions in a Puffin
   * file, format version 3), and equality-delete files (Parquet rows of key values).
   */
-private[parquet] object IcebergDeletes:
+private[cloud] object IcebergDeletes:
 
   /** A live delete file of a snapshot */
   case class DeleteFile(

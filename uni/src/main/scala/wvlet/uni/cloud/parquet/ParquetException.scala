@@ -9,7 +9,7 @@ class ParquetException(message: String, cause: Throwable = null)
 
 object ParquetException:
   /** Runs a codec call, turning its errors into ParquetExceptions with the same message */
-  private[parquet] inline def fromCodec[A](inline body: A): A =
+  private[cloud] inline def fromCodec[A](inline body: A): A =
     try
       body
     catch

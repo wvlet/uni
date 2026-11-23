@@ -1,5 +1,7 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.cloud.delta.*
+import wvlet.uni.cloud.iceberg.*
 import wvlet.uni.io.FileAlreadyExistsException
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
@@ -128,7 +130,7 @@ class ParquetDatasetBatchWriter private[parquet] (core: DatasetWriterCore) exten
   override def close(): Unit = core.close()
 
 /** Where a dataset is written */
-private[parquet] enum DatasetTarget:
+private[cloud] enum DatasetTarget:
   case Local(root: IOPath)
   case Objects(store: ObjectStore, root: ObjectUri, ownsStore: Boolean)
 
@@ -153,7 +155,7 @@ private[parquet] enum DatasetTarget:
   * The partition routing, file lifecycle, and write modes shared by the three dataset writers. Rows
   * arrive as MessagePack bytes (case classes and records) or as column batches.
   */
-private[parquet] final class DatasetWriterCore private (
+private[cloud] final class DatasetWriterCore private (
     target: DatasetTarget,
     val schema: ParquetSchema,
     options: ParquetDatasetWriteOptions,
@@ -1508,7 +1510,7 @@ private[parquet] final class DatasetWriterCore private (
 
 end DatasetWriterCore
 
-private[parquet] object DatasetWriterCore:
+private[cloud] object DatasetWriterCore:
 
   /** Creates the writer core, closing a store the target owns if the options are invalid */
   def create(

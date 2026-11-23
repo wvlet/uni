@@ -1,4 +1,6 @@
-package wvlet.uni.cloud.parquet
+package wvlet.uni.cloud.iceberg
+
+import wvlet.uni.cloud.parquet.*
 
 /**
   * What [[Parquet.compactIcebergTable]] rewrites. Data files are grouped by partition spec and

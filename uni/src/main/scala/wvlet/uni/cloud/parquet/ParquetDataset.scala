@@ -1,5 +1,7 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.cloud.delta.*
+import wvlet.uni.cloud.iceberg.*
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.io.ListOptions
@@ -189,7 +191,7 @@ class ParquetDataset private[parquet] (
     * their positions in the file (sorted), and the positions its delete files already delete. For
     * committing row deletes; an Iceberg table's dataset only. Only the filter's columns are read.
     */
-  private[parquet] def matchingPositions(
+  private[cloud] def matchingPositions(
       filter: ParquetFilter
   ): IndexedSeq[(DatasetFile, Array[Long], Array[Long])] =
     val found = IndexedSeq.newBuilder[(DatasetFile, Array[Long], Array[Long])]
@@ -204,7 +206,7 @@ class ParquetDataset private[parquet] (
     * updates; an Iceberg table's dataset only. `decode` turns a batch of matching rows into rows,
     * such as maps ([[ColumnBatch.rows]]) or case classes.
     */
-  private[parquet] def foreachMatchingRows[R](
+  private[cloud] def foreachMatchingRows[R](
       filter: ParquetFilter,
       decode: ColumnBatch => Iterator[R]
   )(each: ParquetDataset.MatchedRows[R] => Unit): Unit =
@@ -321,7 +323,7 @@ class ParquetDataset private[parquet] (
     * passing each batch with its rows' lineage when `inherited` is given (see [[lineageOf]]). For
     * compacting an Iceberg table, whose new files keep the rows' lineage.
     */
-  private[parquet] def foreachLiveBatch(
+  private[cloud] def foreachLiveBatch(
       file: DatasetFile,
       inherited: Option[ParquetDataset.Inherited] = None
   )(f: (ColumnBatch, Option[ParquetDataset.Lineage]) => Unit): Unit =
@@ -535,7 +537,7 @@ class ParquetDataset private[parquet] (
     * A reader the caller pulls one row group at a time, for consumers that need backpressure (the
     * npm facade's AsyncIterable). `readBatchesAsync` pushes every batch as soon as it is read.
     */
-  private[parquet] def batchReaderAsync(
+  private[cloud] def batchReaderAsync(
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Rx[DatasetBatchReader] = prepareAsync(options).map { (plan, files) =>
     new DatasetBatchReader:
@@ -1349,10 +1351,10 @@ end ParquetDataset
 object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   /** Iceberg's reserved field ID of the `_row_id` metadata column (row lineage) */
-  private[parquet] val RowIdFieldId = Int.MaxValue - 107
+  private[cloud] val RowIdFieldId = Int.MaxValue - 107
 
   /** Iceberg's reserved field ID of the `_last_updated_sequence_number` metadata column */
-  private[parquet] val LastUpdatedFieldId = Int.MaxValue - 108
+  private[cloud] val LastUpdatedFieldId = Int.MaxValue - 108
 
   /** Whether a field ID is one Iceberg reserves for metadata columns */
   private[parquet] def isReservedId(id: Int): Boolean = id >= Int.MaxValue - 200
@@ -1361,7 +1363,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     * The values a row inherits when its file doesn't store its lineage (format version 3): the
     * file's first row ID, to which the row's position is added, and its data sequence number
     */
-  private[parquet] case class Inherited(firstRowId: Option[Long], sequence: Option[Long])
+  private[cloud] case class Inherited(firstRowId: Option[Long], sequence: Option[Long])
 
   /**
     * The row lineage of some rows, aligned with them: the values and null flags of `_row_id` and
@@ -1414,7 +1416,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   // ---- Discovery ----
 
   /** A listed file: its path or URI, size, and path segments below the root */
-  private[parquet] case class Listed(path: String, size: Long, segments: Seq[String])
+  private[cloud] case class Listed(path: String, size: Long, segments: Seq[String])
 
   private[parquet] def isObjectUri(root: String): Boolean = root.contains("://")
 
@@ -1448,7 +1450,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       val uri = ObjectUri(root.bucket, key, root.scheme)
       Some(Listed(uri.toString, info.size, key.substring(root.key.length).split('/').toSeq))
 
-  private[parquet] def listLocal(root: IOPath): Seq[Listed] =
+  private[cloud] def listLocal(root: IOPath): Seq[Listed] =
     if FileSystem.isFile(root) then
       Seq(Listed(root.path, FileSystem.info(root).size, Seq(root.fileName)))
     else if !FileSystem.isDirectory(root) then
@@ -1608,7 +1610,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       s"${root}/"
 
   /** A local file path in the platform form: Delta logs and globs use `/` even on Windows */
-  private[parquet] def localPath(p: String): String =
+  private[cloud] def localPath(p: String): String =
     if isWindows then
       IOPath.parse(p).path
     else
@@ -1780,7 +1782,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       localPath(s"${tableRoot}${unescape(p)}")
 
   /** The local path of a `file:/a/b`, `file:///a/b`, or `file://localhost/a/b` URI */
-  private[parquet] def localPathOfFileUri(p: String): Option[String] =
+  private[cloud] def localPathOfFileUri(p: String): Option[String] =
     val rest = p.substring("file:".length)
     if rest.startsWith("///") then
       Some(rest.substring(2))
