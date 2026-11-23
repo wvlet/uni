@@ -65,11 +65,15 @@ Source: [`Gallery.scala`](src/main/scala/example/gallery/Gallery.scala),
 ## Run
 
 ```bash
-./sbt exampleUiGallery/gallerySite   # stages index.html, the CSS, and main.js in target/site
-python3 -m http.server -d examples/ui-gallery/target/site 8080
+./sbt "~;exampleUiGallery/gallerySite;exampleSiteServer/uniRestart examples/ui-gallery/target/site"
 # open http://localhost:8080
 ./sbt exampleUiGallery/test          # mounts every example in headless Chromium
 ```
+
+`gallerySite` stages index.html, the CSS, and main.js in `target/site`.
+[`exampleSiteServer`](../site-server/src/main/scala/example/site/SiteServer.scala) serves that
+folder with Uni's `Http.server` and `StaticFiles`, and `uniRestart` runs it in the background, so
+`~` restages the site on every edit. Reload the page to see a change.
 
 `./sbt exampleUiGallery/galleryDocs` links with `fullLinkJS` into `docs/public/gallery`, where
 `pnpm docs:dev` and the docs build pick it up.
