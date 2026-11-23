@@ -220,6 +220,7 @@ class ParquetDataset private[parquet] (
         val deleted = rowDeletes.getOrElse(s.file.path, Array.emptyLongArray)
         val found   = scala.collection.mutable.ArrayBuilder.ofLong()
         val rows    = IndexedSeq.newBuilder[Map[String, Any]]
+        val rowIds  = IndexedSeq.newBuilder[Any]
         val file    = ParquetFile(wrapErrors(s.file)(openSource(s.file)), meta)
         try
           wrapErrors(s.file) {
@@ -227,8 +228,10 @@ class ParquetDataset private[parquet] (
             file
               .selectRowGroups(opts)
               .foreach { i =>
-                var start   = file.rowGroups.take(i).map(_.numRows).sum
-                val batches =
+                val groupStart = file.rowGroups.take(i).map(_.numRows).sum
+                val inGroup    = scala.collection.mutable.ArrayBuilder.ofLong()
+                var start      = groupStart
+                val batches    =
                   if opts.columns.exists(_.isEmpty) then
                     emptyBatches(file.rowGroups(i).numRows, opts)
                   else
@@ -261,19 +264,20 @@ class ParquetDataset private[parquet] (
                         if withRows then
                           out = ColumnBatch(ks.length, out.columns.map(ColumnVector.take(_, ks)))
                       }
-                  found ++= positions
+                  inGroup ++= positions
                   if withRows then
                     rows ++= out.rows
                 }
+                val matched = inGroup.result()
+                found ++= matched
+                if withRows && matched.nonEmpty then
+                  val inherited = ParquetDataset.Inherited(firstRowIds.get(s.file.path), None)
+                  val lineage   = lineageOf(file, i, groupStart, inherited)(matched)
+                  rowIds ++= matched.indices.map(lineage.rowId)
               }
           }
           val positions = found.result()
           if positions.nonEmpty then
-            val rowIds =
-              if withRows then
-                wrapErrors(s.file)(rowIdsOf(s.file, file, positions))
-              else
-                IndexedSeq.empty
             each(
               ParquetDataset.MatchedRows(
                 s.file,
@@ -284,7 +288,7 @@ class ParquetDataset private[parquet] (
                 else
                   IndexedSeq.empty
                 ,
-                rowIds
+                rowIds.result()
               )
             )
         finally
@@ -295,60 +299,14 @@ class ParquetDataset private[parquet] (
   end scanMatches
 
   /**
-    * The row IDs of rows at these positions of a file (row lineage, format version 3): a stored
-    * `_row_id`, or the file's first row ID plus the position. Null for a row that has no ID yet.
-    */
-  private def rowIdsOf(
-      dataFile: DatasetFile,
-      file: ParquetFile,
-      positions: Array[Long]
-  ): IndexedSeq[Any] =
-    val first  = firstRowIds.get(dataFile.path)
-    val stored = file
-      .schema
-      .fields
-      .find(_.fieldId.contains(ParquetDataset.RowIdFieldId))
-      .map { f =>
-        val values = Array.fill[Any](file.numRows.toInt)(null)
-        var at     = 0
-        file
-          .readBatches(ParquetReadOptions.default.withColumns(f.name))
-          .foreach { b =>
-            val v = b.columns.head
-            var r = 0
-            while r < b.numRows do
-              values(at + r) =
-                if v.isNull(r) then
-                  null
-                else
-                  v.getValue(r)
-              r += 1
-            at += b.numRows
-          }
-        values
-      }
-    positions
-      .toIndexedSeq
-      .map { p =>
-        stored.flatMap(vs => Option(vs(p.toInt))) match
-          case Some(id) =>
-            id
-          case None =>
-            first.map(_ + p).orNull
-      }
-
-  end rowIdsOf
-
-  /**
     * Reads every row of one file that the table hasn't deleted, with all of the dataset's columns,
-    * passing each batch with the positions of its rows in the file and, for each of `longIds`, the
-    * values and null flags of the file's top-level INT64 column with that field ID for the same
-    * rows (None when the file lacks it). For compacting an Iceberg table, whose new files keep the
-    * rows' lineage; the extra columns are read one row group at a time.
+    * passing each batch with its rows' lineage when `inherited` is given (see [[lineageOf]]). For
+    * compacting an Iceberg table, whose new files keep the rows' lineage.
     */
-  private[parquet] def foreachLiveBatch(file: DatasetFile, longIds: Seq[Int] = Seq.empty)(
-      f: (ColumnBatch, Array[Long], Seq[Option[(Array[Long], Array[Boolean])]]) => Unit
-  ): Unit =
+  private[parquet] def foreachLiveBatch(
+      file: DatasetFile,
+      inherited: Option[ParquetDataset.Inherited] = None
+  )(f: (ColumnBatch, Option[ParquetDataset.Lineage]) => Unit): Unit =
     val options  = ParquetReadOptions.default
     val selected = IndexedSeq(Selected(file, None, None))
     val metas    = selected.map(s => footer(s.file))
@@ -359,22 +317,12 @@ class ParquetDataset private[parquet] (
     try
       wrapErrors(file) {
         val opts  = fileOptions(s, plan, pf.schema)
-        val names = longIds.map(id =>
-          pf.schema
-            .fields
-            .collectFirst {
-              case p: ParquetField.Primitive
-                  if p.fieldId.contains(id) && p.physicalType == PhysicalType.INT64 =>
-                p.name
-            }
-        )
         var start = 0L
         pf.rowGroups
           .indices
           .foreach { i =>
-            val groupStart = start
-            val extra      = longColumnsOf(pf, i, names)
-            val batches    =
+            val lineage = inherited.map(lineageOf(pf, i, start, _))
+            val batches =
               if opts.columns.exists(_.isEmpty) then
                 emptyBatches(pf.rowGroups(i).numRows, opts)
               else
@@ -391,15 +339,7 @@ class ParquetDataset private[parquet] (
                   out = ColumnBatch(rows.length, out.columns.map(ColumnVector.take(_, rows)))
                 }
               if out.numRows > 0 then
-                val aligned = extra.map(
-                  _.map { (vs, ns) =>
-                    (
-                      positions.map(p => vs((p - groupStart).toInt)),
-                      positions.map(p => ns((p - groupStart).toInt))
-                    )
-                  }
-                )
-                f(out, positions, aligned)
+                f(out, lineage.map(_(positions)))
             }
           }
       }
@@ -408,12 +348,63 @@ class ParquetDataset private[parquet] (
 
   end foreachLiveBatch
 
-  /** The values and null flags of these top-level INT64 columns in one row group */
+  /**
+    * The row lineage (format version 3) of rows in one row group of a file, starting at position
+    * `groupStart`, as a function from their positions in the file: each row's stored `_row_id` and
+    * `_last_updated_sequence_number`, or else the inherited value. Reads only the group's stored
+    * lineage columns, so memory doesn't grow with the file.
+    */
+  private def lineageOf(
+      pf: ParquetFile,
+      rowGroup: Int,
+      groupStart: Long,
+      inherited: ParquetDataset.Inherited
+  ): Array[Long] => ParquetDataset.Lineage =
+    val stored = longColumnsOf(pf, rowGroup, Seq(RowIdFieldId, LastUpdatedFieldId))
+    positions =>
+      def column(k: Int, fallback: Long => Option[Long]): (Array[Long], Array[Boolean]) =
+        val n      = positions.length
+        val values = Array.ofDim[Long](n)
+        val nulls  = Array.ofDim[Boolean](n)
+        var r      = 0
+        while r < n do
+          val p  = positions(r)
+          val at = (p - groupStart).toInt
+          stored(k) match
+            case Some((vs, ns)) if !ns(at) =>
+              values(r) = vs(at)
+            case _ =>
+              fallback(p) match
+                case Some(v) =>
+                  values(r) = v
+                case None =>
+                  nulls(r) = true
+          r += 1
+        (values, nulls)
+      val (ids, idNulls)   = column(0, p => inherited.firstRowId.map(_ + p))
+      val (seqs, seqNulls) = column(1, _ => inherited.sequence)
+      ParquetDataset.Lineage(ids, idNulls, seqs, seqNulls)
+
+  end lineageOf
+
+  /**
+    * The values and null flags, in one row group, of the file's top-level INT64 columns with these
+    * field IDs (None for an ID the file lacks)
+    */
   private def longColumnsOf(
       pf: ParquetFile,
       rowGroup: Int,
-      names: Seq[Option[String]]
+      fieldIds: Seq[Int]
   ): Seq[Option[(Array[Long], Array[Boolean])]] =
+    val names = fieldIds.map(id =>
+      pf.schema
+        .fields
+        .collectFirst {
+          case p: ParquetField.Primitive
+              if p.fieldId.contains(id) && p.physicalType == PhysicalType.INT64 =>
+            p.name
+        }
+    )
     val wanted = names.flatten
     if wanted.isEmpty then
       names.map(_ => None)
@@ -438,6 +429,8 @@ class ParquetDataset private[parquet] (
         }
       val byName = wanted.indices.map(k => wanted(k) -> (values(k), nulls(k))).toMap
       names.map(_.map(byName))
+
+  end longColumnsOf
 
   override def close(): Unit =
     val toClose = synchronized {
@@ -1345,6 +1338,29 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   /** Whether a field ID is one Iceberg reserves for metadata columns */
   private[parquet] def isReservedId(id: Int): Boolean = id >= Int.MaxValue - 200
+
+  /**
+    * The values a row inherits when its file doesn't store its lineage (format version 3): the
+    * file's first row ID, to which the row's position is added, and its data sequence number
+    */
+  private[parquet] case class Inherited(firstRowId: Option[Long], sequence: Option[Long])
+
+  /**
+    * The row lineage of some rows, aligned with them: the values and null flags of `_row_id` and
+    * `_last_updated_sequence_number`
+    */
+  private[parquet] case class Lineage(
+      rowIds: Array[Long],
+      rowIdNulls: Array[Boolean],
+      lastUpdated: Array[Long],
+      lastUpdatedNulls: Array[Boolean]
+  ):
+    /** The row ID of the i-th row, or null when it has none */
+    def rowId(i: Int): Any =
+      if rowIdNulls(i) then
+        null
+      else
+        rowIds(i)
 
   /**
     * The rows of one data file that a filter matched: their positions (sorted), the positions the
