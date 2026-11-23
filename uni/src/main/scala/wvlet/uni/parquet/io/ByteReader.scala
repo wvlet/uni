@@ -100,7 +100,7 @@ private[parquet] final class ByteReader(val buf: Array[Byte], start: Int, val li
 
 end ByteReader
 
-private[parquet] object ByteReader:
+private[uni] object ByteReader:
   inline def intLE(b: Array[Byte], i: Int): Int =
     (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
 

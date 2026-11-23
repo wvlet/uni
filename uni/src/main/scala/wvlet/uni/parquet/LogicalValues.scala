@@ -9,10 +9,11 @@ import java.time.LocalDate
 import java.time.LocalTime
 
 /** Converts physical values to the Scala values their logical type describes */
-private[parquet] object LogicalValues:
+private[uni] object LogicalValues:
   // Julian day number of 1970-01-01
-  private final val JulianEpochDay = 2440588L
-  private final val NanosPerDay    = 86400L * 1000000000L
+  /** The Julian day of 1970-01-01, which INT96 timestamps count from */
+  private[uni] final val JulianEpochDay = 2440588L
+  private final val NanosPerDay         = 86400L * 1000000000L
 
   def fromInt(v: Int, lt: Option[LogicalType]): Any =
     lt match

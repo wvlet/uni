@@ -12,7 +12,9 @@ import wvlet.uni.parquet.ColumnBatch
 import wvlet.uni.parquet.ColumnVector
 import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.ParquetException
+import wvlet.uni.parquet.LogicalValues
 import wvlet.uni.parquet.ParquetSchema
+import wvlet.uni.parquet.io.ByteReader
 import wvlet.uni.parquet.writer.BatchShredder
 
 import java.io.OutputStream
@@ -380,8 +382,13 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
           offsets(c.offsets, n, base)
           buffer(_.write(c.data, base, c.offsets(n) - base))
         case Leaf.Fixed(width) =>
-          val c = v.asInstanceOf[BinaryColumn]
-          if c.offsets(n) - c.offsets(0) == width.toLong * n then
+          val c       = v.asInstanceOf[BinaryColumn]
+          var uniform = true
+          var k       = 0
+          while uniform && k < n do
+            uniform = c.length(k) == width
+            k += 1
+          if uniform then
             // Every row has its bytes: copy them in one run
             buffer(_.write(c.data, c.offsets(0), width * n))
           else
@@ -400,13 +407,15 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
           val nanos = new Array[Long](n)
           var i     = 0
           while i < n do
+            if c.length(i) != 12 && c.length(i) != 0 && !isNull(i) then
+              fail(p, s"row ${i} has ${c.length(i)} bytes, but INT96 values have 12")
             if c.length(i) == 12 then
               val off = c.offsets(i)
-              val nod = BatchEncoder.longLE(c.data, off)
-              val day = BatchEncoder.intLE(c.data, off + 8).toLong
+              val nod = ByteReader.longLE(c.data, off)
+              val day = ByteReader.intLE(c.data, off + 8).toLong
               try
                 nanos(i) = Math.addExact(
-                  Math.multiplyExact(day - BatchEncoder.JulianEpochDay, 86400L * 1000000000L),
+                  Math.multiplyExact(day - LogicalValues.JulianEpochDay, 86400L * 1000000000L),
                   nod
                 )
               catch
@@ -427,9 +436,9 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
             while i < n do
               if c.length(i) == 12 then
                 val off = c.offsets(i)
-                b.writeIntLE(BatchEncoder.intLE(c.data, off))
-                b.writeIntLE(BatchEncoder.intLE(c.data, off + 4))
-                b.writeLongLE((BatchEncoder.intLE(c.data, off + 8) & 0xffffffffL) * 1000000L)
+                b.writeIntLE(ByteReader.intLE(c.data, off))
+                b.writeIntLE(ByteReader.intLE(c.data, off + 4))
+                b.writeLongLE((ByteReader.intLE(c.data, off + 8) & 0xffffffffL) * 1000000L)
               else
                 b.writeLongLE(0L)
                 b.writeLongLE(0L)
@@ -472,9 +481,6 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
 end BatchEncoder
 
 private[arrow] object BatchEncoder:
-  /** The Julian day of 1970-01-01 */
-  final val JulianEpochDay = 2440588L
-
   private val zeroBytes = new Array[Byte](16)
 
   def zeros(n: Int): Array[Byte] =
@@ -482,12 +488,6 @@ private[arrow] object BatchEncoder:
       zeroBytes
     else
       new Array[Byte](n)
-
-  def intLE(b: Array[Byte], i: Int): Int =
-    (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
-
-  def longLE(b: Array[Byte], i: Int): Long =
-    (intLE(b, i) & 0xffffffffL) | (intLE(b, i + 4).toLong << 32)
 
   /** A sign-extended little-endian value of `bytes` bytes */
   def writeDecimal(b: ByteBuf, v: Long, bytes: Int): Unit =

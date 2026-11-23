@@ -82,7 +82,7 @@ object ArrowSamples:
   val big: BigInt = -(BigInt(10).pow(39) + 7)
 
   /** Integers, decimals, and legacy types, in one two-row batch */
-  val (typesSchema, typesBatch): (ParquetSchema, ColumnBatch) =
+  val (typesSchema, typesBatch) =
     val schema =
       ParquetSchema
         .builder()
@@ -416,6 +416,46 @@ class ArrowWriterTest extends UniTest:
     val r = readStream(out.toByteArray)
     r.sawEndOfStream shouldBe false
     r.rows shouldBe Seq(Map("x" -> BigInt(1), "y" -> BigInt(2)))
+  }
+
+  test("copy fixed-width rows one by one when skipped rows are uneven") {
+    val schema = ParquetSchema
+      .builder()
+      .optional("s", ParquetType.struct(ParquetColumn.required("f", fixed(2))))
+      .build()
+    val g = schema.fields(0).asInstanceOf[ParquetField.Group]
+    // Row 0 is a null struct whose child has 0 bytes; row 2's child has 4, so the total is 2 * 3
+    val child = BinaryColumn(g.children(0), Array(0, 0, 2, 6), Array[Byte](1, 2, 9, 9, 9, 9), null)
+    val batch = ColumnBatch(
+      3,
+      IndexedSeq(StructColumn(g, 3, IndexedSeq(child), Array(true, false, true)))
+    )
+    readStream(Arrow.toStreamBytes(schema, Seq(batch))).rows.map(_("s")) shouldBe
+      Seq(null, Map("f" -> Hex("0102")), null)
+  }
+
+  test("reject an INT96 value that is not 12 bytes") {
+    val base   = ParquetSchema.builder().required("t", fixed(12)).build()
+    val schema = ParquetSchema(
+      base
+        .root
+        .copy(children =
+          IndexedSeq(
+            base
+              .fields(0)
+              .asInstanceOf[ParquetField.Primitive]
+              .copy(physicalType = PhysicalType.INT96)
+          )
+        )
+    )
+    val batch = ColumnBatch(
+      1,
+      IndexedSeq(BinaryColumn(schema.fields(0), Array(0, 8), new Array[Byte](8), null))
+    )
+    val e = intercept[ArrowException] {
+      Arrow.toStreamBytes(schema, Seq(batch))
+    }
+    e.getMessage shouldContain "12"
   }
 
   test("fail writes after close") {

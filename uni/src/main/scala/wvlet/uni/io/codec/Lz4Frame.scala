@@ -62,6 +62,8 @@ private[uni] object Lz4Frame:
       if (magic & 0xfffffff0) == 0x184d2a50 then
         // A skippable frame
         val n = int32(pos)
+        if n < 0 || n > end - pos - 4 then
+          fail("truncated skippable frame")
         pos += 4 + n
       else
         if magic != Magic then
@@ -123,9 +125,6 @@ private[uni] object XxHash32:
   private final val P4 = 0x27d4eb2f
   private final val P5 = 0x165667b1
 
-  private inline def le32(b: Array[Byte], i: Int): Int =
-    (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
-
   private inline def round(acc: Int, v: Int): Int = Integer.rotateLeft(acc + v * P2, 13) * P1
 
   def hash(b: Array[Byte], offset: Int, len: Int, seed: Int): Int =
@@ -138,10 +137,10 @@ private[uni] object XxHash32:
         var v3 = seed
         var v4 = seed - P1
         while i <= end - 16 do
-          v1 = round(v1, le32(b, i))
-          v2 = round(v2, le32(b, i + 4))
-          v3 = round(v3, le32(b, i + 8))
-          v4 = round(v4, le32(b, i + 12))
+          v1 = round(v1, Zstd.le32(b, i))
+          v2 = round(v2, Zstd.le32(b, i + 4))
+          v3 = round(v3, Zstd.le32(b, i + 8))
+          v4 = round(v4, Zstd.le32(b, i + 12))
           i += 16
         Integer.rotateLeft(v1, 1) + Integer.rotateLeft(v2, 7) + Integer.rotateLeft(v3, 12) +
           Integer.rotateLeft(v4, 18)
@@ -149,7 +148,7 @@ private[uni] object XxHash32:
         seed + P5
     h += len
     while i <= end - 4 do
-      h = Integer.rotateLeft(h + le32(b, i) * P3, 17) * P4
+      h = Integer.rotateLeft(h + Zstd.le32(b, i) * P3, 17) * P4
       i += 4
     while i < end do
       h = Integer.rotateLeft(h + (b(i) & 0xff) * P5, 11) * P1

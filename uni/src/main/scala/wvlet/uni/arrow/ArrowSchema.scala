@@ -380,6 +380,8 @@ private[arrow] object ArrowPlan:
                 None
             plan(T.Timestamp(unit(u), tz), Leaf.FromLong)
           case LogicalType.Decimal(scale, precision) =>
+            if precision < 1 || precision > 76 then
+              fail(p, s"DECIMAL precision ${precision} is over decimal256's 76")
             val bits =
               if precision <= 38 then
                 128
