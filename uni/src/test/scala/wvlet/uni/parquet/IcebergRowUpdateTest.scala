@@ -55,7 +55,7 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
     // The other columns, including nulls and the partition column, are kept
     rows(root).find(_("id") == 2L).get shouldBe
       Map("id" -> 2L, "item" -> "BANANA", "dt" -> d1, "country" -> null)
-    // The old data files stay: merge-on-read
+    // One commit holds both the new rows and the deletes
     newestVersion(root) shouldBe 2
   }
 

@@ -1221,8 +1221,13 @@ private[parquet] final class DatasetWriterCore private (
               throw IllegalStateException(s"An update with row lineage needs a ${name} column")
         }
         Some(
+          // Rebuilt from elements, so the appended columns get their own leaf indexes
           p.copy(fileSchema =
-            ParquetSchema(p.fileSchema.root.copy(children = p.fileSchema.fields ++ extra))
+            ParquetSchema.fromElements(
+              SchemaElements.of(
+                ParquetSchema(p.fileSchema.root.copy(children = p.fileSchema.fields ++ extra))
+              )
+            )
           )
         )
       else

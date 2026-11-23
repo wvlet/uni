@@ -1053,14 +1053,9 @@ object Parquet:
           writer.abort()
           None
         else
-          val (plan, files) =
-            try
-              core.closeUncommitted()
-            catch
-              case e: Throwable =>
-                writer.abort()
-                throw e
-          val c = IcebergWrite.RowDeleteCommit(layout, t, rows, Some(plan -> files))
+          // A failure while finishing the files discards them
+          val (plan, files) = core.closeUncommitted()
+          val c             = IcebergWrite.RowDeleteCommit(layout, t, rows, Some(plan -> files))
           Some(RowChange(c, core.writtenFiles.map(_.path), c.deletedRows))
       }
     }

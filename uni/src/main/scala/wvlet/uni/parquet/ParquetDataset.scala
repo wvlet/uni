@@ -140,7 +140,12 @@ class ParquetDataset private[parquet] (
     * [[schema]] relaxes for partition columns), for writing rows back to the table
     */
   private[parquet] def tableSchema: ParquetSchema = tableFields
-    .map(fs => ParquetSchema(schema.root.copy(children = fs)))
+    // Built from the table's fields alone, so no file footer is read
+    .map(fs =>
+      ParquetSchema(
+        ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, fs.toIndexedSeq)
+      )
+    )
     .getOrElse(schema)
 
   /**
@@ -266,7 +271,7 @@ class ParquetDataset private[parquet] (
           if positions.nonEmpty then
             val rowIds =
               if withRows then
-                rowIdsOf(s.file, file, positions)
+                wrapErrors(s.file)(rowIdsOf(s.file, file, positions))
               else
                 IndexedSeq.empty
             each(
