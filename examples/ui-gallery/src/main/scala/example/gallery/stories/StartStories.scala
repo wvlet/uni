@@ -33,7 +33,7 @@ object StartStories:
     Story(
       "start/app",
       "Your first app",
-      "src/main/scala/Main.scala: type a name, then press Reset."
+      "app/src/main/scala/Main.scala: type a name, then press Reset."
     )(Hello())
 
   val page: GuidePage = GuidePage(

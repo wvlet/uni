@@ -77,7 +77,12 @@ case class PageRoute(page: GalleryPage, example: Option[Story]):
 object Pages:
   val groups: Seq[PageGroup] = Seq(
     PageGroup("start", "Start here", "", Seq(StartStories.page)),
-    PageGroup("foundations", "Foundations", "dom/theming", Seq(ColorsPage.page)),
+    PageGroup(
+      "foundations",
+      "Foundations",
+      "dom/theming",
+      Seq(ColorsPage.page) ++ ThemingStories.pages
+    ),
     PageGroup("controls", "Controls", "dom/controls", ControlStories.pages),
     PageGroup("overlays", "Overlays", "dom/overlays", OverlayStories.pages),
     PageGroup("collections", "Collections", "dom/collections", CollectionStories.pages),

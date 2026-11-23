@@ -42,7 +42,11 @@ class GalleryTest extends DomTestSupport:
         p.api.nonEmpty shouldBe true
         p.api.head.kind shouldBe "create"
       }
-    Pages.all.filterNot(_.isComponent).map(_.id).forall(_.startsWith("rx-")) shouldBe true
+    Pages
+      .all
+      .filterNot(_.isComponent)
+      .map(_.id)
+      .forall(id => id.startsWith("rx-") || id == "theming") shouldBe true
     val button = page("button").api
     button.map(_.signature) shouldContain ".withLabel(l: String)"
     button.find(_.signature == ".withLabel(l: String)").get.doc shouldContain "accessible name"
