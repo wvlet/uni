@@ -45,21 +45,26 @@ private[csv] final class CSVWriter(format: CSVFormat):
     else
       Some(s)
 
-  def writeRecords(records: IterableOnce[Seq[String]], out: StringBuilder): Unit = records
+  def writeRecords(
+      records: IterableOnce[Seq[String]],
+      out: StringBuilder,
+      afterRow: () => Unit = () => ()
+  ): Unit = records
     .iterator
-    .foreach(r => writeRecord(r.map(recordField), out))
-
-  def writeRecordsTo(path: IOPath, records: IterableOnce[Seq[String]]): Unit =
-    withFile(path) { (out, sb) =>
-      records
-        .iterator
-        .foreach { r =>
-          writeRecord(r.map(recordField), sb)
-          flushIfFull(out, sb)
-        }
+    .foreach { r =>
+      writeRecord(r.map(recordField), out)
+      afterRow()
     }
 
-  def writeValues[A](values: IterableOnce[A], weaver: Weaver[A], out: StringBuilder): Unit =
+  def writeRecordsTo(path: IOPath, records: IterableOnce[Seq[String]]): Unit =
+    withFile(path)((out, sb) => writeRecords(records, sb, () => flushIfFull(out, sb)))
+
+  def writeValues[A](
+      values: IterableOnce[A],
+      weaver: Weaver[A],
+      out: StringBuilder,
+      afterRow: () => Unit = () => ()
+  ): Unit =
     val it = values.iterator
     if it.hasNext then
       val first   = toObject(weaver, it.next())
@@ -67,22 +72,13 @@ private[csv] final class CSVWriter(format: CSVFormat):
       if format.hasHeader then
         writeRecord(columns.map(Some(_)), out)
       writeObject(columns, first, out)
-      it.foreach(v => writeObject(columns, toObject(weaver, v), out))
+      it.foreach { v =>
+        afterRow()
+        writeObject(columns, toObject(weaver, v), out)
+      }
 
   def writeValuesTo[A](path: IOPath, values: IterableOnce[A], weaver: Weaver[A]): Unit =
-    withFile(path) { (out, sb) =>
-      val it = values.iterator
-      if it.hasNext then
-        val first   = toObject(weaver, it.next())
-        val columns = columnNames(weaver, first)
-        if format.hasHeader then
-          writeRecord(columns.map(Some(_)), sb)
-        writeObject(columns, first, sb)
-        it.foreach { v =>
-          writeObject(columns, toObject(weaver, v), sb)
-          flushIfFull(out, sb)
-        }
-    }
+    withFile(path)((out, sb) => writeValues(values, weaver, sb, () => flushIfFull(out, sb)))
 
   private def withFile(path: IOPath)(body: (OutputStream, StringBuilder) => Unit): Unit =
     val out = FileSystem.writeStream(path)
