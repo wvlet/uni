@@ -672,7 +672,15 @@ Parquet.writeDataset(
 - **Layout.** Data files go under `data/` (`data/dt=2026-11-20/part-....parquet`) and keep every
   column, including the partition columns, with Iceberg field IDs. Each commit writes a manifest
   and a manifest list (Avro) under `metadata/`, then `metadata/vN.metadata.json`, then
-  `version-hint.text`. Format version 2.
+  `version-hint.text`.
+- **Format versions.** New tables are format version 2, which every engine reads.
+  `withTableProperties(Map("format-version" -> "3"))` creates a version 3 table instead, or
+  upgrades a version 2 table in the commit (a version never goes down);
+  `Parquet.alterIcebergTable(root, IcebergTableChange.SetProperty("format-version", "3"))`
+  upgrades without writing rows. Commits to a version 3
+  table keep row lineage: each snapshot records `first-row-id` and `added-rows`, data manifests
+  get their first row IDs, and a rewritten manifest writes out the IDs its files inherited, so a
+  row keeps its ID. Alter, expire, and rename keep the version 3 fields.
 - **Atomic commits.** The new `vN.metadata.json` is created with `ObjectStore.putIfAbsent` (S3
   `If-None-Match: *`, GCS `ifGenerationMatch=0`, Azure `If-None-Match: *`; an exclusive create on a
   local disk), so of two concurrent writers only one commits each version. The other reloads the
@@ -692,8 +700,9 @@ Parquet.writeDataset(
   `Parquet.alterIcebergTable` first), type changes, and optional data for a required column fail
   with the column named. An `Overwrite` whose rows don't fit the schema commits a new schema with
   new field IDs; it keeps the partition columns if the new schema has them all, and is
-  unpartitioned otherwise, unless `withPartitionBy` says. Types Iceberg format version 2
-  can't hold fail too: unsigned integers, millisecond and nanosecond timestamps, and INT96.
+  unpartitioned otherwise, unless `withPartitionBy` says. Nanosecond timestamps
+  (`timestamp_ns`, `timestamptz_ns`) need a version 3 table. Types Iceberg can't hold fail
+  too: unsigned integers, millisecond timestamps, and INT96.
 - **Partitions** are identity partitions on string, int, long, and date columns. An append without
   `withPartitionBy` uses the table's spec. An empty string and null are different partition values,
   as Iceberg keeps them apart. Tables partitioned by other transforms (`day`, `bucket`,
@@ -704,7 +713,7 @@ Parquet.writeDataset(
 - **Which tables.** Uni commits to Hadoop tables, which keep `metadata/vN.metadata.json` and need
   no catalog. A table that a catalog owns (Glue, REST, Hive, or SQL; its metadata files are named
   `00003-<uuid>.metadata.json`) fails, because the catalog would keep pointing at the old version.
-  Commit to such a table through its catalog. Appends to format version 1 and 3 tables fail as
+  Commit to such a table through its catalog. Appends to format version 1 tables fail as
   well.
 - **Properties.** `withTableProperties(Map(...))` sets table properties in the commit, keeping
   the others.
@@ -777,7 +786,9 @@ Parquet.dropIcebergTable(visitsRoot)
   and the older metadata versions are deleted. A data file stored outside the table folder keeps its
   recorded path. Before moving anything, it refuses a target that exists, object stores, tables
   with branches or tags other than `main` (their snapshots would be lost), and tables that set
-  `write.data.path` or `write.metadata.path`.
+  `write.data.path` or `write.metadata.path`. Deletion vectors are pointed at the moved data
+  files. A table with position-delete files is refused too, since their rows name data files by
+  the old paths; compact it first.
 - `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
   no readable table, then every file under the root. It fails when the root is not an Iceberg
   table.

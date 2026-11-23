@@ -558,6 +558,30 @@ class IcebergInteropTables extends UniTest:
           ),
           ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)
         )
+        // Format version 3: create, append, then replace the files of one partition
+        val salesV3 = s"${d}/sales_v3"
+        Parquet.writeDataset(
+          salesV3,
+          Seq(
+            IcebergSale(1, "apple", LocalDate.of(2026, 11, 20), Some("JP")),
+            IcebergSale(2, "banana", LocalDate.of(2026, 11, 20), None)
+          ),
+          opts.withTableProperties(Map(IcebergWrite.FormatVersionProperty -> "3"))
+        )
+        Parquet.writeDataset(
+          salesV3,
+          Seq(IcebergSale(3, "cherry", LocalDate.of(2026, 11, 21), Some("US"))),
+          opts.withMode(ParquetWriteMode.Append)
+        )
+        val ds      = Parquet.dataset(salesV3)
+        val replace =
+          try ds.files.filter(_.partitions("dt") == LocalDate.of(2026, 11, 20)).map(_.path)
+          finally ds.close()
+        Parquet.writeDataset(
+          salesV3,
+          Seq(IcebergSale(1, "apple", LocalDate.of(2026, 11, 20), Some("JP"))),
+          opts.withMode(ParquetWriteMode.Overwrite).withReplacedFiles(replace)
+        )
   }
 
 end IcebergInteropTables

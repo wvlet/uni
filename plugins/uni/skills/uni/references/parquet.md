@@ -247,7 +247,8 @@ def typedDataset(root: String) = Parquet.dataset(
   and deletion vectors are applied. Equality deletes, `variant`/`geometry`/`geography` columns,
   and non-Parquet data files fail by name.
 - `ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)` writes an
-  Iceberg table (Hadoop table, format v2): `ErrorIfExists` creates it, `Append` commits a
+  Iceberg table (Hadoop table, format v2; `withTableProperties(Map("format-version" -> "3"))`
+  for v3 with row lineage and nanosecond timestamps): `ErrorIfExists` creates it, `Append` commits a
   snapshot atomically (`ObjectStore.putIfAbsent` on `metadata/vN.metadata.json`, retrying a lost
   race). Data goes under `data/` with the partition columns and field IDs kept; manifests carry
   column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.

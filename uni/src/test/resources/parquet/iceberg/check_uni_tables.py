@@ -30,3 +30,10 @@ for table in ["sales", "nested"]:
     con = duckdb.connect()
     con.execute("INSTALL iceberg; LOAD iceberg;")
     print(table, "duckdb:", con.execute(f"SELECT * FROM iceberg_scan('{d}/{table}') ORDER BY id").fetchall())
+
+# Format version 3 (pyiceberg can't read row lineage yet): DuckDB reads the rows and row IDs
+con = duckdb.connect()
+con.execute("INSTALL iceberg; LOAD iceberg;")
+meta = newest("sales_v3")
+print("sales_v3", "format-version:", json.load(open(meta))["format-version"], "next-row-id:", json.load(open(meta))["next-row-id"])
+print("sales_v3", "duckdb:", con.execute(f"SELECT * FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
