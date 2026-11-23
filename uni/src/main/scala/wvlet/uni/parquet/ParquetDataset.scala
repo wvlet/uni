@@ -193,24 +193,28 @@ class ParquetDataset private[parquet] (
       filter: ParquetFilter
   ): IndexedSeq[(DatasetFile, Array[Long], Array[Long])] =
     val found = IndexedSeq.newBuilder[(DatasetFile, Array[Long], Array[Long])]
-    scanMatches(ParquetReadOptions.default.withColumns().withFilter(filter), withRows = false) {
-      m =>
-        found += ((m.file, m.positions, m.deleted))
+    scanMatches[Nothing](ParquetReadOptions.default.withColumns().withFilter(filter), None) { m =>
+      found += ((m.file, m.positions, m.deleted))
     }
     found.result()
 
   /**
     * Calls `each` with the rows a filter matches that the table hasn't deleted yet, one file at a
     * time: every column of the rows, their positions, and their row IDs. For committing row
-    * updates; an Iceberg table's dataset only.
+    * updates; an Iceberg table's dataset only. `decode` turns a batch of matching rows into rows,
+    * such as maps ([[ColumnBatch.rows]]) or case classes.
     */
-  private[parquet] def foreachMatchingRows(filter: ParquetFilter)(
-      each: ParquetDataset.MatchedRows => Unit
-  ): Unit = scanMatches(ParquetReadOptions.default.withFilter(filter), withRows = true)(each)
+  private[parquet] def foreachMatchingRows[R](
+      filter: ParquetFilter,
+      decode: ColumnBatch => Iterator[R]
+  )(each: ParquetDataset.MatchedRows[R] => Unit): Unit =
+    scanMatches(ParquetReadOptions.default.withFilter(filter), Some(decode))(each)
 
-  private def scanMatches(options: ParquetReadOptions, withRows: Boolean)(
-      each: ParquetDataset.MatchedRows => Unit
-  ): Unit =
+  private def scanMatches[R](
+      options: ParquetReadOptions,
+      decode: Option[ColumnBatch => Iterator[R]]
+  )(each: ParquetDataset.MatchedRows[R] => Unit): Unit =
+    val withRows = decode.isDefined
     val selected = selectByPartition(options)
     val metas    = selected.map(s => footer(s.file))
     val plan     = buildPlan(options, selected, metas)
@@ -219,7 +223,7 @@ class ParquetDataset private[parquet] (
       .foreach { (s, meta) =>
         val deleted = rowDeletes.getOrElse(s.file.path, Array.emptyLongArray)
         val found   = scala.collection.mutable.ArrayBuilder.ofLong()
-        val rows    = IndexedSeq.newBuilder[Map[String, Any]]
+        val rows    = IndexedSeq.newBuilder[R]
         val rowIds  = IndexedSeq.newBuilder[Any]
         val file    = ParquetFile(wrapErrors(s.file)(openSource(s.file)), meta)
         try
@@ -265,8 +269,7 @@ class ParquetDataset private[parquet] (
                           out = ColumnBatch(ks.length, out.columns.map(ColumnVector.take(_, ks)))
                       }
                   inGroup ++= positions
-                  if withRows then
-                    rows ++= out.rows
+                  decode.foreach(d => rows ++= d(out))
                 }
                 val matched = inGroup.result()
                 found ++= matched
@@ -1366,11 +1369,11 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     * The rows of one data file that a filter matched: their positions (sorted), the positions the
     * file's delete files already delete, the rows, and their row IDs (null where a row has none)
     */
-  private[parquet] case class MatchedRows(
+  private[parquet] case class MatchedRows[R](
       file: DatasetFile,
       positions: Array[Long],
       deleted: Array[Long],
-      rows: IndexedSeq[Map[String, Any]],
+      rows: IndexedSeq[R],
       rowIds: IndexedSeq[Any]
   )
 

@@ -805,10 +805,18 @@ val updated = Parquet.updateIcebergRows(
   "s3://my-bucket/warehouse/visits/",
   ParquetFilter.col("user") === "bot"
 )(row => row.updated("user", "masked"))
+
+// The same update on case classes
+val updatedVisits = Parquet.updateIcebergRows[Visit](
+  "s3://my-bucket/warehouse/visits/",
+  ParquetFilter.col("user") === "bot"
+)(visit => visit.copy(user = "masked"))
 ```
 
 - **Rows in, rows out.** The function gets each matching row as a `Map[String, Any]`, in the
-  shape `readRows` gives, and returns its new version. The new row must fit the table's current
+  shape `readRows` gives, and returns its new version. With a type argument, it gets and returns
+  a case class instead, read as `readAs` reads it and written as `writeDataset` writes it; table
+  columns the class leaves out are written as null. The new row must fit the table's current
   schema, as an appended row must. A row whose partition column changes moves to its new
   partition. A row that doesn't fit fails the update, and nothing is committed.
 - **What it writes.** The old rows are deleted as [`deleteIcebergRows`](#deleting-rows-merge-on-read)
