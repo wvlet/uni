@@ -3,7 +3,7 @@ package wvlet.uni.cloud.iceberg
 import wvlet.uni.cloud.parquet.*
 
 /**
-  * What [[Parquet.compactIcebergTable]] rewrites. Data files are grouped by partition spec and
+  * What [[Iceberg.compactTable]] rewrites. Data files are grouped by partition spec and
   * partition value. In a group, every file that deletes apply to is rewritten with them applied,
   * and small files are merged when the group has enough of them. The new files are cut at the
   * target size.
@@ -76,7 +76,7 @@ object IcebergCompactionOptions:
   val default: IcebergCompactionOptions = IcebergCompactionOptions()
 
 /**
-  * What [[Parquet.compactIcebergTable]] committed; all zeros when there was nothing to compact
+  * What [[Iceberg.compactTable]] committed; all zeros when there was nothing to compact
   *
   * @param removedDataFiles
   *   the data files rewritten and removed

@@ -258,17 +258,17 @@ def typedDataset(root: String) = Parquet.dataset(
   snapshot atomically (`ObjectStore.putIfAbsent` on `metadata/vN.metadata.json`, retrying a lost
   race). Data goes under `data/` with the partition columns and field IDs kept; manifests carry
   column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.
-  `Parquet.renameIcebergTable(from, to)` moves a local table and writes its manifests and
+  `Iceberg.renameTable(from, to)` moves a local table and writes its manifests and
   position-delete files again with the moved paths (current snapshot only).
-  `Parquet.deleteIcebergRows(root, filter)` deletes the matching rows merge-on-read and returns
+  `Iceberg.deleteRows(root, filter)` deletes the matching rows merge-on-read and returns
   how many: deletion vectors (Puffin) in v3 tables, position-delete files in v2, data files kept.
-  `Parquet.updateIcebergRows(root, filter)(row => row.updated("k", v))` (or
-  `updateIcebergRows[A](root, filter)(a => a.copy(...))` for case classes) updates them
+  `Iceberg.updateRows(root, filter)(row => row.updated("k", v))` (or
+  `Iceberg.updateRows[A](root, filter)(a => a.copy(...))` for case classes) updates them
   merge-on-read in one `overwrite` snapshot (new data files for the new rows, deletes for the old;
   v3 rows keep their `_row_id`) and returns how many; a lost race keeps the written data files
   when the other commit left the touched files and the schema alone, and otherwise reads the rows
   and calls the function again, so keep the function free of side effects.
-  `Parquet.compactIcebergTable(root)` (or with `IcebergCompactionOptions.default
+  `Iceberg.compactTable(root)` (or with `IcebergCompactionOptions.default
   .withTargetFileSize(bytes).withFilter(f).noFileMerging()`) rewrites files with deletes applied,
   merges small files per partition, and removes delete files no file needs, in one `replace`
   snapshot; v3 row IDs are kept. It returns an `IcebergCompaction` with the counts.

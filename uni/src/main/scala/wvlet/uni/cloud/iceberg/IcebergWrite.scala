@@ -849,7 +849,7 @@ private[cloud] object IcebergWrite:
           throw ParquetException(
             s"Column ${name} is not in the schema of ${source} (${table
                 .flatMap(string(_, "name"))
-                .mkString(", ")}). Add it with Parquet.alterIcebergTable first"
+                .mkString(", ")}). Add it with Iceberg.alterTable first"
           )
         )
       if c.get("required").contains(JSONBoolean(true)) && f.isOptional then

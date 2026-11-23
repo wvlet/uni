@@ -94,7 +94,7 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
   override def close(): Unit = core.close()
 
 /** Converts records into MessagePack bytes for the shredder */
-private[parquet] object RecordBytes:
+private[cloud] object RecordBytes:
 
   def fromJson(json: String): Array[Byte] =
     try

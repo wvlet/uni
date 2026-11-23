@@ -164,7 +164,7 @@ object ParquetSchema:
     SchemaElements.of(name, columns)
   )
 
-  private[parquet] def fromElements(elements: IndexedSeq[SchemaElement]): ParquetSchema =
+  private[cloud] def fromElements(elements: IndexedSeq[SchemaElement]): ParquetSchema =
     if elements.isEmpty then
       throw ParquetException.corrupt("the schema is empty")
     var pos       = 0

@@ -141,7 +141,7 @@ class ParquetDataset private[parquet] (
     * The columns of an Iceberg table as its schema declares them, with their required flags (which
     * [[schema]] relaxes for partition columns), for writing rows back to the table
     */
-  private[parquet] def tableSchema: ParquetSchema = tableFields
+  private[cloud] def tableSchema: ParquetSchema = tableFields
     // Built from the table's fields alone, so no file footer is read
     .map(fs =>
       ParquetSchema(
@@ -217,14 +217,14 @@ class ParquetDataset private[parquet] (
     * equality-delete files that apply to it, and its first row ID. A row change whose files are
     * still live with the same state can commit on a newer table version without reading again.
     */
-  private[parquet] def readState(path: String): ParquetDataset.ReadState = ParquetDataset.ReadState(
+  private[cloud] def readState(path: String): ParquetDataset.ReadState = ParquetDataset.ReadState(
     rowDeletes.getOrElse(path, Array.emptyLongArray).toIndexedSeq,
     equalityDeletes.getOrElse(path, IndexedSeq.empty).map(_.source).sorted,
     firstRowIds.get(path)
   )
 
   /** The files a filter may match, by partition values and statistics, without reading them */
-  private[parquet] def candidateFiles(filter: ParquetFilter): Set[String] =
+  private[cloud] def candidateFiles(filter: ParquetFilter): Set[String] =
     selectByPartition(ParquetReadOptions.default.withFilter(filter)).map(_.file.path).toSet
 
   private def scanMatches[R](
@@ -1369,7 +1369,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     * The row lineage of some rows, aligned with them: the values and null flags of `_row_id` and
     * `_last_updated_sequence_number`
     */
-  private[parquet] case class Lineage(
+  private[cloud] case class Lineage(
       rowIds: Array[Long],
       rowIdNulls: Array[Boolean],
       lastUpdated: Array[Long],
@@ -1418,7 +1418,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   /** A listed file: its path or URI, size, and path segments below the root */
   private[cloud] case class Listed(path: String, size: Long, segments: Seq[String])
 
-  private[parquet] def isObjectUri(root: String): Boolean = root.contains("://")
+  private[cloud] def isObjectUri(root: String): Boolean = root.contains("://")
 
   /**
     * Whether local paths are Windows paths. Touches FileSystem first, which sets IOPath.isWindows
@@ -1428,7 +1428,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   /**
     * The root of an object prefix, with a trailing `/` so `events` doesn't also match `events_old`
     */
-  private[parquet] def objectRoot(root: String): ObjectUri =
+  private[cloud] def objectRoot(root: String): ObjectUri =
     val uri = ObjectUri.parse(root)
     if uri.key.isEmpty || uri.key.endsWith("/") then
       uri

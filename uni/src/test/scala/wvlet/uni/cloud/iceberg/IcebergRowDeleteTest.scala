@@ -17,7 +17,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
 
   test("delete rows of a version 2 table with position-delete files") {
     val root = create()
-    Parquet.deleteIcebergRows(root, col("id") === 2L || col("id") === 4L) shouldBe 2L
+    Iceberg.deleteRows(root, col("id") === 2L || col("id") === 4L) shouldBe 2L
     ids(root) shouldBe Seq(1L, 3L, 5L)
     summary(root, "operation") shouldBe Some("delete")
     summary(root, "added-position-deletes") shouldBe Some("2")
@@ -40,17 +40,17 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
 
   test("delete nothing when no row matches") {
     val root = create()
-    Parquet.deleteIcebergRows(root, col("id") === 99L) shouldBe 0L
+    Iceberg.deleteRows(root, col("id") === 99L) shouldBe 0L
     newestVersion(root) shouldBe 1
   }
 
   test("delete rows of a version 3 table with deletion vectors") {
     val root = create(v3)
-    Parquet.deleteIcebergRows(root, col("id") === 3L) shouldBe 1L
+    Iceberg.deleteRows(root, col("id") === 3L) shouldBe 1L
     ids(root) shouldBe Seq(1L, 2L, 4L, 5L)
     summary(root, "added-dvs") shouldBe Some("1")
     // A second delete in the same file merges the old vector, which it replaces
-    Parquet.deleteIcebergRows(root, col("id") >= 3L) shouldBe 2L
+    Iceberg.deleteRows(root, col("id") >= 3L) shouldBe 2L
     ids(root) shouldBe Seq(1L, 2L)
     summary(root, "removed-dvs") shouldBe Some("1")
     summary(root, "total-position-deletes") shouldBe Some("3")
@@ -58,7 +58,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
     vectors.map(_("file_format")) shouldBe Seq("PUFFIN")
     vectors.head("record_count") shouldBe 3L
     // Rows already deleted aren't counted again
-    Parquet.deleteIcebergRows(root, col("id") === 3L) shouldBe 0L
+    Iceberg.deleteRows(root, col("id") === 3L) shouldBe 0L
   }
 
   test("delete a whole partition and keep time travel") {
@@ -68,7 +68,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
       try ds.selectFiles().size
       finally ds.close()
     val first = metadata(root, 1).get("current-snapshot-id").get.asInstanceOf[JSONLong].v
-    Parquet.deleteIcebergRows(root, col("dt") === d2) shouldBe 3L
+    Iceberg.deleteRows(root, col("dt") === d2) shouldBe 3L
     ids(root) shouldBe Seq(1L, 2L)
     val old = Parquet.dataset(root, ParquetDatasetOptions.default.withSnapshotId(first))
     try old.readRows().size shouldBe 5
@@ -81,16 +81,16 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
 
   test("delete rows with a filter on a column the rows lack") {
     val root = create()
-    Parquet.deleteIcebergRows(root, col("country").isNull) shouldBe 1L
+    Iceberg.deleteRows(root, col("country").isNull) shouldBe 1L
     ids(root) shouldBe Seq(1L, 3L, 4L, 5L)
   }
 
   test("expire the snapshots of replaced deletion vectors") {
     val root = create(v3)
-    Parquet.deleteIcebergRows(root, col("id") === 3L) shouldBe 1L
+    Iceberg.deleteRows(root, col("id") === 3L) shouldBe 1L
     val oldVector = liveDeletes(root).head("file_path").toString
-    Parquet.deleteIcebergRows(root, col("id") === 4L) shouldBe 1L
-    Parquet.expireIcebergSnapshots(root, retainLast = 1) shouldBe 2
+    Iceberg.deleteRows(root, col("id") === 4L) shouldBe 1L
+    Iceberg.expireSnapshots(root, retainLast = 1) shouldBe 2
     FileSystem.exists(IOPath.parse(ParquetDataset.localPathOfFileUri(oldVector).get)) shouldBe false
     ids(root) shouldBe Seq(1L, 2L, 5L)
   }
@@ -113,10 +113,10 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
       found.map((f, added, existing) => IcebergWrite.RowDeletes(f.path, added, existing))
     )
     // Another writer deletes a row of the same file first
-    Parquet.deleteIcebergRows(root, col("id") === 4L) shouldBe 1L
+    Iceberg.deleteRows(root, col("id") === 4L) shouldBe 1L
     intercept[IcebergWrite.LostRace](DatasetWriterCore.runStepsSync(target, stale.run()))
     // A retry from the new version keeps both deletes
-    Parquet.deleteIcebergRows(root, col("id") === 3L) shouldBe 1L
+    Iceberg.deleteRows(root, col("id") === 3L) shouldBe 1L
     ids(root) shouldBe Seq(1L, 2L, 5L)
     liveDeletes(root).map(_("record_count")) shouldBe Seq(2L)
   }
@@ -124,7 +124,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
   test("refuse a root that isn't an Iceberg table") {
     val root = newRoot()
     Parquet.writeDataset(root, sales, ParquetDatasetWriteOptions.default)
-    intercept[ParquetException](Parquet.deleteIcebergRows(root, col("id") === 1L))
+    intercept[ParquetException](Iceberg.deleteRows(root, col("id") === 1L))
       .getMessage shouldContain "is not an Iceberg table"
   }
 
@@ -133,7 +133,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
   test("delete on top of DuckDB's deletion vectors") {
     val root = hadoopCopy("v3_deletes")
     ids(root) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
-    Parquet.deleteIcebergRows(root, col("id") === 4L || col("id") === 8L) shouldBe 2L
+    Iceberg.deleteRows(root, col("id") === 4L || col("id") === 8L) shouldBe 2L
     ids(root) shouldBe Seq(1L, 2L, 5L, 7L)
     // One live vector per data file
     val refs = liveDeletes(root)
@@ -146,7 +146,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
     val root     = hadoopCopy("v2_deletes")
     val expected = (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
     ids(root) shouldBe expected
-    Parquet.deleteIcebergRows(root, col("id") < 4L) shouldBe 3L
+    Iceberg.deleteRows(root, col("id") < 4L) shouldBe 3L
     ids(root) shouldBe expected.filter(_ >= 4L)
   }
 
@@ -204,8 +204,8 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
     )
     val expected = (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
     ids(root) shouldBe expected
-    Parquet.alterIcebergTable(root, IcebergTableChange.SetProperty("format-version", "3"))
-    Parquet.deleteIcebergRows(root, col("id") === 0L || col("id") === 19L) shouldBe 2L
+    Iceberg.alterTable(root, IcebergTableChange.SetProperty("format-version", "3"))
+    Iceberg.deleteRows(root, col("id") === 0L || col("id") === 19L) shouldBe 2L
     ids(root) shouldBe expected.filterNot(i => i == 0L || i == 19L)
     val live = liveDeletes(root)
     // The partition-scoped file stays; each touched data file has one vector and no other
@@ -222,7 +222,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
   test("rows that equality deletes removed aren't deleted again") {
     val root = hadoopCopy("equality_deletes")
     ids(root) shouldBe Seq(2L, 4L, 5L, 6L)
-    Parquet.deleteIcebergRows(root, col("id") <= 4L) shouldBe 2L
+    Iceberg.deleteRows(root, col("id") <= 4L) shouldBe 2L
     ids(root) shouldBe Seq(5L, 6L)
   }
 
@@ -230,7 +230,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
     val root   = hadoopCopy("respec")
     val before = ids(root)
     before.size > 1 shouldBe true
-    Parquet.deleteIcebergRows(root, col("id") === before.head || col("id") === before.last) shouldBe
+    Iceberg.deleteRows(root, col("id") === before.head || col("id") === before.last) shouldBe
       2L
     ids(root) shouldBe before.drop(1).dropRight(1)
   }

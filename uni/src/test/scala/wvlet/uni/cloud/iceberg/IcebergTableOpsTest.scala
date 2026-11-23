@@ -303,7 +303,7 @@ class IcebergTableOpsTest extends UniTest:
   test("add a column") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.AddColumn(ParquetColumn("qty", ParquetType.INT32, Repetition.OPTIONAL))
     )
@@ -318,7 +318,7 @@ class IcebergTableOpsTest extends UniTest:
   test("rename a column and add the old name back") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
-    Parquet.alterIcebergTable(root, IcebergTableChange.RenameColumn("item", "name"))
+    Iceberg.alterTable(root, IcebergTableChange.RenameColumn("item", "name"))
     read[IcebergRenamed](root).sortBy(_.id).map(_.name) shouldBe Seq("apple", "banana", "cherry")
     // Filters use the new name too
     val ds = Parquet.dataset(root)
@@ -328,7 +328,7 @@ class IcebergTableOpsTest extends UniTest:
         .toSeq shouldBe Seq(2L)
     finally ds.close()
 
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.AddColumn(ParquetColumn("item", ParquetType.STRING, Repetition.OPTIONAL))
     )
@@ -339,11 +339,11 @@ class IcebergTableOpsTest extends UniTest:
   test("drop a column") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
-    Parquet.alterIcebergTable(root, IcebergTableChange.DropColumn("country"))
+    Iceberg.alterTable(root, IcebergTableChange.DropColumn("country"))
     val ds = Parquet.dataset(root)
     try ds.schema.fields.map(_.name) shouldBe Seq("id", "item", "dt")
     finally ds.close()
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.AddColumn(
         ParquetColumn("country", ParquetType.STRING, Repetition.OPTIONAL)
@@ -360,7 +360,7 @@ class IcebergTableOpsTest extends UniTest:
       Seq(IcebergCount(1, 10)),
       ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)
     )
-    Parquet.alterIcebergTable(root, IcebergTableChange.WidenColumn("n", ParquetType.INT64))
+    Iceberg.alterTable(root, IcebergTableChange.WidenColumn("n", ParquetType.INT64))
     // The widened type shows before any file has it
     val widened = Parquet.dataset(root)
     try
@@ -372,7 +372,7 @@ class IcebergTableOpsTest extends UniTest:
     read[IcebergLongCount](root).sortBy(_.id) shouldBe
       Seq(IcebergLongCount(1, 10), IcebergLongCount(2, 5000000000L))
     val e = intercept[ParquetException] {
-      Parquet.alterIcebergTable(root, IcebergTableChange.WidenColumn("n", ParquetType.INT32))
+      Iceberg.alterTable(root, IcebergTableChange.WidenColumn("n", ParquetType.INT32))
     }
     e.getMessage shouldContain "Can't change column n"
   }
@@ -380,7 +380,7 @@ class IcebergTableOpsTest extends UniTest:
   test("apply several changes in one schema") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.MakeOptional("item"),
       IcebergTableChange.RenameColumn("item", "name"),
@@ -400,19 +400,19 @@ class IcebergTableOpsTest extends UniTest:
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
     intercept[ParquetException] {
-      Parquet.alterIcebergTable(root, IcebergTableChange.DropColumn("dt"))
+      Iceberg.alterTable(root, IcebergTableChange.DropColumn("dt"))
     }.getMessage shouldContain "partitioned by it"
     intercept[ParquetException] {
-      Parquet.alterIcebergTable(
+      Iceberg.alterTable(
         root,
         IcebergTableChange.AddColumn(ParquetColumn("qty", ParquetType.INT32, Repetition.REQUIRED))
       )
     }.getMessage shouldContain "required"
     intercept[ParquetException] {
-      Parquet.alterIcebergTable(root, IcebergTableChange.RenameColumn("item", "id"))
+      Iceberg.alterTable(root, IcebergTableChange.RenameColumn("item", "id"))
     }.getMessage shouldContain "already has a column id"
     intercept[ParquetException] {
-      Parquet.alterIcebergTable(root, IcebergTableChange.DropColumn("missing"))
+      Iceberg.alterTable(root, IcebergTableChange.DropColumn("missing"))
     }.getMessage shouldContain "has no column missing"
     // Nothing was committed
     text(s"${root}/metadata/version-hint.text") shouldBe "1"
@@ -471,7 +471,7 @@ class IcebergTableOpsTest extends UniTest:
     props() shouldBe Map("owner" -> "a", "k" -> "1")
     Parquet.writeDataset(root, first.take(1), append.withTableProperties(Map("k" -> "2")))
     props() shouldBe Map("owner" -> "a", "k" -> "2")
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.SetProperty("note", "x"),
       IcebergTableChange.RemoveProperty("owner")
@@ -484,10 +484,10 @@ class IcebergTableOpsTest extends UniTest:
   test("drop a table") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
-    Parquet.dropIcebergTable(root)
+    Iceberg.dropTable(root)
     FileSystem.exists(root) shouldBe false
     intercept[ParquetException] {
-      Parquet.dropIcebergTable(root)
+      Iceberg.dropTable(root)
     }.getMessage shouldContain "is not an Iceberg table"
   }
 
@@ -509,7 +509,7 @@ class IcebergTableOpsTest extends UniTest:
     val ids = snapshotIds(root)
     ids.size shouldBe 3
 
-    Parquet.expireIcebergSnapshots(root, retainLast = 2) shouldBe 1
+    Iceberg.expireSnapshots(root, retainLast = 2) shouldBe 1
     snapshotIds(root) shouldBe ids.drop(1)
     sales(root).map(_.id) shouldBe Seq(4L, 5L)
     val after = filesUnder(root)
@@ -525,8 +525,8 @@ class IcebergTableOpsTest extends UniTest:
     }
 
     // Nothing more to expire
-    Parquet.expireIcebergSnapshots(root, retainLast = 2) shouldBe 0
-    Parquet.expireIcebergSnapshots(root, retainLast = 1) shouldBe 1
+    Iceberg.expireSnapshots(root, retainLast = 2) shouldBe 0
+    Iceberg.expireSnapshots(root, retainLast = 1) shouldBe 1
     snapshotIds(root) shouldBe ids.drop(2)
     sales(root).map(_.id) shouldBe Seq(4L, 5L)
   }
@@ -546,7 +546,7 @@ class IcebergTableOpsTest extends UniTest:
       overwrite.withReplacedFiles(touched.map(_.path))
     )
     val before = filesUnder(root).filter(_.startsWith("data/"))
-    Parquet.expireIcebergSnapshots(root, retainLast = 1) shouldBe 2
+    Iceberg.expireSnapshots(root, retainLast = 1) shouldBe 2
     sales(root).map(_.id) shouldBe Seq(2L, 3L, 4L)
     val removed = before -- filesUnder(root)
     // Only the replaced d1 file goes; the d2 files are still live
@@ -558,7 +558,7 @@ class IcebergTableOpsTest extends UniTest:
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
     intercept[IllegalArgumentException] {
-      Parquet.expireIcebergSnapshots(root, retainLast = 0)
+      Iceberg.expireSnapshots(root, retainLast = 0)
     }
   }
 
@@ -570,7 +570,7 @@ class IcebergTableOpsTest extends UniTest:
     val ids = snapshotIds(root)
     val to  = s"${root}-moved"
     dirs = IOPath.parse(to) :: dirs
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     FileSystem.exists(root) shouldBe false
     sales(to).map(_.id) shouldBe Seq(4L, 5L)
     snapshotIds(to) shouldBe Seq(ids.last)
@@ -601,22 +601,22 @@ class IcebergTableOpsTest extends UniTest:
     val other = newRoot()
     Parquet.writeDataset(other, first, asIceberg)
     intercept[ParquetException] {
-      Parquet.renameIcebergTable(root, other)
+      Iceberg.renameTable(root, other)
     }
     sales(root) shouldBe first
     intercept[ParquetException] {
-      Parquet.renameIcebergTable(s"${root}/data", s"${root}-x")
+      Iceberg.renameTable(s"${root}/data", s"${root}-x")
     }
     intercept[ParquetException] {
-      Parquet.renameIcebergTable(root, "s3://bucket/sales")
+      Iceberg.renameTable(root, "s3://bucket/sales")
     }
     // Checked before the folder moves: a write path would still name the old folder
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.SetProperty("write.data.path", s"${root}/data")
     )
     val e = intercept[ParquetException] {
-      Parquet.renameIcebergTable(root, s"${root}-y")
+      Iceberg.renameTable(root, s"${root}-y")
     }
     e.getMessage shouldContain "write.data.path"
     FileSystem.exists(root) shouldBe true

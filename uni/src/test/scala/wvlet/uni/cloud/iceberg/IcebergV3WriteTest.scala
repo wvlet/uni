@@ -213,13 +213,13 @@ class IcebergV3WriteTest extends UniTest:
     readSales(root) shouldBe Seq(first(2)) ++ second
   }
 
-  test("alterIcebergTable upgrades with format-version and checks types") {
+  test("Iceberg.alterTable upgrades with format-version and checks types") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
     val ns = ParquetColumn("ts", ParquetType.timestamp(TimeUnit.NANOS), Repetition.OPTIONAL)
-    intercept[ParquetException](Parquet.alterIcebergTable(root, IcebergTableChange.AddColumn(ns)))
+    intercept[ParquetException](Iceberg.alterTable(root, IcebergTableChange.AddColumn(ns)))
       .getMessage shouldContain "format version 2 can't hold"
-    Parquet.alterIcebergTable(
+    Iceberg.alterTable(
       root,
       IcebergTableChange.SetProperty(IcebergWrite.FormatVersionProperty, "3"),
       IcebergTableChange.AddColumn(ns)
@@ -234,7 +234,7 @@ class IcebergV3WriteTest extends UniTest:
     Parquet.writeDataset(root, second, append)
     long(metadata(root, 3), "next-row-id") shouldBe Some(4L)
     intercept[ParquetException](
-      Parquet.alterIcebergTable(
+      Iceberg.alterTable(
         root,
         IcebergTableChange.SetProperty(IcebergWrite.FormatVersionProperty, "2")
       )
@@ -268,14 +268,14 @@ class IcebergV3WriteTest extends UniTest:
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg.withTableProperties(v3))
     Parquet.writeDataset(root, second, append)
-    Parquet.alterIcebergTable(root, IcebergTableChange.SetProperty("owner", "uni"))
+    Iceberg.alterTable(root, IcebergTableChange.SetProperty("owner", "uni"))
     val m3 = metadata(root, 3)
     long(m3, "format-version") shouldBe Some(3L)
     long(m3, "next-row-id") shouldBe Some(4L)
-    Parquet.expireIcebergSnapshots(root, retainLast = 1)
+    Iceberg.expireSnapshots(root, retainLast = 1)
     long(metadata(root, 4), "next-row-id") shouldBe Some(4L)
     val to = s"${root}-renamed"
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     readSales(to) shouldBe first ++ second
     val m = metadata(to, 5)
     long(m, "format-version") shouldBe Some(3L)
@@ -314,7 +314,7 @@ class IcebergV3WriteTest extends UniTest:
     val root = hadoopCopy("v3_deletes")
     ids(root) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
     val to = s"${root}-renamed"
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     // The deletion vector names its data file by the new path
     ids(to) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
   }
@@ -323,7 +323,7 @@ class IcebergV3WriteTest extends UniTest:
     val root = hadoopCopy("equality_deletes")
     ids(root) shouldBe Seq(2L, 4L, 5L, 6L)
     val to = s"${root}-renamed"
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     ids(to) shouldBe Seq(2L, 4L, 5L, 6L)
   }
 
@@ -365,7 +365,7 @@ class IcebergV3WriteTest extends UniTest:
     val old = positionDeleteFiles(root, 1).map(_.split('/').last)
     old.nonEmpty shouldBe true
     val to = s"${root}-renamed"
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     FileSystem.exists(IOPath.parse(root)) shouldBe false
     ids(to) shouldBe expected
     // The delete files were written again with the moved paths, and the old ones deleted
@@ -407,7 +407,7 @@ class IcebergV3WriteTest extends UniTest:
         Avro.write(String(c.metadata("avro.schema"), StandardCharsets.UTF_8), meta, records)
       )
     }
-    intercept[ParquetException](Parquet.renameIcebergTable(root, s"${root}-renamed"))
+    intercept[ParquetException](Iceberg.renameTable(root, s"${root}-renamed"))
       .getMessage shouldContain "is ORC; Uni rewrites only Parquet ones"
     // Refused before moving anything
     FileSystem.exists(IOPath.parse(s"${root}-renamed")) shouldBe false

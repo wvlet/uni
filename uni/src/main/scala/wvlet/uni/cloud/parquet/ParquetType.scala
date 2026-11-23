@@ -156,7 +156,7 @@ case class ParquetSchemaBuilder(name: String, columns: Seq[ParquetColumn] = Seq.
   def build(): ParquetSchema = ParquetSchema.fromColumns(name, columns)
 
 /** Converts [[ParquetType]] trees into the footer's flattened schema elements */
-private[parquet] object SchemaElements:
+private[cloud] object SchemaElements:
 
   def of(rootName: String, columns: Seq[ParquetColumn]): IndexedSeq[SchemaElement] =
     val b = IndexedSeq.newBuilder[SchemaElement]

@@ -478,7 +478,7 @@ object ParquetFile:
   // Most footers fit in this, so opening a file takes one read
   private[parquet] final val TailReadSize = 64 * 1024
 
-  private[parquet] def rows[A](
+  private[cloud] def rows[A](
       batch: ColumnBatch,
       weaver: Weaver[A],
       options: ParquetReadOptions

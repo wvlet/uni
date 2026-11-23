@@ -543,8 +543,8 @@ val catalogVersion = Parquet.dataset(
   the same partition. Deletes are read when the dataset opens, a row filter sees only the rows
   that remain, and key columns are read even when `withColumns` leaves them out. Uni writes
   position deletes and deletion vectors with
-  [`Parquet.deleteIcebergRows`](#deleting-rows-merge-on-read) and
-  [`Parquet.updateIcebergRows`](#updating-rows-merge-on-read).
+  [`Iceberg.deleteRows`](#deleting-rows-merge-on-read) and
+  [`Iceberg.updateRows`](#updating-rows-merge-on-read).
 - **What fails** when the dataset opens, with the reason: equality deletes keyed on a nested
   or non-primitive column, an `initial-default` on a field inside a struct, encrypted tables,
   and data files that aren't Parquet. The
@@ -716,7 +716,7 @@ Parquet.writeDataset(
 - **Format versions.** New tables are format version 2, which every engine reads.
   `withTableProperties(Map("format-version" -> "3"))` creates a version 3 table instead, or
   upgrades a version 2 table in the commit (a version never goes down);
-  `Parquet.alterIcebergTable(root, IcebergTableChange.SetProperty("format-version", "3"))`
+  `Iceberg.alterTable(root, IcebergTableChange.SetProperty("format-version", "3"))`
   upgrades without writing rows. Commits to a version 3
   table keep row lineage: each snapshot records `first-row-id` and `added-rows`, data manifests
   get their first row IDs, and a rewritten manifest writes out the IDs its files inherited, so a
@@ -737,7 +737,7 @@ Parquet.writeDataset(
 - **Schemas.** A new table takes the rows' schema, with field IDs assigned as Iceberg's Java
   library does. An append matches columns to the table's current schema by name. It needs the same
   Iceberg types, and table columns left out read as null. Extra columns (add them with
-  `Parquet.alterIcebergTable` first), type changes, and optional data for a required column fail
+  `Iceberg.alterTable` first), type changes, and optional data for a required column fail
   with the column named. An `Overwrite` whose rows don't fit the schema commits a new schema with
   new field IDs; it keeps the partition columns if the new schema has them all, and is
   unpartitioned otherwise, unless `withPartitionBy` says. Nanosecond timestamps
@@ -760,14 +760,14 @@ Parquet.writeDataset(
 
 #### Deleting Rows (Merge-on-Read)
 
-`Parquet.deleteIcebergRows` deletes the rows a filter matches without rewriting data files: one
+`Iceberg.deleteRows` deletes the rows a filter matches without rewriting data files: one
 `delete` snapshot adds delete files that say which rows of which files are gone, as DuckDB and
 Trino do.
 
 ```scala
 import wvlet.uni.cloud.parquet.ParquetFilter
 
-val deleted = Parquet.deleteIcebergRows(
+val deleted = Iceberg.deleteRows(
   "s3://my-bucket/warehouse/visits/",
   ParquetFilter.col("user") === "bot" && ParquetFilter.col("dt") === LocalDate.of(2026, 11, 20)
 )
@@ -788,7 +788,7 @@ val deleted = Parquet.deleteIcebergRows(
   retried, up to 4 times, so no other writer's deletes are lost. A failed delete removes the
   files it wrote.
 - **Afterwards.** Readers stop seeing the rows; time travel to an earlier snapshot still shows
-  them, until `expireIcebergSnapshots` deletes the files only expired snapshots need. The delete
+  them, until `Iceberg.expireSnapshots` deletes the files only expired snapshots need. The delete
   always writes delete files, whatever the table's `write.delete.mode` says; to rewrite files
   instead, use copy-on-write below. Readers apply each delete file until
   [compaction](#compacting-tables) rewrites the files and removes it. Tables that a catalog owns
@@ -796,18 +796,18 @@ val deleted = Parquet.deleteIcebergRows(
 
 #### Updating Rows (Merge-on-Read)
 
-`Parquet.updateIcebergRows` changes the rows a filter matches without rewriting the data files
+`Iceberg.updateRows` changes the rows a filter matches without rewriting the data files
 that hold them. One `overwrite` snapshot adds new data files with the new rows and delete files
 for the old ones, as DuckDB and Trino do.
 
 ```scala
-val updated = Parquet.updateIcebergRows(
+val updated = Iceberg.updateRows(
   "s3://my-bucket/warehouse/visits/",
   ParquetFilter.col("user") === "bot"
 )(row => row.updated("user", "masked"))
 
 // The same update on case classes
-val updatedVisits = Parquet.updateIcebergRows[Visit](
+val updatedVisits = Iceberg.updateRows[Visit](
   "s3://my-bucket/warehouse/visits/",
   ParquetFilter.col("user") === "bot"
 )(visit => visit.copy(user = "masked"))
@@ -819,7 +819,7 @@ val updatedVisits = Parquet.updateIcebergRows[Visit](
   columns the class leaves out are written as null. The new row must fit the table's current
   schema, as an appended row must. A row whose partition column changes moves to its new
   partition. A row that doesn't fit fails the update, and nothing is committed.
-- **What it writes.** The old rows are deleted as [`deleteIcebergRows`](#deleting-rows-merge-on-read)
+- **What it writes.** The old rows are deleted as [`Iceberg.deleteRows`](#deleting-rows-merge-on-read)
   deletes them: deletion vectors in a format version 3 table, position-delete files in version
   2. The new rows go into new data files, written with the table's current schema and partition
   spec. The other data files stay as they are. The call returns the number of rows updated, and
@@ -870,18 +870,18 @@ Delete files of the removed files stay live until a [compaction](#compacting-tab
 #### Compacting Tables
 
 Every merge-on-read delete adds files that readers apply, and every small append adds a data file.
-`Parquet.compactIcebergTable` rewrites the data files that deletes apply to, with the deletes
+`Iceberg.compactTable` rewrites the data files that deletes apply to, with the deletes
 applied, merges small files, and removes the delete files no remaining data file needs, in one
 `replace` snapshot. The rows don't change.
 
 ```scala
-import wvlet.uni.cloud.parquet.IcebergCompactionOptions
+import wvlet.uni.cloud.iceberg.IcebergCompactionOptions
 
-val compacted = Parquet.compactIcebergTable("s3://my-bucket/warehouse/visits/")
+val compacted = Iceberg.compactTable("s3://my-bucket/warehouse/visits/")
 // IcebergCompaction(removedDataFiles, addedDataFiles, removedDeleteFiles, rows)
 
 // Only the files of one day, cut at 128 MiB, without merging small files that have no deletes
-Parquet.compactIcebergTable(
+Iceberg.compactTable(
   "s3://my-bucket/warehouse/visits/",
   IcebergCompactionOptions
     .default
@@ -913,16 +913,17 @@ Parquet.compactIcebergTable(
   another writer commits first, the compaction rebases on it when that commit didn't touch the
   rewritten files (no new position delete or deletion vector on them) or the delete files it
   removes; otherwise it plans and rewrites again, up to 4 times. A failed compaction deletes the
-  files it wrote. The old files stay for time travel until `expireIcebergSnapshots` deletes them.
+  files it wrote. The old files stay for time travel until `Iceberg.expireSnapshots` deletes them.
 
 #### Changing and Dropping Tables
 
 ```scala
-import wvlet.uni.cloud.parquet.{IcebergTableChange, ParquetColumn, ParquetType}
-import wvlet.uni.cloud.parquet.IcebergTableChange.*
+import wvlet.uni.cloud.iceberg.IcebergTableChange
+import wvlet.uni.cloud.parquet.{ParquetColumn, ParquetType}
+import wvlet.uni.cloud.iceberg.IcebergTableChange.*
 import wvlet.uni.cloud.parquet.format.Repetition
 
-Parquet.alterIcebergTable(
+Iceberg.alterTable(
   visitsRoot,
   AddColumn(ParquetColumn("country", ParquetType.STRING, Repetition.OPTIONAL)),
   RenameColumn("item", "product"),
@@ -930,26 +931,26 @@ Parquet.alterIcebergTable(
   SetProperty("owner", "data-team")
 )
 // Keep only the newest 5 snapshots, deleting the files only older ones reference
-Parquet.expireIcebergSnapshots(visitsRoot, retainLast = 5)
+Iceberg.expireSnapshots(visitsRoot, retainLast = 5)
 // Move a local table to another folder, keeping its current snapshot
-Parquet.renameIcebergTable("warehouse/visits", "warehouse/visits_2026")
-Parquet.dropIcebergTable(visitsRoot)
+Iceberg.renameTable("warehouse/visits", "warehouse/visits_2026")
+Iceberg.dropTable(visitsRoot)
 ```
 
-- `alterIcebergTable` applies the changes in order and commits them as one new metadata version,
+- `Iceberg.alterTable` applies the changes in order and commits them as one new metadata version,
   with one new schema when a change touches the schema. No data file is rewritten and no snapshot
   is added. Losing the commit race reloads the table and applies the changes again.
 - Changes: `AddColumn` (optional columns only, null in existing rows), `DropColumn` (not a column
   the current partition spec uses), `RenameColumn` (keeps the field ID), `WidenColumn` (int to
   long, float to double, a decimal to a larger precision with the same scale), `MakeOptional`,
   `SetProperty`, and `RemoveProperty`. Each works on top-level columns.
-- `expireIcebergSnapshots` keeps the newest `retainLast` snapshots (by commit time), the current
+- `Iceberg.expireSnapshots` keeps the newest `retainLast` snapshots (by commit time), the current
   one, and those a branch or tag references, and commits the rest away in a new metadata version.
   Only after that commit does it delete the files that just the expired snapshots reference
   (manifest lists, manifests, data files), and the metadata files written before the oldest kept
   snapshot. A file a kept snapshot lists stays, and nothing outside the table folder is deleted. It
   returns the number of expired snapshots; time travel to them stops working.
-- `renameIcebergTable` moves a local table's folder, then writes the current snapshot's manifests
+- `Iceberg.renameTable` moves a local table's folder, then writes the current snapshot's manifests
   and manifest list again with the new paths and commits a metadata version with the new
   `location`, so other engines read the moved table. Older snapshots are dropped, and their files
   and the older metadata versions are deleted. A data file stored outside the table folder keeps its
@@ -960,7 +961,7 @@ Parquet.dropIcebergTable(visitsRoot)
   again next to the old one, with the moved paths, and the old one is deleted. A position-delete
   file that isn't Parquet, or that has columns besides `file_path` and `pos` (the optional `row`),
   is refused before moving; compact the table first.
-- `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
+- `Iceberg.dropTable` deletes the hint and metadata files first, so a drop that fails partway leaves
   no readable table, then every file under the root. It fails when the root is not an Iceberg
   table.
 

@@ -239,7 +239,7 @@ class IcebergWriteTest extends UniTest:
       Seq(IcebergPoint(-5, 0.5), IcebergPoint(2, 1.5)),
       asIceberg.withPartitionBy()
     )
-    Parquet.alterIcebergTable(root, IcebergTableChange.WidenColumn("x", ParquetType.INT64))
+    Iceberg.alterTable(root, IcebergTableChange.WidenColumn("x", ParquetType.INT64))
     val ds = Parquet.dataset(root)
     try
       ds.selectFiles(ParquetReadOptions.default.withFilter(col("x") === 2L)).size shouldBe 1
@@ -303,7 +303,7 @@ class IcebergWriteTest extends UniTest:
     ).getMessage shouldContain "partitions by (dt)"
     intercept[ParquetException](
       Parquet.writeDataset(root, Seq(IcebergWide(5, "e", d1, None, 1)), append)
-    ).getMessage shouldContain "Parquet.alterIcebergTable"
+    ).getMessage shouldContain "Iceberg.alterTable"
     // Nothing was written by the refused writes
     readSales(root) shouldBe first
     snapshotIds(metadata(root, 1)).size shouldBe 1
@@ -605,20 +605,20 @@ class IcebergInteropTables extends UniTest:
           rows,
           opts.withTableProperties(Map(IcebergWrite.FormatVersionProperty -> "3"))
         )
-        Parquet.deleteIcebergRows(dv, ParquetFilter.col("id") === 2L)
-        Parquet.deleteIcebergRows(dv, ParquetFilter.col("country") === "US")
+        Iceberg.deleteRows(dv, ParquetFilter.col("id") === 2L)
+        Iceberg.deleteRows(dv, ParquetFilter.col("country") === "US")
         val posdel = s"${d}/v2_posdel"
         Parquet.writeDataset(posdel, rows, opts)
-        Parquet.deleteIcebergRows(posdel, ParquetFilter.col("id") === 2L)
-        Parquet.deleteIcebergRows(posdel, ParquetFilter.col("country") === "US")
+        Iceberg.deleteRows(posdel, ParquetFilter.col("id") === 2L)
+        Iceberg.deleteRows(posdel, ParquetFilter.col("country") === "US")
         // Merge-on-read updates: rows 2 and 3 change item, and row 4 moves to another partition
         def updated(root: String, properties: Map[String, String]): Unit =
           Parquet.writeDataset(root, rows, opts.withTableProperties(properties))
-          Parquet.updateIcebergRows(
+          Iceberg.updateRows(
             root,
             ParquetFilter.col("id") === 2L || ParquetFilter.col("id") === 3L
           )(r => r.updated("item", r("item").toString.toUpperCase))
-          Parquet.updateIcebergRows(root, ParquetFilter.col("id") === 4L)(
+          Iceberg.updateRows(root, ParquetFilter.col("id") === 4L)(
             _.updated("dt", LocalDate.of(2026, 11, 30))
           )
         updated(s"${d}/v3_update", Map(IcebergWrite.FormatVersionProperty -> "3"))
@@ -630,9 +630,9 @@ class IcebergInteropTables extends UniTest:
         ).foreach { (name, props) =>
           val root = s"${d}/${name}"
           Parquet.writeDataset(root, rows, opts.withTableProperties(props))
-          Parquet.deleteIcebergRows(root, ParquetFilter.col("id") === 2L)
-          Parquet.deleteIcebergRows(root, ParquetFilter.col("country") === "US")
-          Parquet.compactIcebergTable(root)
+          Iceberg.deleteRows(root, ParquetFilter.col("id") === 2L)
+          Iceberg.deleteRows(root, ParquetFilter.col("country") === "US")
+          Iceberg.compactTable(root)
         }
   }
 

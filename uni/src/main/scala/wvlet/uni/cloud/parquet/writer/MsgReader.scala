@@ -11,7 +11,7 @@ import wvlet.uni.msgpack.spi.ValueType
   * to a value it skipped. Methods named `read*` expect the value at the cursor to have that type;
   * the shredder checks the format byte with [[peek]] first.
   */
-private[parquet] final class MsgReader:
+private[cloud] final class MsgReader:
   private var buf: Array[Byte] = Array.emptyByteArray
   private var end: Int         = 0
   var pos: Int                 = 0

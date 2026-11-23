@@ -839,7 +839,7 @@ class IcebergTableTest extends UniTest:
     val root = copyOf("gzip_hadoop")((_, b) => Some(b))()
     val to   = s"${root}-moved"
     dirs = IOPath.parse(to) :: dirs
-    Parquet.renameIcebergTable(root, to)
+    Iceberg.renameTable(root, to)
     ids(Parquet.dataset(to)) shouldBe Seq(1L, 2L, 3L)
     // The compressed versions are replaced by one plain version for the new location
     FileSystem

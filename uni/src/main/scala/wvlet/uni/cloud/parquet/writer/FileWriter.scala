@@ -22,7 +22,7 @@ import scala.util.control.NonFatal
   * `openOutput` is called after the schema and options are checked, so an invalid writer creates no
   * file.
   */
-private[parquet] final class FileWriter(
+private[cloud] final class FileWriter(
     val schema: ParquetSchema,
     options: ParquetWriteOptions,
     openOutput: () => java.io.OutputStream,
@@ -105,13 +105,13 @@ private[parquet] final class FileWriter(
     s
 
   /** Bytes written to the output so far: the whole file once it is closed */
-  private[parquet] def bytesWritten: Long = output.position
+  private[cloud] def bytesWritten: Long = output.position
 
   /** The row groups written so far, with their column statistics */
-  private[parquet] def rowGroupMetas: IndexedSeq[RowGroupMeta] = rowGroups.toIndexedSeq
+  private[cloud] def rowGroupMetas: IndexedSeq[RowGroupMeta] = rowGroups.toIndexedSeq
 
   /** The file size if it were closed now, not counting the footer */
-  private[parquet] def estimatedSize: Long = output.position + bufferedSize
+  private[cloud] def estimatedSize: Long = output.position + bufferedSize
 
   /** True after an I/O error, which closed the output */
   private[parquet] def hasFailed: Boolean = failure.isDefined
@@ -201,7 +201,7 @@ private[parquet] final class FileWriter(
 
 end FileWriter
 
-private[parquet] object FileWriter:
+private[cloud] object FileWriter:
   private val Magic     = "PAR1".getBytes("US-ASCII")
   private val CreatedBy = "uni"
   private val MaxSlice  = 4096L
