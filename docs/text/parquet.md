@@ -261,7 +261,7 @@ and `Parquet.openGcs` from Google Cloud Storage with Google credentials, with ra
 [Object Storage](../core/object-storage):
 
 ```scala
-import wvlet.uni.storage.{ObjectStore, S3Config}
+import wvlet.uni.cloud.storage.{ObjectStore, S3Config}
 
 val fromS3 = Parquet.openS3("s3://my-bucket/events.parquet")
 val fromR2 = Parquet.openS3(
@@ -290,7 +290,7 @@ credentials come from an `AzureConfig`, by default from `AZURE_STORAGE_CONNECTIO
 `AZURE_STORAGE_ACCOUNT`:
 
 ```scala
-import wvlet.uni.storage.AzureConfig
+import wvlet.uni.cloud.storage.AzureConfig
 
 val fromAzure = Parquet.openAzure(
   "az://my-container/events.parquet",

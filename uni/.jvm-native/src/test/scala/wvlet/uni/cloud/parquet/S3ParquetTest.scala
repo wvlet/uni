@@ -4,9 +4,9 @@ import wvlet.uni.cloud.iceberg.IcebergSale
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.cloud.parquet.format.LogicalType
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
-import wvlet.uni.storage.S3Config
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
+import wvlet.uni.cloud.storage.S3Config
 import wvlet.uni.test.UniTest
 
 /**

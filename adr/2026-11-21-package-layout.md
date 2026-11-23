@@ -49,3 +49,11 @@
 - The fixed-width reads that the Parquet reader and the Arrow writer share (`intLE`, `longLE`, `longBE`) are `wvlet.uni.io.codec.Bytes`. The `ByteReader` cursor stays in `parquet.io`, because it throws `ParquetException`.
 - The npm entry point stays `@wvlet/uni/parquet`; it never named Scala packages.
 - Next: the object stores move to `cloud.storage`, and `SettingStore` with its backends moves to `wvlet.uni.util.settings`. Once both have moved, `wvlet.uni.storage` is gone.
+
+## Addendum: object stores in `cloud.storage`, settings in `util.settings`
+
+The object stores now follow the data formats into `wvlet.uni.cloud`. That leaves only persisted settings in `wvlet.uni.storage`, so they move as well and the package is removed.
+
+- `wvlet.uni.cloud.storage` holds `ObjectStore`, `ObjectUri`, `ObjectInfo`, `ObjectOutputStream`, `StorageException` and `StorageErrorCode`, the S3, GCS, and Azure stores and their configs, `AzureAuth`, and the internal `StorageSupport`.
+- `wvlet.uni.util.settings` holds `SettingStore`, `SettingStoreConfig`, `SettingLocation`, `StoreBackend`, and the file, in-memory, browser `localStorage`, and Node backends. It is a sub-package so that the backend names stay clear and `import wvlet.uni.util.*` does not bring them in. This replaces the "`SettingStore` in `wvlet.uni.storage`" addendum. The Scala.js rule in `2026-10-27-setting-store.md` still applies.
+- The two halves share no code, so the split needs no new access widening.

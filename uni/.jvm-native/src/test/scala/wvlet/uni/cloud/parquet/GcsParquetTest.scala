@@ -3,9 +3,9 @@ package wvlet.uni.cloud.parquet
 import wvlet.uni.cloud.iceberg.IcebergSale
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
-import wvlet.uni.storage.GcsConfig
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
+import wvlet.uni.cloud.storage.GcsConfig
 import wvlet.uni.test.UniTest
 
 /**

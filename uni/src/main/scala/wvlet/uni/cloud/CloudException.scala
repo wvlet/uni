@@ -31,7 +31,7 @@ object CloudErrorCode:
 
 /**
   * A cloud service or credential provider refused or failed a request. Object stores throw the
-  * subclass `wvlet.uni.storage.StorageException`.
+  * subclass `wvlet.uni.cloud.storage.StorageException`.
   *
   * @param code
   *   the error code, such as `NoCredentials`, `AccessDenied`, or a service's own code

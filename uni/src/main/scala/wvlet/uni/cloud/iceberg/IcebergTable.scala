@@ -11,7 +11,7 @@ import wvlet.uni.cloud.parquet.format.LogicalType
 import wvlet.uni.cloud.parquet.format.PhysicalType
 import wvlet.uni.cloud.parquet.format.Repetition
 import wvlet.uni.cloud.parquet.format.TimeUnit
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectUri
 
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate

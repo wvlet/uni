@@ -24,3 +24,7 @@ Desktop and web apps built on JavaScript often keep user settings with zustand a
 - `uni-dom-test` (Chromium) covers the browser path: the bundle loads and the default backend is localStorage. Shared tests run on the JVM, Scala.js on Node, and Native.
 - `dom.StorageVar` is built on `LocalStorageBackend` with an empty prefix, which keeps raw keys, so values it stored before stay readable.
 - If `NodeFS` ever switches to runtime loading, `NodeFileStoreBackend` can be dropped in favour of `FileStoreBackend` on every platform.
+
+## Addendum: package
+
+The store and its backends are in `wvlet.uni.util.settings` (`2026-11-21-package-layout.md`).

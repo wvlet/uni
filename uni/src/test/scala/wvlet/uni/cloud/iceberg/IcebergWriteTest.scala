@@ -10,7 +10,7 @@ import wvlet.uni.json.JSON.*
 import wvlet.uni.cloud.parquet.ParquetFilter.*
 import wvlet.uni.cloud.parquet.format.TimeUnit
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectUri
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 

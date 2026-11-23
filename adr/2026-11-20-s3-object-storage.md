@@ -32,3 +32,7 @@ Users want to read and write objects in S3, the most common object store, and in
 - `Parquet.openS3` / `openS3Async` and `ByteSource.ofS3` / `ofObject` read Parquet from any S3-compatible store; `Parquet.newWriter[A](store.newOutputStream(uri))` writes to one.
 - Only the JVM CI job runs the integration tests; Native and Node.js were verified locally.
 - Adding Azure Blob means another `ObjectStore` with its own signer (SharedKey or SAS); SAS URLs already work with `ByteSource.ofUrl`.
+
+## Addendum: package
+
+The object stores are in `wvlet.uni.cloud.storage` (`2026-11-21-package-layout.md`).

@@ -9,11 +9,11 @@ import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.io.IOPath
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.AzureConfig
-import wvlet.uni.storage.GcsConfig
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
-import wvlet.uni.storage.S3Config
+import wvlet.uni.cloud.storage.AzureConfig
+import wvlet.uni.cloud.storage.GcsConfig
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
+import wvlet.uni.cloud.storage.S3Config
 
 /**
   * Random access to the bytes of a Parquet file, read asynchronously. Browser files and HTTP on

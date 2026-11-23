@@ -71,8 +71,8 @@ private[cloud] object IcebergWrite:
 
   /** The names of the objects directly under the prefix `dir` */
   def namesUnder(
-      dir: wvlet.uni.storage.ObjectUri,
-      listed: Seq[wvlet.uni.storage.ObjectInfo]
+      dir: wvlet.uni.cloud.storage.ObjectUri,
+      listed: Seq[wvlet.uni.cloud.storage.ObjectInfo]
   ): Seq[String] = listed.flatMap { o =>
     val key = o.uri.key
     if key.startsWith(dir.key) then

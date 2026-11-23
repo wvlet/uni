@@ -30,7 +30,7 @@ private[parquet] final class CountingOutput(out: java.io.OutputStream):
   /** Discards the output after a failure: an object upload is aborted, other streams closed */
   def abort(): Unit =
     out match
-      case o: wvlet.uni.storage.ObjectOutputStream =>
+      case o: wvlet.uni.cloud.storage.ObjectOutputStream =>
         o.abort()
       case _ =>
         out.close()

@@ -13,7 +13,7 @@
  */
 package wvlet.uni.cloud
 
-import wvlet.uni.storage.*
+import wvlet.uni.cloud.storage.*
 
 import wvlet.uni.util.Sha256
 

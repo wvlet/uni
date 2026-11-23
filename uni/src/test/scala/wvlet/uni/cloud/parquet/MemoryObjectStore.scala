@@ -2,10 +2,10 @@ package wvlet.uni.cloud.parquet
 
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.ObjectInfo
-import wvlet.uni.storage.ObjectOutputStream
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectInfo
+import wvlet.uni.cloud.storage.ObjectOutputStream
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
 
 import scala.collection.mutable
 

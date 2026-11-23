@@ -16,8 +16,8 @@ import wvlet.uni.cloud.parquet.writer.FileWriter
 import wvlet.uni.cloud.parquet.writer.MsgReader
 import wvlet.uni.cloud.parquet.writer.ValueConverter
 import wvlet.uni.cloud.parquet.writer.VectorGather
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 
