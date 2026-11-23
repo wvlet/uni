@@ -205,7 +205,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Arrow IPC check with pyarrow
         run: |
-          ./sbt "uniJVM/Test/runMain wvlet.uni.arrow.WriteArrowSamples target/arrow-samples"
+          ./sbt "uniJVM/Test/runMain wvlet.uni.cloud.arrow.WriteArrowSamples target/arrow-samples"
           uv run --no-project --with pyarrow --with pandas python uni/src/test/resources/arrow/check_with_pyarrow.py target/arrow-samples
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6

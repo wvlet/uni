@@ -1,12 +1,12 @@
 # Reading and writing Parquet files
 
-`wvlet.uni.parquet` (in the `uni` artifact) reads and writes Apache Parquet in pure Scala
+`wvlet.uni.cloud.parquet` (in the `uni` artifact) reads and writes Apache Parquet in pure Scala
 on the JVM, Scala.js, and Scala Native. It needs no parquet-java or Hadoop.
 
 ## Rows into case classes
 
 ```scala
-import wvlet.uni.parquet.{Parquet, ParquetReadOptions}
+import wvlet.uni.cloud.parquet.{Parquet, ParquetReadOptions}
 import wvlet.uni.weaver.Weaver
 
 import java.time.Instant
@@ -55,7 +55,7 @@ def explore(path: String): Unit =
 ## Open a file, project columns, read vectors
 
 ```scala
-import wvlet.uni.parquet.ColumnVector.LongColumn
+import wvlet.uni.cloud.parquet.ColumnVector.LongColumn
 
 def sumIds(path: String): Long =
   val file = Parquet.open(path) // also Parquet.open(bytes: Array[Byte])
@@ -158,7 +158,7 @@ See [storage.md](storage.md) for credentials and other stores.
 ## Filter rows
 
 ```scala
-import wvlet.uni.parquet.ParquetFilter.col
+import wvlet.uni.cloud.parquet.ParquetFilter.col
 
 val since2026 = ParquetReadOptions.default
   .withFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("address.city") === "Tokyo")
@@ -186,8 +186,8 @@ prefix and reads them as one table. `key=value` folders (`dt=2026-11-20/country=
 columns after the files' own columns.
 
 ```scala
-import wvlet.uni.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
-import wvlet.uni.parquet.ParquetFilter.col
+import wvlet.uni.cloud.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
+import wvlet.uni.cloud.parquet.ParquetFilter.col
 import java.time.LocalDate
 
 case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
@@ -282,7 +282,7 @@ reads back, locally or under an `s3://`, `gs://`, `az://` prefix, like DuckDB's 
 'dir' (FORMAT parquet, PARTITION_BY (...))`.
 
 ```scala
-import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode, WrittenFile}
+import wvlet.uni.cloud.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode, WrittenFile}
 
 def writeVisits(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
   root,
@@ -332,7 +332,7 @@ def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
   sorted). Row groups record `sorting_columns`.
 
 ```scala
-import wvlet.uni.parquet.ParquetSortKey
+import wvlet.uni.cloud.parquet.ParquetSortKey
 
 def writeSorted(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
   root,
@@ -367,7 +367,7 @@ Recursive types and `Option[Option[A]]` are rejected.
 
 ```scala
 import wvlet.uni.control.Control
-import wvlet.uni.parquet.{ParquetSchema, ParquetWriteOptions}
+import wvlet.uni.cloud.parquet.{ParquetSchema, ParquetWriteOptions}
 
 def writeAll(path: String, events: Seq[Event]): Unit = Parquet.write(path, events)
 
@@ -395,7 +395,7 @@ val derived: ParquetSchema = ParquetSchema.of[Event]
 ## Write records with an explicit schema
 
 ```scala
-import wvlet.uni.parquet.ParquetType
+import wvlet.uni.cloud.parquet.ParquetType
 
 val schema = ParquetSchema
   .builder("event")
@@ -452,12 +452,12 @@ def copyColumns(from: String, to: String): Unit =
 
 ## Deliver results as Arrow IPC
 
-`wvlet.uni.arrow.Arrow` writes the same `ColumnBatch`es as Apache Arrow IPC, so Python (pyarrow,
+`wvlet.uni.cloud.arrow.Arrow` writes the same `ColumnBatch`es as Apache Arrow IPC, so Python (pyarrow,
 pandas, polars), Arrow JS, and ADBC clients load columns without decoding rows. Pure Scala on every
 platform, no dependencies; writing only (no Arrow reader yet).
 
 ```scala
-import wvlet.uni.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
+import wvlet.uni.cloud.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
 import wvlet.uni.http.Response
 
 // An HTTP response with the whole result in memory
@@ -517,7 +517,7 @@ The same code is on npm as `@wvlet/uni` (Scala.js, with type declarations). Poin
 instead of writing a Scala.js facade:
 
 ```ts
-import { openParquet, writeParquet } from "@wvlet/uni/parquet";
+import { openParquet, writeParquet } from "@wvlet/uni/cloud/parquet";
 const file = await openParquet(bytes); // Uint8Array, ArrayBuffer, Blob, path (Node), or URL
 const rows = await file.readRows({ columns: ["id"], timestamps: "bigint" });
 const out = writeParquet(rows, [{ name: "id", type: "int64", optional: false }]);
@@ -528,7 +528,7 @@ INT64 is `bigint`, decimals are strings, timestamps are `Date` unless `timestamp
 Datasets (root, glob, or file list; local in Node, or `s3://`/`gs://`/`az://`; async I/O, so browsers work):
 
 ```ts
-import { openDataset, writeDataset, newDatasetWriter } from "@wvlet/uni/parquet";
+import { openDataset, writeDataset, newDatasetWriter } from "@wvlet/uni/cloud/parquet";
 const storage = { s3: { region: "us-east-1", credentials: { accessKeyId, secretAccessKey, sessionToken } } };
 await writeDataset("s3://bucket/events/", rows, schema, { partitionBy: ["dt"], mode: "overwrite-partitions", storage });
 const ds = await openDataset("s3://bucket/events/dt=2026-11-*", { storage });

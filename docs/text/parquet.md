@@ -4,7 +4,7 @@ description: Read and write Apache Parquet files in pure Scala on the JVM, Scala
 
 # Parquet
 
-`wvlet.uni.parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
+`wvlet.uni.cloud.parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
 in Scala with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and
 browsers), and Scala Native, and it brings in no Hadoop or native libraries. It reads local files,
 byte arrays, files on any HTTP server that supports Range requests, and objects in S3, R2, GCS,
@@ -21,7 +21,7 @@ Define a case class that `derives Weaver`. That one line is all you need to writ
 read it back. You don't declare a schema, add annotations, or write any glue code:
 
 ```scala
-import wvlet.uni.parquet.{Parquet, ParquetSchema}
+import wvlet.uni.cloud.parquet.{Parquet, ParquetSchema}
 import wvlet.uni.weaver.Weaver
 
 case class Address(city: String, zip: Option[String]) derives Weaver
@@ -66,7 +66,7 @@ writes, type mappings, and options.
 ## Reading Rows into Case Classes
 
 ```scala
-import wvlet.uni.parquet.Parquet
+import wvlet.uni.cloud.parquet.Parquet
 import wvlet.uni.weaver.Weaver
 
 import java.time.Instant
@@ -161,7 +161,7 @@ columns.
 read one row group at a time.
 
 ```scala
-import wvlet.uni.parquet.{ParquetFile, ParquetReadOptions}
+import wvlet.uni.cloud.parquet.{ParquetFile, ParquetReadOptions}
 
 val file: ParquetFile = Parquet.open("events.parquet")
 try
@@ -191,7 +191,7 @@ batches of every row group in order. Each column is a `ColumnVector` that stores
 unboxed, which is faster than decoding rows.
 
 ```scala
-import wvlet.uni.parquet.ColumnVector.*
+import wvlet.uni.cloud.parquet.ColumnVector.*
 
 val batch = file.readRowGroup(0)
 batch.column("id") match
@@ -311,7 +311,7 @@ groups that can't match are skipped without being read, and the rest are filtere
 vectors:
 
 ```scala
-import wvlet.uni.parquet.ParquetFilter.*
+import wvlet.uni.cloud.parquet.ParquetFilter.*
 
 val recent = ParquetReadOptions.default
   .withFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("country") === "JP")
@@ -362,7 +362,7 @@ bucket prefix, split into `key=value` folders such as `dt=2026-11-20/country=JP/
 `s3://`, `gs://`, `az://`, or `azure://` prefix:
 
 ```scala
-import wvlet.uni.parquet.ParquetFilter.*
+import wvlet.uni.cloud.parquet.ParquetFilter.*
 import java.time.LocalDate
 
 case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
@@ -393,7 +393,7 @@ finally ds.close()
   `withReadCommonMetadata(false)` ignores the recorded types:
 
   ```scala
-  import wvlet.uni.parquet.{ParquetDatasetOptions, ParquetType}
+  import wvlet.uni.cloud.parquet.{ParquetDatasetOptions, ParquetType}
 
   val typed = Parquet.dataset(
     "s3://my-bucket/visits/",
@@ -451,7 +451,7 @@ until a vacuum, so reading every file would return removed rows. `Parquet.datase
 DuckDB's `delta_scan` do:
 
 ```scala
-import wvlet.uni.parquet.ParquetTableFormat
+import wvlet.uni.cloud.parquet.ParquetTableFormat
 
 val latest = Parquet.dataset("s3://my-bucket/events/") // the latest version
 val v12 = Parquet.dataset(
@@ -569,7 +569,7 @@ DuckDB's `COPY ... TO 'dir' (FORMAT parquet, PARTITION_BY (dt, country))` or Spa
 does. It writes to a local directory, or to an `s3://`, `gs://`, `az://`, or `azure://` prefix:
 
 ```scala
-import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode}
+import wvlet.uni.cloud.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode}
 
 val day     = LocalDate.parse("2026-11-20")
 val visits  = Seq(Visit(1L, "aina", day, "JP"), Visit(2L, "leo", day, "US"))
@@ -627,7 +627,7 @@ takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, option
 min and max values, so a `RowGroupFilter` on a sort column skips most row groups:
 
 ```scala
-import wvlet.uni.parquet.ParquetSortKey
+import wvlet.uni.cloud.parquet.ParquetSortKey
 
 val byUser = ParquetDatasetWriteOptions
   .default
@@ -664,7 +664,7 @@ In browsers, and in code that must not block, `Parquet.writeDatasetAsync` writes
 GCS, or Azure Blob with the stores' async calls only, as `datasetAsync` reads one:
 
 ```scala
-import wvlet.uni.parquet.WrittenFile
+import wvlet.uni.cloud.parquet.WrittenFile
 import wvlet.uni.rx.Rx
 
 val done: Rx[Seq[WrittenFile]] = Parquet.writeDatasetAsync(
@@ -694,7 +694,7 @@ Spark, Trino, DuckDB, pyiceberg, and `Parquet.dataset` read: the first write cre
 and each `Append` commits a new snapshot atomically.
 
 ```scala
-import wvlet.uni.parquet.ParquetTableFormat
+import wvlet.uni.cloud.parquet.ParquetTableFormat
 
 val asIceberg = ParquetDatasetWriteOptions
   .default
@@ -765,7 +765,7 @@ Parquet.writeDataset(
 Trino do.
 
 ```scala
-import wvlet.uni.parquet.ParquetFilter
+import wvlet.uni.cloud.parquet.ParquetFilter
 
 val deleted = Parquet.deleteIcebergRows(
   "s3://my-bucket/warehouse/visits/",
@@ -875,7 +875,7 @@ applied, merges small files, and removes the delete files no remaining data file
 `replace` snapshot. The rows don't change.
 
 ```scala
-import wvlet.uni.parquet.IcebergCompactionOptions
+import wvlet.uni.cloud.parquet.IcebergCompactionOptions
 
 val compacted = Parquet.compactIcebergTable("s3://my-bucket/warehouse/visits/")
 // IcebergCompaction(removedDataFiles, addedDataFiles, removedDeleteFiles, rows)
@@ -918,9 +918,9 @@ Parquet.compactIcebergTable(
 #### Changing and Dropping Tables
 
 ```scala
-import wvlet.uni.parquet.{IcebergTableChange, ParquetColumn, ParquetType}
-import wvlet.uni.parquet.IcebergTableChange.*
-import wvlet.uni.parquet.format.Repetition
+import wvlet.uni.cloud.parquet.{IcebergTableChange, ParquetColumn, ParquetType}
+import wvlet.uni.cloud.parquet.IcebergTableChange.*
+import wvlet.uni.cloud.parquet.format.Repetition
 
 Parquet.alterIcebergTable(
   visitsRoot,
@@ -1028,7 +1028,7 @@ with an error. DECIMAL(38, 18) holds any value with up to
 `BigDecimal` fields, or for one field by its path:
 
 ```scala
-import wvlet.uni.parquet.ParquetWriteOptions
+import wvlet.uni.cloud.parquet.ParquetWriteOptions
 
 val opts = ParquetWriteOptions.default
   .withDecimal(18, 4)               // every BigDecimal field
@@ -1045,7 +1045,7 @@ When rows are not case classes, build a schema and use a record writer. `write` 
 string:
 
 ```scala
-import wvlet.uni.parquet.{ParquetSchema, ParquetType}
+import wvlet.uni.cloud.parquet.{ParquetSchema, ParquetType}
 
 val schema = ParquetSchema
   .builder("event")
@@ -1100,7 +1100,7 @@ value, and strings are UTF-8 bytes in a `BinaryColumn`, where row `i` is
 null):
 
 ```scala
-import wvlet.uni.parquet.{ColumnBatch, ColumnVector}
+import wvlet.uni.cloud.parquet.{ColumnBatch, ColumnVector}
 
 val metrics = ParquetSchema
   .builder("metric")
@@ -1144,7 +1144,7 @@ as PLAIN, so the chunk has no dictionary page. Each column chunk
 stores min, max, and null counts, so `ParquetFilter`, DuckDB, and Spark can skip row groups.
 
 ```scala
-import wvlet.uni.parquet.format.CompressionCodec
+import wvlet.uni.cloud.parquet.format.CompressionCodec
 
 val tuned = ParquetWriteOptions.default
   .withCompression(CompressionCodec.LZ4_RAW)
@@ -1185,7 +1185,7 @@ npm install @wvlet/uni
 ```
 
 ```ts
-import { openParquet, writeParquet } from "@wvlet/uni/parquet";
+import { openParquet, writeParquet } from "@wvlet/uni/cloud/parquet";
 
 const bytes: Uint8Array = writeParquet(
   [{ id: 1n, name: "apple", at: new Date() }],
@@ -1229,7 +1229,7 @@ directory in Node.js, or an `s3://`, `gs://`, or `az://` prefix. `writeDataset` 
 only async calls, so they work in browsers as well as in Node.js.
 
 ```ts
-import { openDataset, writeDataset } from "@wvlet/uni/parquet";
+import { openDataset, writeDataset } from "@wvlet/uni/cloud/parquet";
 
 const storage = { s3: { region: "us-east-1" } }; // Node.js: the default credential chain
 

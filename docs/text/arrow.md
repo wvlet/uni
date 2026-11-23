@@ -4,7 +4,7 @@ description: Write Apache Arrow IPC streams and files in pure Scala on the JVM, 
 
 # Arrow IPC
 
-`wvlet.uni.arrow` writes [Apache Arrow IPC](https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc)
+`wvlet.uni.cloud.arrow` writes [Apache Arrow IPC](https://arrow.apache.org/docs/format/Columnar.html#serialization-and-interprocess-communication-ipc)
 streams and files from the column batches that [Parquet](./parquet) reads. A server can then send
 query results to Python (pyarrow, pandas, polars), Node.js (Arrow JS), and ADBC clients. Those clients load the columns
 directly instead of decoding JSON rows. Like the rest of Uni, it is pure Scala with no dependencies,
@@ -15,8 +15,8 @@ Arrow in Uni is for handing results to end users. Uni writes Arrow but does not 
 ## Write a stream
 
 ```scala
-import wvlet.uni.arrow.Arrow
-import wvlet.uni.parquet.Parquet
+import wvlet.uni.cloud.arrow.Arrow
+import wvlet.uni.cloud.parquet.Parquet
 
 val in    = Parquet.open("events.parquet")
 val bytes = Arrow.toStreamBytes(in.schema, in.readBatches())
@@ -40,7 +40,7 @@ const table = tableFromIPC(new Uint8Array(await response.arrayBuffer()));
 For results too large to hold in memory, write batch by batch to an `OutputStream`:
 
 ```scala
-import wvlet.uni.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
+import wvlet.uni.cloud.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
 
 def send(path: String, out: java.io.OutputStream): Unit =
   val in = Parquet.open(path)

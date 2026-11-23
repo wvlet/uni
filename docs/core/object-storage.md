@@ -421,7 +421,7 @@ page's origin.
 fetching only the footer and the column chunks it needs:
 
 ```scala
-import wvlet.uni.parquet.Parquet
+import wvlet.uni.cloud.parquet.Parquet
 import wvlet.uni.weaver.Weaver
 
 case class Event(id: Long, name: String) derives Weaver

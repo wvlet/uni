@@ -12,7 +12,7 @@ DUCKDB="${1:-duckdb}"
 unset AI_AGENT
 DIR="target/parquet-samples"
 
-./sbt "uniJVM/Test/runMain wvlet.uni.parquet.WriteSampleFiles ${DIR}"
+./sbt "uniJVM/Test/runMain wvlet.uni.cloud.parquet.WriteSampleFiles ${DIR}"
 
 # Order.sample(i) in WriterTest.scala, recomputed in SQL. Each line counts the rows whose column
 # differs from the expected value; every count must be 0.

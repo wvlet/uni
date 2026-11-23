@@ -1,6 +1,6 @@
 # Reads the Arrow samples that WriteArrowSamples writes with pyarrow, and checks every value
 # against the rows uni's test reader decoded (the .json file next to each sample):
-#   ./sbt "uniJVM/Test/runMain wvlet.uni.arrow.WriteArrowSamples target/arrow-samples"
+#   ./sbt "uniJVM/Test/runMain wvlet.uni.cloud.arrow.WriteArrowSamples target/arrow-samples"
 #   uv run --with pyarrow python uni/src/test/resources/arrow/check_with_pyarrow.py target/arrow-samples
 import decimal
 import json
