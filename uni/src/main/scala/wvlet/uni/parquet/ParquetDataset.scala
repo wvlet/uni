@@ -121,7 +121,9 @@ class ParquetDataset private[parquet] (
     /** Deleted row positions of each file (sorted), from an Iceberg table's delete files */
     rowDeletes: Map[String, Array[Long]] = Map.empty,
     /** The equality deletes of each file, from an Iceberg table's equality-delete files */
-    equalityDeletes: IcebergDeletes.Equalities = Map.empty
+    equalityDeletes: IcebergDeletes.Equalities = Map.empty,
+    /** The row ID of each file's first row, for an Iceberg table with row lineage (version 3) */
+    firstRowIds: Map[String, Long] = Map.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -132,6 +134,19 @@ class ParquetDataset private[parquet] (
 
   /** The union of every file's columns, matched by name, followed by the partition columns */
   lazy val schema: ParquetSchema = prepare(ParquetReadOptions.default).schema
+
+  /**
+    * The columns of an Iceberg table as its schema declares them, with their required flags (which
+    * [[schema]] relaxes for partition columns), for writing rows back to the table
+    */
+  private[parquet] def tableSchema: ParquetSchema = tableFields
+    // Built from the table's fields alone, so no file footer is read
+    .map(fs =>
+      ParquetSchema(
+        ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, fs.toIndexedSeq)
+      )
+    )
+    .getOrElse(schema)
 
   /**
     * The files a read with these options opens: all of them, minus those whose partition values
@@ -165,26 +180,46 @@ class ParquetDataset private[parquet] (
       tableProperties,
       columnDefaults,
       rowDeletes,
-      equalityDeletes
+      equalityDeletes,
+      firstRowIds
     )
 
   /**
     * The rows a filter matches that the table hasn't deleted yet, by file: each file with matches,
     * their positions in the file (sorted), and the positions its delete files already delete. For
-    * committing row deletes; an Iceberg table's dataset only.
+    * committing row deletes; an Iceberg table's dataset only. Only the filter's columns are read.
     */
   private[parquet] def matchingPositions(
       filter: ParquetFilter
   ): IndexedSeq[(DatasetFile, Array[Long], Array[Long])] =
-    val options  = ParquetReadOptions.default.withColumns().withFilter(filter)
+    val found = IndexedSeq.newBuilder[(DatasetFile, Array[Long], Array[Long])]
+    scanMatches(ParquetReadOptions.default.withColumns().withFilter(filter), withRows = false) {
+      m =>
+        found += ((m.file, m.positions, m.deleted))
+    }
+    found.result()
+
+  /**
+    * Calls `each` with the rows a filter matches that the table hasn't deleted yet, one file at a
+    * time: every column of the rows, their positions, and their row IDs. For committing row
+    * updates; an Iceberg table's dataset only.
+    */
+  private[parquet] def foreachMatchingRows(filter: ParquetFilter)(
+      each: ParquetDataset.MatchedRows => Unit
+  ): Unit = scanMatches(ParquetReadOptions.default.withFilter(filter), withRows = true)(each)
+
+  private def scanMatches(options: ParquetReadOptions, withRows: Boolean)(
+      each: ParquetDataset.MatchedRows => Unit
+  ): Unit =
     val selected = selectByPartition(options)
     val metas    = selected.map(s => footer(s.file))
     val plan     = buildPlan(options, selected, metas)
     selected
       .zip(metas)
-      .flatMap { (s, meta) =>
+      .foreach { (s, meta) =>
         val deleted = rowDeletes.getOrElse(s.file.path, Array.emptyLongArray)
         val found   = scala.collection.mutable.ArrayBuilder.ofLong()
+        val rows    = IndexedSeq.newBuilder[Map[String, Any]]
         val file    = ParquetFile(wrapErrors(s.file)(openSource(s.file)), meta)
         try
           wrapErrors(s.file) {
@@ -206,34 +241,103 @@ class ParquetDataset private[parquet] (
                   equalityDeletes
                     .get(s.file.path)
                     .foreach { ds =>
-                      val rows = notEqual(out, ds, plan)
-                      positions = rows.map(positions(_))
-                      out = ColumnBatch(rows.length, out.columns.map(ColumnVector.take(_, rows)))
+                      val kept = notEqual(out, ds, plan)
+                      positions = kept.map(positions(_))
+                      out = ColumnBatch(kept.length, out.columns.map(ColumnVector.take(_, kept)))
                     }
                   if s.rowResidual.isDefined then
                     plan
                       .rowFilter
                       .foreach { f =>
                         val m    = f.matches(out)
-                        val kept = scala.collection.mutable.ArrayBuilder.ofLong()
+                        val kept = scala.collection.mutable.ArrayBuilder.ofInt()
                         var r    = 0
                         while r < m.length do
                           if m(r) then
-                            kept += positions(r)
+                            kept += r
                           r += 1
-                        positions = kept.result()
+                        val ks = kept.result()
+                        positions = ks.map(positions(_))
+                        if withRows then
+                          out = ColumnBatch(ks.length, out.columns.map(ColumnVector.take(_, ks)))
                       }
                   found ++= positions
+                  if withRows then
+                    rows ++= out.rows
                 }
               }
           }
-        finally file.close()
+          val positions = found.result()
+          if positions.nonEmpty then
+            val rowIds =
+              if withRows then
+                wrapErrors(s.file)(rowIdsOf(s.file, file, positions))
+              else
+                IndexedSeq.empty
+            each(
+              ParquetDataset.MatchedRows(
+                s.file,
+                positions,
+                deleted,
+                if withRows then
+                  rows.result()
+                else
+                  IndexedSeq.empty
+                ,
+                rowIds
+              )
+            )
+        finally
+          file.close()
         end try
-        val positions = found.result()
-        Option.when(positions.nonEmpty)((s.file, positions, deleted))
       }
 
-  end matchingPositions
+  end scanMatches
+
+  /**
+    * The row IDs of rows at these positions of a file (row lineage, format version 3): a stored
+    * `_row_id`, or the file's first row ID plus the position. Null for a row that has no ID yet.
+    */
+  private def rowIdsOf(
+      dataFile: DatasetFile,
+      file: ParquetFile,
+      positions: Array[Long]
+  ): IndexedSeq[Any] =
+    val first  = firstRowIds.get(dataFile.path)
+    val stored = file
+      .schema
+      .fields
+      .find(_.fieldId.contains(ParquetDataset.RowIdFieldId))
+      .map { f =>
+        val values = Array.fill[Any](file.numRows.toInt)(null)
+        var at     = 0
+        file
+          .readBatches(ParquetReadOptions.default.withColumns(f.name))
+          .foreach { b =>
+            val v = b.columns.head
+            var r = 0
+            while r < b.numRows do
+              values(at + r) =
+                if v.isNull(r) then
+                  null
+                else
+                  v.getValue(r)
+              r += 1
+            at += b.numRows
+          }
+        values
+      }
+    positions
+      .toIndexedSeq
+      .map { p =>
+        stored.flatMap(vs => Option(vs(p.toInt))) match
+          case Some(id) =>
+            id
+          case None =>
+            first.map(_ + p).orNull
+      }
+
+  end rowIdsOf
 
   override def close(): Unit =
     val toClose = synchronized {
@@ -758,7 +862,11 @@ class ParquetDataset private[parquet] (
           pending += meta.schema(i).numChildren.getOrElse(0) - 1
           i += 1
       val tops = top.result()
-      if tops.forall(j => meta.schema(j).fieldId.exists(fieldIds.known.contains)) then
+      // Reserved IDs mark metadata columns, such as row lineage's `_row_id`, which stay hidden
+      if tops.forall(j =>
+          meta.schema(j).fieldId.exists(id => fieldIds.known.contains(id) || isReservedId(id))
+        )
+      then
         val renamed =
           tops.foldLeft(meta.schema) { (els, j) =>
             val id = els(j).fieldId.get
@@ -1128,6 +1236,28 @@ class ParquetDataset private[parquet] (
 end ParquetDataset
 
 object ParquetDataset extends wvlet.uni.log.LogSupport:
+
+  /** Iceberg's reserved field ID of the `_row_id` metadata column (row lineage) */
+  private[parquet] val RowIdFieldId = Int.MaxValue - 107
+
+  /** Iceberg's reserved field ID of the `_last_updated_sequence_number` metadata column */
+  private[parquet] val LastUpdatedFieldId = Int.MaxValue - 108
+
+  /** Whether a field ID is one Iceberg reserves for metadata columns */
+  private[parquet] def isReservedId(id: Int): Boolean = id >= Int.MaxValue - 200
+
+  /**
+    * The rows of one data file that a filter matched: their positions (sorted), the positions the
+    * file's delete files already delete, the rows, and their row IDs (null where a row has none)
+    */
+  private[parquet] case class MatchedRows(
+      file: DatasetFile,
+      positions: Array[Long],
+      deleted: Array[Long],
+      rows: IndexedSeq[Map[String, Any]],
+      rowIds: IndexedSeq[Any]
+  )
+
   private[parquet] final val DefaultPartition = "__HIVE_DEFAULT_PARTITION__"
 
   /** Adds the file to an error's message, once */
@@ -1707,7 +1837,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       tableProperties = table.properties,
       columnDefaults = table.defaults,
       rowDeletes = table.deletes,
-      equalityDeletes = table.equalityDeletes
+      equalityDeletes = table.equalityDeletes,
+      firstRowIds = table.files.flatMap(f => f.firstRowId.map(f.path -> _)).toMap
     )
 
   end icebergDataset

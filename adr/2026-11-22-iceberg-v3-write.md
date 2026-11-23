@@ -19,4 +19,4 @@ Uni read v3 tables (`2026-11-22-iceberg-v3-read.md`, `2026-11-22-iceberg-row-del
 ## Consequences
 
 - DuckDB reads the v3 tables Uni writes (`check_uni_tables.py`, table `sales_v3`).
-- Uni writes deletion vectors and position deletes with `Parquet.deleteIcebergRows` (update, 2026-11-22; see [`2026-11-22-iceberg-merge-on-read-deletes.md`](2026-11-22-iceberg-merge-on-read-deletes.md)). Updates stay copy-on-write.
+- Uni writes deletion vectors and position deletes with `Parquet.deleteIcebergRows` (update, 2026-11-22; see [`2026-11-22-iceberg-merge-on-read-deletes.md`](2026-11-22-iceberg-merge-on-read-deletes.md)). Updates are merge-on-read too, with `Parquet.updateIcebergRows`, and keep the rows' IDs (update, 2026-11-22; see [`2026-11-22-iceberg-merge-on-read-updates.md`](2026-11-22-iceberg-merge-on-read-updates.md)).

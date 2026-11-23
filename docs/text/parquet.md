@@ -543,7 +543,8 @@ val catalogVersion = Parquet.dataset(
   the same partition. Deletes are read when the dataset opens, a row filter sees only the rows
   that remain, and key columns are read even when `withColumns` leaves them out. Uni writes
   position deletes and deletion vectors with
-  [`Parquet.deleteIcebergRows`](#deleting-rows-merge-on-read).
+  [`Parquet.deleteIcebergRows`](#deleting-rows-merge-on-read) and
+  [`Parquet.updateIcebergRows`](#updating-rows-merge-on-read).
 - **What fails** when the dataset opens, with the reason: equality deletes keyed on a nested
   or non-primitive column, an `initial-default` on a field inside a struct, encrypted tables,
   and data files that aren't Parquet. The
@@ -792,9 +793,41 @@ val deleted = Parquet.deleteIcebergRows(
   instead, use copy-on-write below. Tables that a catalog owns and format version 1 tables fail, as
   for appends.
 
+#### Updating Rows (Merge-on-Read)
+
+`Parquet.updateIcebergRows` changes the rows a filter matches without rewriting the data files
+that hold them. One `overwrite` snapshot adds new data files with the new rows and delete files
+for the old ones, as DuckDB and Trino do.
+
+```scala
+val updated = Parquet.updateIcebergRows(
+  "s3://my-bucket/warehouse/visits/",
+  ParquetFilter.col("user") === "bot"
+)(row => row.updated("user", "masked"))
+```
+
+- **Rows in, rows out.** The function gets each matching row as a `Map[String, Any]`, in the
+  shape `readRows` gives, and returns its new version. The new row must fit the table's current
+  schema, as an appended row must. A row whose partition column changes moves to its new
+  partition. A row that doesn't fit fails the update, and nothing is committed.
+- **What it writes.** The old rows are deleted as [`deleteIcebergRows`](#deleting-rows-merge-on-read)
+  deletes them: deletion vectors in a format version 3 table, position-delete files in version
+  2. The new rows go into new data files, written with the table's current schema and partition
+  spec. The other data files stay as they are. The call returns the number of rows updated, and
+  when no row matches, nothing is committed.
+- **Row lineage.** In a version 3 table an updated row keeps its row ID: the new files store
+  each row's old `_row_id` and leave `_last_updated_sequence_number` null, so the row takes the
+  update's sequence number. Reads don't show these columns. A table upgraded to version 3 that
+  has no commit since then has no row IDs yet, so its updated rows get new ones.
+- **Commits.** The rows are read from the current snapshot. If another writer commits first, the
+  update deletes the files it wrote, reads the rows again from the new snapshot, and calls the
+  function again, up to 4 attempts. The function must therefore have no side effects. Tables
+  partitioned by transforms Uni can't write (`day`, `bucket`) can't take updates, though they
+  can take deletes.
+
 #### Replacing Data Files (Copy-on-Write)
 
-An update, or a delete that should leave no delete files, rewrites only the data files it touches. Read them one at a time with
+An update or delete that should leave no delete files rewrites only the data files it touches. Read them one at a time with
 `ds.withFiles`, write the rows to keep, and commit them with `withReplacedFiles`: one snapshot
 removes the old files and adds the new ones.
 

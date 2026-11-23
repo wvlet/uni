@@ -609,6 +609,18 @@ class IcebergInteropTables extends UniTest:
         Parquet.writeDataset(posdel, rows, opts)
         Parquet.deleteIcebergRows(posdel, ParquetFilter.col("id") === 2L)
         Parquet.deleteIcebergRows(posdel, ParquetFilter.col("country") === "US")
+        // Merge-on-read updates: rows 2 and 3 change item, and row 4 moves to another partition
+        def updated(root: String, properties: Map[String, String]): Unit =
+          Parquet.writeDataset(root, rows, opts.withTableProperties(properties))
+          Parquet.updateIcebergRows(
+            root,
+            ParquetFilter.col("id") === 2L || ParquetFilter.col("id") === 3L
+          )(r => r.updated("item", r("item").toString.toUpperCase))
+          Parquet.updateIcebergRows(root, ParquetFilter.col("id") === 4L)(
+            _.updated("dt", LocalDate.of(2026, 11, 30))
+          )
+        updated(s"${d}/v3_update", Map(IcebergWrite.FormatVersionProperty -> "3"))
+        updated(s"${d}/v2_update", Map.empty)
   }
 
 end IcebergInteropTables

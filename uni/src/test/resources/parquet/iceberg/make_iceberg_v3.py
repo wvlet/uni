@@ -76,7 +76,14 @@ con.execute("INSERT INTO cat.v3.equality_deletes VALUES (1, 'a', 'JP'), (2, 'b',
 con.execute("INSERT INTO cat.v3.equality_deletes VALUES (4, 'd', 'US'), (8, 'a', 'JP')")
 con.execute("DELETE FROM cat.v3.equality_deletes WHERE id = 7")
 
-for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant", "v3_geo", "equality_deletes"]:
+# v3_update and v2_update: DuckDB's merge-on-read UPDATE (new data files plus a deletion vector,
+# or position-delete files, for the old rows)
+for name, version in [("v3_update", 3), ("v2_update", 2)]:
+    table(name, "id BIGINT, name VARCHAR", version=version)
+    con.execute(f"INSERT INTO cat.v3.{name} SELECT i, 'n' || i FROM range(10) t(i)")
+    con.execute(f"UPDATE cat.v3.{name} SET name = upper(name) WHERE id % 3 = 0")
+
+for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant", "v3_geo", "equality_deletes", "v3_update", "v2_update"]:
     shutil.copytree(os.path.join(wh, "v3", name), os.path.join(out, name), ignore=shutil.ignore_patterns("*.crc"))
 
 # equality_deletes, continued: a snapshot (sequence number 4) with two equality delete files, written

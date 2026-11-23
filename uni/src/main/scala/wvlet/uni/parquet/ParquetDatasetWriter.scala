@@ -161,7 +161,12 @@ private[parquet] final class DatasetWriterCore private (
       * For the async writer: the root listing and old `_common_metadata` bytes, fetched with async
       * calls. Files are then built in memory and queued, and I/O is returned as actions to run.
       */
-    prefetched: Option[DatasetWriterCore.Prefetched]
+    prefetched: Option[DatasetWriterCore.Prefetched],
+    /**
+      * For a merge-on-read update: the table version to write for, whose commit the caller makes
+      * with the files [[closeUncommitted]] returns
+      */
+    update: Option[DatasetWriterCore.UpdateBase] = None
 ) extends wvlet.uni.log.LogSupport:
   import DatasetWriterCore.*
 
@@ -1051,7 +1056,35 @@ private[parquet] final class DatasetWriterCore private (
         abortWith(e)
         throw e
 
+  /**
+    * For a merge-on-read update: finishes every file and returns the plan and data files to commit,
+    * without committing. On a failed commit the caller deletes [[writtenFiles]].
+    */
+  def closeUncommitted(): (IcebergWrite.Plan, IndexedSeq[IcebergWrite.DataFile]) =
+    ensureOpen()
+    writeRuns()
+    fatal(open.valuesIterator.toList.foreach(finish))
+    state = State.Closed
+    val p = iceberg.getOrElse(throw IllegalStateException(s"${rootName} is not an Iceberg write"))
+    (p, dataFiles)
+
+  private def dataFiles: IndexedSeq[IcebergWrite.DataFile] =
+    committed
+      .map(_._1)
+      .map(w =>
+        IcebergWrite.DataFile(
+          w.path,
+          w.partitions,
+          w.numRows,
+          w.size,
+          rowGroupsOf.getOrElse(w.path, IndexedSeq.empty)
+        )
+      )
+      .toIndexedSeq
+
   def close(): Unit =
+    if update.isDefined then
+      throw IllegalStateException("An update's writer is closed with closeUncommitted")
     if state == State.Open then
       writeRuns()
       fatal(open.valuesIterator.toList.foreach(finish))
@@ -1086,6 +1119,9 @@ private[parquet] final class DatasetWriterCore private (
       state = State.Closed
       try closeActions().foreach(runSync)
       finally target.closeStore()
+    end if
+
+  end close
 
   // ---- Iceberg ----
 
@@ -1095,18 +1131,7 @@ private[parquet] final class DatasetWriterCore private (
     if committed.isEmpty && p.base.isDefined && p.removal == IcebergWrite.Removal.Keep then
       None
     else
-      val files = committed
-        .map(_._1)
-        .map(w =>
-          IcebergWrite.DataFile(
-            w.path,
-            w.partitions,
-            w.numRows,
-            w.size,
-            rowGroupsOf.getOrElse(w.path, IndexedSeq.empty)
-          )
-        )
-      Some(IcebergWrite.CommitState(p, files.toIndexedSeq))
+      Some(IcebergWrite.CommitState(p, dataFiles))
   }
 
   /** Records the committed snapshot, so closing writes the version hint after it */
@@ -1153,10 +1178,12 @@ private[parquet] final class DatasetWriterCore private (
       None
     else
       val base =
-        prefetched match
-          case Some(p) =>
+        (update, prefetched) match
+          case (Some(u), _) =>
+            Some(u.table)
+          case (None, Some(p)) =>
             p.table.getOrElse(throw IllegalStateException("The async writer didn't load the table"))
-          case None =>
+          case (None, None) =>
             runStepsSync(IcebergWrite.load(layout))
       if base.isEmpty then
         // An Iceberg table here would hide the plain files from readers
@@ -1171,11 +1198,40 @@ private[parquet] final class DatasetWriterCore private (
                   .path}, and no Iceberg table. Write the table to another folder"
             )
           }
-      Some(
-        IcebergWrite
-          .plan(layout, base, schema, options.partitionBy, options.mode, options.replacedFiles)
-          .withProperties(options.tableProperties)
+      val lineage    = update.exists(_.lineage)
+      val lineageIds = Seq(
+        RowIdColumn       -> ParquetDataset.RowIdFieldId,
+        LastUpdatedColumn -> ParquetDataset.LastUpdatedFieldId
       )
+      val rowSchema =
+        if lineage then
+          schema.select(schema.fields.map(_.name).filterNot(n => lineageIds.exists(_._1 == n))*)
+        else
+          schema
+      val p = IcebergWrite
+        .plan(layout, base, rowSchema, options.partitionBy, options.mode, options.replacedFiles)
+        .withProperties(options.tableProperties)
+      if lineage then
+        // The lineage columns follow the table's, with their reserved field IDs
+        val extra = lineageIds.map { (name, id) =>
+          schema.field(name) match
+            case Some(f: ParquetField.Primitive) =>
+              f.copy(fieldId = Some(id))
+            case _ =>
+              throw IllegalStateException(s"An update with row lineage needs a ${name} column")
+        }
+        Some(
+          // Rebuilt from elements, so the appended columns get their own leaf indexes
+          p.copy(fileSchema =
+            ParquetSchema.fromElements(
+              SchemaElements.of(
+                ParquetSchema(p.fileSchema.root.copy(children = p.fileSchema.fields ++ extra))
+              )
+            )
+          )
+        )
+      else
+        Some(p)
 
   // ---- The async writer's steps ----
 
@@ -1459,10 +1515,11 @@ private[parquet] object DatasetWriterCore:
       target: DatasetTarget,
       schema: ParquetSchema,
       options: ParquetDatasetWriteOptions,
-      prefetched: Option[Prefetched] = None
+      prefetched: Option[Prefetched] = None,
+      update: Option[UpdateBase] = None
   ): DatasetWriterCore =
     try
-      DatasetWriterCore(target, schema, options, prefetched)
+      DatasetWriterCore(target, schema, options, prefetched, update)
     catch
       case e: Throwable =>
         target.closeStore()
@@ -1554,6 +1611,17 @@ private[parquet] object DatasetWriterCore:
 
   /** The async writer's file size cap when none is set, since files are built in memory */
   val AsyncMaxFileSize: Long = 128L * 1024 * 1024
+
+  /**
+    * What a merge-on-read update writes for: the table version its rows were read from, and whether
+    * the schema ends with the row lineage columns `_row_id` and `_last_updated_sequence_number`
+    * (format version 3), which the files keep under Iceberg's reserved field IDs
+    */
+  case class UpdateBase(table: IcebergWrite.Table, lineage: Boolean)
+
+  /** The row lineage columns an update writes, after the table's columns */
+  val RowIdColumn: String       = "_row_id"
+  val LastUpdatedColumn: String = "_last_updated_sequence_number"
 
   /** What the async writer fetched before creating the core */
   case class Prefetched(

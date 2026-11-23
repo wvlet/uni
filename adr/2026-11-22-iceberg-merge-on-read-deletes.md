@@ -24,3 +24,4 @@ Uni's Iceberg writer removed rows only by copy-on-write (`withReplacedFiles`), w
 - Every delete adds files that readers apply until the table is compacted; Uni has no compaction yet, so long-lived tables with many deletes should be rewritten with `withReplacedFiles` now and then.
 - Equality deletes are not written: every reader would pay a key lookup, and Uni has no streaming writer.
 - Updates are still copy-on-write.
+- Update (2026-11-22): `Parquet.updateIcebergRows` commits updates merge-on-read, reusing the delete step with the new rows' data files in one `overwrite` snapshot. See [`2026-11-22-iceberg-merge-on-read-updates.md`](2026-11-22-iceberg-merge-on-read-updates.md).
