@@ -19,12 +19,15 @@ Source: [`TodoApp.scala`](src/main/scala/example/webui/TodoApp.scala) and
 ## Run
 
 ```bash
-./sbt exampleWebUi/fastLinkJS                 # writes examples/web-ui/target/js/main.js
-cd examples/web-ui && python3 -m http.server 8000
-# open http://localhost:8000
+./sbt "~;exampleWebUi/fastLinkJS;exampleSiteServer/uniRestart examples/web-ui"
+# open http://localhost:8080
 ```
 
-Browsers load ES modules only over HTTP, so open the page through a static server, not `file://`.
+`fastLinkJS` writes `examples/web-ui/target/js/main.js`. Browsers load ES modules only over HTTP,
+so open the page through a server, not `file://`.
+[`exampleSiteServer`](../site-server/src/main/scala/example/site/SiteServer.scala) serves the
+folder with Uni's `Http.server` and `StaticFiles`, and `uniRestart` runs it in the background, so
+`~` relinks on every edit.
 CI compiles this example; it does not run it in a browser.
 
 ## Use it in your own build

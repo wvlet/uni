@@ -166,6 +166,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   exampleCli.jvm,
   exampleRepl.jvm,
   exampleRestServer,
+  exampleSiteServer,
   exampleMcpServer,
   exampleRpcNative.jvm,
   exampleHttpGarden.jvm,
@@ -633,6 +634,21 @@ lazy val exampleHttpGarden = crossProject(JVMPlatform, NativePlatform)
   .dependsOn(uni)
 
 lazy val stageGardenJars = taskKey[File]("Copy the runtime classpath jars for the HTTP Garden run")
+
+// Serves built web files (the ui-gallery site, the web-ui example) during development:
+// ./sbt "exampleSiteServer/uniRestart <dir> [port]"
+lazy val exampleSiteServer = project
+  .in(file("examples/site-server"))
+  .enablePlugins(UniPlugin)
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-site-server",
+    description := "Example: serve a directory of web files with Http.server and StaticFiles",
+    // Directories are given relative to the repository root
+    uniRestart / baseDirectory := (ThisBuild / baseDirectory).value
+  )
+  .dependsOn(uni.jvm, netty)
 
 lazy val exampleMcpServer = project
   .in(file("examples/mcp-server"))

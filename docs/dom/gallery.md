@@ -70,9 +70,13 @@ above the code links to those lines on GitHub. Each example assumes the imports 
 ## Run it locally
 
 ```bash
-./sbt exampleUiGallery/gallerySite   # stages examples/ui-gallery/target/site
-python3 -m http.server -d examples/ui-gallery/target/site 8080
+./sbt "~;exampleUiGallery/gallerySite;exampleSiteServer/uniRestart examples/ui-gallery/target/site"
+# open http://localhost:8080
 ```
+
+`gallerySite` stages the gallery in `examples/ui-gallery/target/site`, and `exampleSiteServer`
+serves it with Uni's `Http.server` and `StaticFiles`. `uniRestart` runs the server in the
+background, so `~` restages the site on every edit.
 
 The URL holds the gallery's state: `#/menu` opens a component's page and `#/menu/checked` one of
 its examples, `?view=code` (or `preview`, `split`, `agent`) picks the view, `?theme=dark` forces
