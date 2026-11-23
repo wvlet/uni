@@ -238,9 +238,10 @@ case class HttpServerConfig(
     *     ...
     *   }
     * }}}
-    * `isStreaming` sees the request head (method, path, headers) before any body bytes are read, so
-    * filters run first, and a client that sent `Expect: 100-continue` uploads nothing until the
-    * handler starts reading. Streamed bodies are not decompressed, are limited by
+    * `isStreaming` sees the request head (method, path, headers) before any body bytes are read,
+    * and should depend on nothing else: a backend may call it more than once per request. Filters
+    * run first, and a client that sent `Expect: 100-continue` uploads nothing until the handler
+    * starts reading. Streamed bodies are not decompressed, are limited by
     * [[withMaxStreamingRequestSize]] instead of [[withMaxContentLength]], and each takes a slot of
     * [[withMaxStreamingConnections]] while its handler runs.
     *

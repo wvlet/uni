@@ -250,6 +250,23 @@ class SocketServerStreamingTest extends UniTest:
     }
   }
 
+  test("keep the handler's response when the unread rest of the body is malformed") {
+    withServer() { server =>
+      val s = connect(server)
+      try
+        send(
+          s,
+          "POST /upload/skip HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"
+        )
+        val r = readResponse(s.getInputStream)
+        r.status shouldBe 200
+        r.body shouldBe "skipped"
+        isClosed(s) shouldBe true
+      finally
+        s.close()
+    }
+  }
+
   test("refuse reads of the body after the response is sent") {
     withServer() { server =>
       val s = connect(server)

@@ -15,7 +15,7 @@ Every backend buffered a request body in full before the handler ran, up to `max
   - `streamingRequestTimeoutMillis` (1 hour from the end of the head) replaces the 30 s whole-request deadline, and each read still waits at most the per-read timeout (30 s), so a slow but moving upload is not cut off and a stalled one is.
   - Each upload holds a `maxStreamingConnections` slot while its handler runs, so on Native uploads can't take every worker.
   - Streaming requests have no handler timeout.
-- **After the response is decided,** the stream refuses further reads, then the server reads and discards up to 64 KiB of an unread remainder to keep the connection. A longer remainder (or a known `Content-Length` beyond it) closes the connection.
+- **After the response is decided,** the stream refuses further reads, then the server reads and discards up to 64 KiB of an unread remainder to keep the connection. A longer remainder (or a known `Content-Length` beyond it) closes the connection. An error met while draining only closes the connection; it never replaces the handler's response. The predicate may run more than once per request (Netty's decompressor and its handler each ask), so it must depend only on the head.
 - **No decompression for streamed bodies**, on any backend: the handler sees `Content-Encoding` and the bytes as sent. Netty's decompressor passes streamed requests through.
 - **Netty and Node.js buffer, then hand over a stream** of the buffered bytes, still bounded by `maxContentLength`. Handler code is the same on every backend. Node.js can't block on a read. Streaming through Netty would mean bypassing `HttpObjectAggregator` per request and bridging its event loop to a blocking stream; uni-netty is now optional, so it isn't worth that work.
 

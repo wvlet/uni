@@ -510,7 +510,8 @@ private[http] class HttpConnectionReader(
       body = stream
       bodyActive = true
       if chunked then
-        headers = headers.remove(HttpHeader.TransferEncoding)
+        // Framed by chunks, so a Content-Length sent alongside doesn't describe the body
+        headers = headers.remove(HttpHeader.TransferEncoding).remove(HttpHeader.ContentLength)
       val length =
         if chunked then
           -1L
@@ -714,12 +715,14 @@ private[http] class HttpConnectionReader(
     // Whether more than `n` bytes of a Content-Length body are known to remain
     private[HttpConnectionReader] def remainsMoreThan(n: Long): Boolean = !chunked && remaining > n
 
-    override def read(): Int =
-      val one = new Array[Byte](1)
+    private val one = new Array[Byte](1)
+
+    override def read(): Int = synchronized {
       if read(one, 0, 1) < 0 then
         -1
       else
         one(0) & 0xff
+    }
 
     override def read(b: Array[Byte], off: Int, len: Int): Int = synchronized {
       if finished then
@@ -822,16 +825,22 @@ private[http] class HttpConnectionReader(
       BodyEnd(reusable = true, failure = None)
     else
       stream.finish()
+      // Only an error the handler's reads ran into replaces its response; one met while draining
+      // just means the connection can't be reused
+      val failure  = stream.failure
       val reusable =
-        if stream.failure.nonEmpty || stream.awaitingContinue || stream.remainsMoreThan(maxDrain)
-        then
+        if failure.nonEmpty || stream.awaitingContinue || stream.remainsMoreThan(maxDrain) then
           false
         else
           val scratch = new Array[Byte](8192)
           var drained = 0L
           try
-            while !stream.isDone && drained <= maxDrain do
-              val n = stream.readBody(scratch, 0, scratch.length)
+            while !stream.isDone && drained < maxDrain do
+              val n = stream.readBody(
+                scratch,
+                0,
+                math.min(scratch.length.toLong, maxDrain - drained).toInt
+              )
               if n > 0 then
                 drained += n
             stream.isDone
@@ -842,7 +851,10 @@ private[http] class HttpConnectionReader(
       if start == end then
         start = 0
         end = 0
-      BodyEnd(reusable, stream.failure)
+      BodyEnd(reusable, failure)
+    end if
+
+  end finishBody
 
 end HttpConnectionReader
 
