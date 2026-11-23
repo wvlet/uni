@@ -52,7 +52,13 @@ private[parquet] object IcebergTable:
       /** The field IDs of the files' columns, for reading renamed and re-added columns */
       fieldIds: FieldIds = FieldIds.empty,
       /** The table properties */
-      properties: Map[String, String] = Map.empty
+      properties: Map[String, String] = Map.empty,
+      /**
+        * The `initial-default` of top-level primitive columns that have one (format version 3), for
+        * files written before the column was added: a Boolean, Int, Long, Float, Double, BigInt
+        * (the unscaled value of a decimal), or Array[Byte] (strings, binary, fixed, and UUIDs)
+        */
+      defaults: Map[String, Any] = Map.empty
   )
 
   /**
@@ -77,7 +83,7 @@ private[parquet] object IcebergTable:
 
   private val HadoopMetadata   = """v(\d+)\.metadata\.json""".r
   private val CatalogMetadata  = """(\d+)-.+\.metadata\.json""".r
-  private val MaxFormatVersion = 2
+  private val MaxFormatVersion = 3
 
   def isMetadataFile(path: String): Boolean = path.endsWith(".metadata.json")
 
@@ -216,8 +222,12 @@ private[parquet] object IcebergTable:
     val formatVersion = long(m, "format-version").getOrElse(1L)
     if formatVersion > MaxFormatVersion then
       throw ParquetException(
-        s"${source} is an Iceberg format version ${formatVersion} table; Uni reads versions 1 and 2"
+        s"${source} is an Iceberg format version ${formatVersion} table; Uni reads versions 1 to 3"
       )
+    m.get("encryption-keys") match
+      case Some(JSONArray(keys)) if keys.nonEmpty =>
+        throw ParquetException(s"${source} is an encrypted Iceberg table, which Uni doesn't read")
+      case _ =>
     val location = string(m, "location").getOrElse(
       throw ParquetException(s"${source} has no table location")
     )
@@ -555,7 +565,8 @@ private[parquet] object IcebergTable:
   /** Iceberg primitive types whose bounds compare as PLAIN-encoded Parquet statistics */
   private def bounded(tpe: String): Boolean =
     tpe match
-      case "boolean" | "int" | "long" | "date" | "timestamp" | "timestamptz" | "string" =>
+      case "boolean" | "int" | "long" | "date" | "timestamp" | "timestamptz" | "timestamp_ns" |
+          "timestamptz_ns" | "string" =>
         true
       case _ =>
         false
@@ -567,7 +578,7 @@ private[parquet] object IcebergTable:
         Option.when(b.length == 1)(b)
       case "int" | "date" =>
         Option.when(b.length == 4)(b)
-      case "timestamp" | "timestamptz" =>
+      case "timestamp" | "timestamptz" | "timestamp_ns" | "timestamptz_ns" =>
         Option.when(b.length == 8)(b)
       case "long" =>
         if b.length == 8 then
@@ -620,9 +631,129 @@ private[parquet] object IcebergTable:
           .toMap
       )
     }
-    Resolved(root, columns, partitionColumns, required, typed.sortBy(_.path), fieldIds)
+    Resolved(
+      root,
+      columns,
+      partitionColumns,
+      required,
+      typed.sortBy(_.path),
+      fieldIds,
+      defaults = defaultsOf(fields, source)
+    )
 
   end resolved
+
+  // ---- Default values (format version 3) ----
+
+  private def hasDefault(f: JSONObject): Boolean =
+    f.get("initial-default") match
+      case None | Some(JSONNull) =>
+        false
+      case _ =>
+        true
+
+  /** The initial defaults of top-level columns, as the values [[Resolved.defaults]] holds */
+  private def defaultsOf(fields: IndexedSeq[JSONObject], source: String): Map[String, Any] =
+    fields
+      .filter(hasDefault)
+      .map { f =>
+        val name           = string(f, "name").getOrElse("")
+        val v              = f.get("initial-default").get
+        def bad(): Nothing =
+          throw ParquetException(
+            s"Column ${name} of ${source} has an initial-default ${v
+                .toJSON}, which Uni can't read for its type"
+          )
+        val value: Any =
+          (f.get("type"), v) match
+            case (Some(JSONString(tpe)), _) =>
+              try
+                defaultValue(tpe, v).getOrElse(bad())
+              catch
+                case e: ParquetException =>
+                  throw e
+                case e: Exception =>
+                  bad()
+            case _ =>
+              bad()
+        name -> value
+      }
+      .toMap
+
+  /** Iceberg's single-value JSON serialization of a primitive value, decoded */
+  private def defaultValue(tpe: String, v: JSONValue): Option[Any] =
+    def num: Option[BigDecimal] =
+      v match
+        case JSONLong(l) =>
+          Some(BigDecimal(l))
+        case JSONDouble(d) =>
+          Some(BigDecimal(d))
+        case _ =>
+          None
+    def str: Option[String] =
+      v match
+        case JSONString(s) =>
+          Some(s)
+        case _ =>
+          None
+    // Timestamps have no zone (`timestamp`) or end with `+00:00` (`timestamptz`)
+    def instant(s: String): java.time.Instant =
+      val utc =
+        if s.endsWith("+00:00") then
+          s.dropRight(6) + "Z"
+        else if s.endsWith("Z") then
+          s
+        else
+          s + "Z"
+      java.time.Instant.parse(utc)
+    def nanos(s: String): Long =
+      val i = instant(s)
+      Math.addExact(Math.multiplyExact(i.getEpochSecond, 1000000000L), i.getNano.toLong)
+    tpe match
+      case "boolean" =>
+        v match
+          case JSONBoolean(b) =>
+            Some(b)
+          case _ =>
+            None
+      case "int" =>
+        num.map(_.toIntExact)
+      case "long" =>
+        num.map(_.toLongExact)
+      case "float" =>
+        num.map(_.toFloat)
+      case "double" =>
+        num.map(_.toDouble)
+      case "string" =>
+        str.map(_.getBytes(StandardCharsets.UTF_8))
+      case "date" =>
+        str.map(s => LocalDate.parse(s).toEpochDay.toInt)
+      case "time" =>
+        str.map(s => wvlet.uni.weaver.codec.PrimitiveWeaver.parseLocalTime(s).toNanoOfDay / 1000L)
+      case "timestamp" | "timestamptz" =>
+        str.map(s => Math.floorDiv(nanos(s), 1000L))
+      case "timestamp_ns" | "timestamptz_ns" =>
+        str.map(nanos)
+      case "uuid" =>
+        str.map { s =>
+          val u = java.util.UUID.fromString(s)
+          val b = java.nio.ByteBuffer.allocate(16)
+          b.putLong(u.getMostSignificantBits).putLong(u.getLeastSignificantBits)
+          b.array()
+        }
+      case "binary" | FixedType(_) =>
+        str.map(hex)
+      case DecimalType(_, sc) =>
+        str.map(s => BigDecimal(s).setScale(sc.toInt).bigDecimal.unscaledValue).map(BigInt(_))
+      case _ =>
+        None
+    end match
+
+  end defaultValue
+
+  private def hex(s: String): Array[Byte] =
+    require(s.length % 2 == 0, s"Odd-length hex string: ${s}")
+    Array.tabulate(s.length / 2)(i => Integer.parseInt(s.substring(2 * i, 2 * i + 2), 16).toByte)
 
   private def partitionType(t: Option[JSONValue]): Option[ParquetType.Primitive] =
     t match
@@ -833,6 +964,16 @@ private[parquet] object IcebergTable:
             )
           case "timestamptz" =>
             ParquetType.TIMESTAMP_MICROS
+          case "timestamp_ns" =>
+            ParquetType.Primitive(
+              PhysicalType.INT64,
+              Some(LogicalType.Timestamp(false, TimeUnit.NANOS))
+            )
+          case "timestamptz_ns" =>
+            ParquetType.TIMESTAMP_NANOS
+          case "unknown" =>
+            // Always null, and never stored in data files
+            ParquetType.Primitive(PhysicalType.INT32, Some(LogicalType.Unknown))
           case "string" =>
             ParquetType.STRING
           case "uuid" =>
@@ -852,6 +993,12 @@ private[parquet] object IcebergTable:
               o.get("fields") match
                 case Some(JSONArray(fs)) =>
                   fs.collect { case f: JSONObject =>
+                    if hasDefault(f) then
+                      throw ParquetException(
+                        s"Field ${string(f, "name").getOrElse(
+                            ""
+                          )} of column ${name} in ${source} has an initial-default, which Uni reads only for top-level columns"
+                      )
                     column(f, source)
                   }
                 case _ =>

@@ -243,20 +243,149 @@ class IcebergTableTest extends UniTest:
       ds.close()
   }
 
+  test("read a format version 3 table") {
+    val ds = Parquet.dataset(fixture("v3"))
+    try
+      ds.partitionColumns.map(_.name) shouldBe IndexedSeq()
+      ds.schema.fields.map(_.name) shouldBe IndexedSeq("id", "ts", "tz", "country", "n", "s")
+      val rows          = ds.readRows().toSeq.sortBy(_("id").asInstanceOf[Long])
+      def ts(s: String) = java.time.Instant.parse(s)
+      rows shouldBe
+        Seq(
+          // The first file was written before n and s were added: they read as initial-default
+          Map(
+            "id"      -> 1L,
+            "ts"      -> ts("2026-11-22T01:02:03.123456789Z"),
+            "tz"      -> ts("2026-11-22T01:02:03Z"),
+            "country" -> "JP",
+            "n"       -> 7,
+            "s"       -> "x"
+          ),
+          Map("id" -> 2L, "ts" -> null, "tz" -> null, "country" -> "US", "n" -> 7, "s" -> "x"),
+          Map(
+            "id"      -> 3L,
+            "ts"      -> ts("1969-12-31T23:59:59.999999999Z"),
+            "tz"      -> null,
+            "country" -> "JP",
+            "n"       -> 8,
+            "s"       -> "y"
+          ),
+          // Nulls written after the columns were added stay null
+          Map("id" -> 4L, "ts" -> null, "tz" -> null, "country" -> "US", "n" -> null, "s" -> null)
+        )
+      // Filters see the filled defaults, and nanosecond bounds skip files
+      def ids(f: ParquetFilter): Seq[Any] = ds
+        .readRows(ParquetReadOptions.default.withFilter(f))
+        .map(_("id"))
+        .toSeq
+        .sortBy(_.asInstanceOf[Long])
+      ids(col("n") === 7) shouldBe Seq(1L, 2L)
+      ids(col("s") === "x") shouldBe Seq(1L, 2L)
+      ids(col("ts") < ts("1970-01-01T00:00:00Z")) shouldBe Seq(3L)
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("ts") < ts("1970-01-01T00:00:00Z")))
+        .size shouldBe 1
+    finally
+      ds.close()
+    end try
+  }
+
+  test("initial-default of every primitive type, and unknown columns") {
+    val newest = metadataFiles("v3").last
+    val added  = Seq(
+      """{"id":20,"name":"b","required":false,"type":"boolean","initial-default":true}""",
+      """{"id":21,"name":"l","required":false,"type":"long","initial-default":9000000000}""",
+      """{"id":22,"name":"fl","required":false,"type":"float","initial-default":0.25}""",
+      """{"id":23,"name":"db","required":false,"type":"double","initial-default":1.5}""",
+      """{"id":24,"name":"d","required":false,"type":"date","initial-default":"2026-11-22"}""",
+      """{"id":25,"name":"tm","required":false,"type":"time","initial-default":"01:02:03.5"}""",
+      """{"id":26,"name":"t","required":false,"type":"timestamp","initial-default":"2026-11-22T01:02:03.123456"}""",
+      """{"id":27,"name":"tzn","required":false,"type":"timestamptz_ns","initial-default":"2026-11-22T01:02:03.123456789+00:00"}""",
+      """{"id":28,"name":"dec","required":false,"type":"decimal(9, 2)","initial-default":"14.20"}""",
+      """{"id":29,"name":"big","required":false,"type":"decimal(20, 3)","initial-default":"-1.500"}""",
+      """{"id":30,"name":"u","required":false,"type":"uuid","initial-default":"f79c3e09-677c-4bbd-a479-3f349cb785e7"}""",
+      """{"id":31,"name":"bin","required":false,"type":"binary","initial-default":"0aff"}""",
+      """{"id":32,"name":"unk","required":false,"type":"unknown"}"""
+    )
+    val s =
+      """{"id":6,"name":"s","required":false,"type":"string","initial-default":"x","write-default":"x"}"""
+    val root =
+      copyOf("v3")((rel, b) =>
+        if rel == newest then
+          Some(utf8(text(b).replace(s, (s +: added).mkString(","))))
+        else
+          Some(b)
+      )()
+    val ds = Parquet.dataset(root)
+    try
+      val row = ds.readRows().toSeq.find(_("id") == 4L).get
+      row("bin").asInstanceOf[Array[Byte]].toSeq shouldBe Seq[Byte](10, -1)
+      row
+        .view
+        .filterKeys(k => !Set("id", "ts", "tz", "country", "n", "s", "bin").contains(k))
+        .toMap
+        .map((k, v) => k -> String.valueOf(v)) shouldBe
+        Map(
+          "b"   -> "true",
+          "l"   -> "9000000000",
+          "fl"  -> "0.25",
+          "db"  -> "1.5",
+          "d"   -> "2026-11-22",
+          "tm"  -> "01:02:03.500",
+          "t"   -> "2026-11-22T01:02:03.123456Z",
+          "tzn" -> "2026-11-22T01:02:03.123456789Z",
+          "dec" -> "14.20",
+          "big" -> "-1.500",
+          "u"   -> "f79c3e09-677c-4bbd-a479-3f349cb785e7",
+          // An unknown column is always null
+          "unk" -> "null"
+        )
+    finally
+      ds.close()
+  }
+
+  test("refuse what format version 3 tables have that Uni doesn't read") {
+    intercept[ParquetException](Parquet.dataset(fixture("v3_deletes"))).getMessage shouldContain
+      "delete files"
+    intercept[ParquetException](Parquet.dataset(fixture("v3_variant"))).getMessage shouldContain
+      "Iceberg type variant"
+    val newest                                   = metadataFiles("v3").last
+    def edited(from: String, to: String): String =
+      copyOf("v3")((rel, b) =>
+        if rel == newest then
+          Some(utf8(text(b).replace(from, to)))
+        else
+          Some(b)
+      )()
+    val encrypted = edited(
+      ""","last-column-id":6""",
+      ""","last-column-id":6,"encryption-keys":[{"key-id":"k","encrypted-key-metadata":"AA=="}]"""
+    )
+    intercept[ParquetException](Parquet.dataset(encrypted)).getMessage shouldContain "encrypted"
+    val badDefault = edited(""""initial-default":7""", """"initial-default":"seven"""")
+    intercept[ParquetException](Parquet.dataset(badDefault)).getMessage shouldContain
+      "initial-default \"seven\""
+    val structDefault = edited(
+      """{"id":6,"name":"s",""",
+      """{"id":40,"name":"st","required":false,"type":{"type":"struct","fields":[{"id":41,"name":"a","required":false,"type":"int","initial-default":1}]}},{"id":6,"name":"s","""
+    )
+    intercept[ParquetException](Parquet.dataset(structDefault)).getMessage shouldContain
+      "only for top-level columns"
+  }
+
   test("refuse what changes meaning") {
     intercept[ParquetException](Parquet.dataset(fixture("deletes"))).getMessage shouldContain
       "delete files"
     intercept[ParquetException](Parquet.dataset(fixture("orc"))).getMessage shouldContain
       "ORC data files"
     val newest = metadataFiles("events").last
-    val v3     =
+    val v4     =
       copyOf("events")((rel, b) =>
         if rel == newest then
-          Some(utf8(text(b).replace("\"format-version\":2", "\"format-version\":3")))
+          Some(utf8(text(b).replace("\"format-version\":2", "\"format-version\":4")))
         else
           Some(b)
       )()
-    intercept[ParquetException](Parquet.dataset(v3)).getMessage shouldContain "format version 3"
+    intercept[ParquetException](Parquet.dataset(v4)).getMessage shouldContain "format version 4"
   }
 
   test("refuse paths outside the table and its file system") {

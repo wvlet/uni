@@ -112,7 +112,12 @@ class ParquetDataset private[parquet] (
     /** For an Iceberg table: how files map to the table's columns by field ID */
     fieldIds: IcebergTable.FieldIds = IcebergTable.FieldIds.empty,
     /** An Iceberg table's properties; empty for other datasets */
-    val tableProperties: Map[String, String] = Map.empty
+    val tableProperties: Map[String, String] = Map.empty,
+    /**
+      * Values for top-level columns a file lacks, in place of null: an Iceberg column's
+      * `initial-default` (see [[IcebergTable.Resolved.defaults]])
+      */
+    columnDefaults: Map[String, Any] = Map.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -153,7 +158,8 @@ class ParquetDataset private[parquet] (
       tableFields,
       requiredInFiles,
       fieldIds,
-      tableProperties
+      tableProperties,
+      columnDefaults
     )
 
   override def close(): Unit =
@@ -822,7 +828,11 @@ class ParquetDataset private[parquet] (
               case Some(v) =>
                 conformField(v, f)
               case None =>
-                missingColumn(f, n, plan.options)
+                columnDefaults.get(f.name) match
+                  case Some(v) =>
+                    defaultColumn(f, v, n, plan.options)
+                  case None =>
+                    missingColumn(f, n, plan.options)
         }
     )
 
@@ -837,6 +847,88 @@ class ParquetDataset private[parquet] (
         LongColumn(p, new Array[Long](n), nullFlags(n))
       case _ =>
         nullVector(f, n)
+
+  /**
+    * A top-level column a file lacks, filled with its default value in the vector type the file's
+    * reader returns for the column's physical type
+    */
+  private def defaultColumn(
+      f: ParquetField,
+      v: Any,
+      n: Int,
+      opts: ParquetReadOptions
+  ): ColumnVector =
+    def fail(): Nothing =
+      throw ParquetException(s"Column ${f.name} of ${root} can't hold its default value ${v}")
+    f match
+      case p: ParquetField.Primitive if !p.isRepeated =>
+        def long: Long =
+          v match
+            case i: Int =>
+              i.toLong
+            case l: Long =>
+              l
+            case b: BigInt if b.isValidLong =>
+              b.toLong
+            case _ =>
+              fail()
+        p.physicalType match
+          case PhysicalType.BOOLEAN =>
+            v match
+              case b: Boolean =>
+                BooleanColumn(p, Array.fill(n)(b), null)
+              case _ =>
+                fail()
+          case PhysicalType.INT32 =>
+            val l = long
+            if !l.isValidInt then
+              fail()
+            if opts.int32DecimalAsLong && Assembly.isInt32Decimal(p) then
+              LongColumn(p, Array.fill(n)(l), null)
+            else
+              IntColumn(p, Array.fill(n)(l.toInt), null)
+          case PhysicalType.INT64 =>
+            LongColumn(p, Array.fill(n)(long), null)
+          case PhysicalType.FLOAT =>
+            v match
+              case x: Float =>
+                FloatColumn(p, Array.fill(n)(x), null)
+              case _ =>
+                fail()
+          case PhysicalType.DOUBLE =>
+            v match
+              case x: Double =>
+                DoubleColumn(p, Array.fill(n)(x), null)
+              case x: Float =>
+                // A float column promoted to double
+                DoubleColumn(p, Array.fill(n)(x.toDouble), null)
+              case _ =>
+                fail()
+          case _ =>
+            val bytes =
+              v match
+                case b: Array[Byte] =>
+                  b
+                case d: BigInt if p.physicalType == PhysicalType.FIXED_LEN_BYTE_ARRAY =>
+                  // A decimal's unscaled value as big-endian two's complement of the fixed length
+                  val raw = d.toByteArray
+                  if raw.length > p.typeLength then
+                    fail()
+                  val pad: Byte =
+                    if d.signum < 0 then
+                      -1
+                    else
+                      0
+                  Array.fill(p.typeLength - raw.length)(pad) ++ raw
+                case _ =>
+                  fail()
+            constantVector(p, bytes, n)
+        end match
+      case _ =>
+        fail()
+    end match
+
+  end defaultColumn
 
   private def wrapErrors[A](file: DatasetFile)(body: => A): A =
     try
@@ -1429,7 +1521,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       tableFields = Some(fields),
       requiredInFiles = table.requiredInFiles,
       fieldIds = table.fieldIds,
-      tableProperties = table.properties
+      tableProperties = table.properties,
+      columnDefaults = table.defaults
     )
 
   end icebergDataset
@@ -2158,7 +2251,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     else
       v match
         case s: String =>
-          val bytes   = s.getBytes(StandardCharsets.UTF_8)
+          constantVector(f, s.getBytes(StandardCharsets.UTF_8), n)
+        case bytes: Array[Byte] =>
           val data    = new Array[Byte](bytes.length * n)
           val offsets = new Array[Int](n + 1)
           var i       = 0
