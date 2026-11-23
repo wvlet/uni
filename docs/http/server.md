@@ -346,6 +346,48 @@ class ChatController:
 - Errors return 400 and never echo the body: malformed JSON or MessagePack, a value of the wrong shape, or a missing body for a non-`Option` object parameter. A required body in another content type (e.g. a form post) returns 415.
 - A method that also takes `Request` may read the body itself: a body that does not fit its other parameters is an error only when a required parameter is left without a value. A body without a `Content-Type` that does not parse is always left alone.
 
+### Streaming Request Bodies
+
+A request body is read into memory before the handler runs, up to
+`withMaxContentLength`. For large uploads, mark the requests whose body the
+handler reads as a stream instead:
+
+```scala
+import wvlet.uni.http.{Http, HttpContent, HttpMethod, Request, Response}
+
+import java.nio.file.{Files, Paths, StandardCopyOption}
+
+Http
+  .server
+  .withPort(8080)
+  .withStreamingRequests(req => req.method == HttpMethod.PUT && req.path.startsWith("/files/"))
+  .withHandler { (req: Request) =>
+    req.content match
+      case body: HttpContent.StreamContent =>
+        val target = Paths.get("/data", req.path.stripPrefix("/files/"))
+        Files.copy(body.openStream, target, StandardCopyOption.REPLACE_EXISTING)
+        Response.ok
+      case _ =>
+        Response.notFound
+  }
+  .start()
+```
+
+- The predicate sees the request head (method, path, headers) before any body bytes are read. Other requests are buffered as before.
+- Filters run before the body is read. A client that sends `Expect: 100-continue` gets `100 Continue` only when the handler first reads, so a filter that rejects the request (for example, a failed auth check) stops it before anything is uploaded.
+- `length` is the `Content-Length`, or -1 for a chunked body.
+- The stream can be read from any thread until the response is sent; later reads throw `IOException`.
+- `toContentBytes` reads what is left and keeps it, so a filter that reads the body (such as RPC argument logging) leaves it for the handler.
+- A body that breaks off makes reads throw `HttpContent.RequestBodyException`, and the server answers with its status instead of the handler's response:
+  - malformed chunks: 400
+  - no complete body within `withStreamingRequestTimeoutMillis` (default 1 hour from the end of the head), or no bytes for 30 s: 408
+  - more than `withMaxStreamingRequestSize` (default 1 GiB): 413
+- When the handler returns without reading everything, the server reads and discards up to 64 KiB of the rest so the connection can be reused, and otherwise closes the connection.
+- Streamed bodies are not decompressed: the handler sees `Content-Encoding` and the bytes as sent.
+- Each upload takes a `withMaxStreamingConnections` slot while its handler runs (503 when none is free), so on Scala Native uploads can't occupy every worker. Streaming requests have no handler timeout; the deadlines above bound them.
+
+The built-in JVM server and Scala Native read the body from the socket as the handler reads it. Netty and Node.js still buffer it within `withMaxContentLength`, then hand the handler a `StreamContent` over the buffered bytes, so the same handler code works on every backend. Netty sends `100 Continue` before filters run.
+
 ## Request and Response
 
 ### Request Properties

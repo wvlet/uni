@@ -46,7 +46,10 @@ import java.nio.charset.StandardCharsets
   * Create one instance per channel and add [[decompressor]] then [[limiter]] before
   * `HttpObjectAggregator`.
   */
-private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
+private[netty] class NettyRequestDecompression(
+    maxDecompressedRequestSize: Int,
+    streamingRequests: Option[wvlet.uni.http.Request => Boolean] = None
+):
   require(maxDecompressedRequestSize > 0, "maxDecompressedRequestSize must be positive")
 
   // Whether the current request body is being decoded. Set by the decompressor before it forwards
@@ -54,6 +57,9 @@ private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
   private var decoding: Boolean = false
   // Set once the limiter has answered 400/413; the connection is closing
   private var rejected: Boolean = false
+  // Whether the current request is streamed, so its body passes through as sent, as on the socket
+  // server
+  private var bypassing: Boolean = false
 
   // Other encodings (br, zstd, snappy, ...) pass through as raw bytes, so behavior never depends
   // on optional native codecs on the classpath
@@ -65,7 +71,23 @@ private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
         if rejected then
           ReferenceCountUtil.release(msg)
         else
-          super.channelRead(ctx, msg)
+          msg match
+            case req: io.netty.handler.codec.http.HttpRequest
+                if NettyRequestHandler.isStreamed(
+                  streamingRequests,
+                  req.method().name(),
+                  req.uri(),
+                  req.headers()
+                ) =>
+              bypassing = !msg.isInstanceOf[io.netty.handler.codec.http.LastHttpContent]
+              decoding = false
+              ctx.fireChannelRead(msg)
+            case _: io.netty.handler.codec.http.HttpContent if bypassing =>
+              if msg.isInstanceOf[io.netty.handler.codec.http.LastHttpContent] then
+                bypassing = false
+              ctx.fireChannelRead(msg)
+            case _ =>
+              super.channelRead(ctx, msg)
 
       override protected def newContentDecoder(contentEncoding: String): EmbeddedChannel =
         val decoder =

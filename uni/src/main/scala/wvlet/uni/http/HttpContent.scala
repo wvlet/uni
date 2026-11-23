@@ -124,6 +124,77 @@ object HttpContent:
     // A hash of the identity, not the bytes, so it needs no read
     def contentHash: Int = (path, offset, length).hashCode
 
+  /**
+    * A request body read as it arrives, for requests the server streams (see
+    * `HttpServerConfig.withStreamingRequests`). Read it with [[openStream]], e.g. to copy a large
+    * upload to a file without holding it in memory.
+    *
+    * `length` is the `Content-Length`, or -1 for a chunked body of unknown size. The stream is
+    * readable from any thread until the response is sent; later reads throw `IOException`. A read
+    * also throws when the body breaks off or exceeds the server's limit.
+    *
+    * [[toContentBytes]] (and `asBytes`, `toContentString`) read the bytes not yet read and keep
+    * them, so a filter that calls it leaves the body for the handler: a later [[openStream]] reads
+    * the kept bytes.
+    */
+  final class StreamContent(
+      in: java.io.InputStream,
+      val length: Long,
+      override val contentType: Option[ContentType]
+  ) extends HttpContent:
+    private var kept: Array[Byte] = null
+
+    /** The body's bytes as a stream. */
+    def openStream: java.io.InputStream = synchronized {
+      if kept != null then
+        java.io.ByteArrayInputStream(kept)
+      else
+        in
+    }
+
+    def isEmpty: Boolean             = length == 0
+    def asString: Option[String]     = Some(toContentString)
+    def asBytes: Option[Array[Byte]] = Some(toContentBytes)
+    def toContentString: String      = Utf8.decode(toContentBytes)
+
+    def toContentBytes: Array[Byte] = synchronized {
+      if kept == null then
+        val out = java.io.ByteArrayOutputStream()
+        val buf = new Array[Byte](8192)
+        var n   = in.read(buf)
+        while n >= 0 do
+          out.write(buf, 0, n)
+          n = in.read(buf)
+        kept = out.toByteArray
+      kept
+    }
+
+    // A hash of the identity, not the bytes, so it reads nothing
+    def contentHash: Int          = System.identityHashCode(this)
+    override def toString: String = s"StreamContent(length=${length})"
+
+  end StreamContent
+
+  /**
+    * Thrown by a [[StreamContent]] read when the client's body breaks off: malformed framing (400),
+    * a timeout (408), or a size over the limit (413). The server answers with `status`.
+    */
+  class RequestBodyException(val status: HttpStatus, message: String)
+      extends java.io.IOException(message)
+
+  /** A body read from `in`, as the server passes a streamed request body to its handler. */
+  def stream(
+      in: java.io.InputStream,
+      length: Long,
+      contentType: Option[ContentType] = Some(ContentType.ApplicationOctetStream)
+  ): StreamContent = StreamContent(in, length, contentType)
+
+  /** The content type of a request body from its headers, as [[fromBytes]] sets it. */
+  private[http] def contentTypeOf(headers: HttpMultiMap): ContentType = headers
+    .get(HttpHeader.ContentType)
+    .flatMap(ContentType.parse)
+    .getOrElse(ContentType.ApplicationOctetStream)
+
   def empty: HttpContent = Empty
 
   def text(s: String): HttpContent =
@@ -159,11 +230,7 @@ object HttpContent:
     if data.isEmpty then
       Empty
     else
-      val ct = headers
-        .get(HttpHeader.ContentType)
-        .flatMap(ContentType.parse)
-        .getOrElse(ContentType.ApplicationOctetStream)
-      ByteContent(data, Some(ct))
+      ByteContent(data, Some(contentTypeOf(headers)))
 
   def json(j: JSONValue): HttpContent = JsonContent(j)
 

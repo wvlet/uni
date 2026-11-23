@@ -105,6 +105,12 @@ case class NativeServerConfig(
     maxStreamingConnections: Option[Int] = None,
     // Max time stop() waits for in-flight requests before closing their connections (0: at once)
     shutdownTimeoutMillis: Long = 30000,
+    // Requests whose body the handler reads as a stream, decided on the request head
+    override val streamingRequests: Option[Request => Boolean] = None,
+    // Maximum size of a streamed request body
+    maxStreamingRequestSize: Long = 1L << 30,
+    // Max time for a streamed request body to arrive after its head (0 disables)
+    streamingRequestTimeoutMillis: Long = 60L * 60 * 1000,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
     // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
@@ -256,6 +262,19 @@ case class NativeServerConfig(
   def effectiveMaxStreamingConnections: Int = maxStreamingConnections.getOrElse(
     workerThreads - math.min(4, workerThreads / 2)
   )
+
+  /** Read the bodies of requests matching `isStreaming` as a stream (see `Http.server`). */
+  def withStreamingRequests(isStreaming: Request => Boolean): NativeServerConfig = copy(
+    streamingRequests = Some(isStreaming)
+  )
+
+  def withMaxStreamingRequestSize(bytes: Long): NativeServerConfig =
+    require(bytes > 0, "maxStreamingRequestSize must be positive")
+    copy(maxStreamingRequestSize = bytes)
+
+  def withStreamingRequestTimeoutMillis(millis: Long): NativeServerConfig =
+    require(millis >= 0, "streamingRequestTimeoutMillis must be >= 0")
+    copy(streamingRequestTimeoutMillis = millis)
 
   /** How long `stop()` waits for in-flight requests (default: 30 s); 0 closes them at once. */
   def withShutdownTimeoutMillis(millis: Long): NativeServerConfig =

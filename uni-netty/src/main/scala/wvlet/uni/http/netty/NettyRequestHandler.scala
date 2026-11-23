@@ -90,7 +90,8 @@ class NettyRequestHandler(
     wsHandlerExecutor: Option[EventExecutorGroup],
     allowedOrigins: Seq[String],
     allowedHosts: Seq[String],
-    detailedErrors: Boolean
+    detailedErrors: Boolean,
+    streamingRequests: Option[Request => Boolean]
 ) extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
 
@@ -573,7 +574,21 @@ class NettyRequestHandler(
       if buf.readableBytes() > 0 then
         val bytes = new Array[Byte](buf.readableBytes())
         buf.readBytes(bytes)
-        HttpContent.fromBytes(bytes, headersBuilder.result())
+        if NettyRequestHandler.isStreamed(
+            streamingRequests,
+            nettyRequest.method().name(),
+            nettyRequest.uri(),
+            nettyRequest.headers()
+          )
+        then
+          // Netty has buffered the body already; hand it over as the stream the handler expects
+          HttpContent.stream(
+            java.io.ByteArrayInputStream(bytes),
+            bytes.length.toLong,
+            Some(HttpContent.contentTypeOf(headersBuilder.result()))
+          )
+        else
+          HttpContent.fromBytes(bytes, headersBuilder.result())
       else
         HttpContent.Empty
 
@@ -648,7 +663,8 @@ object NettyRequestHandler:
       streamLimiter: ConnectionLimiter = ConnectionLimiter(Int.MaxValue),
       allowedOrigins: Seq[String] = Nil,
       allowedHosts: Seq[String] = Seq("*"),
-      detailedErrors: Boolean = false
+      detailedErrors: Boolean = false,
+      streamingRequests: Option[Request => Boolean] = None
   ): NettyRequestHandler =
     new NettyRequestHandler(
       handler,
@@ -660,8 +676,32 @@ object NettyRequestHandler:
       wsHandlerExecutor,
       allowedOrigins,
       allowedHosts,
-      detailedErrors
+      detailedErrors,
+      streamingRequests
     )
+
+  /**
+    * Whether `streamingRequests` accepts the request head, as the socket server decides it before
+    * reading the body. A predicate that throws, or a method Uni doesn't know, streams nothing.
+    */
+  private[netty] def isStreamed(
+      streamingRequests: Option[Request => Boolean],
+      method: String,
+      uri: String,
+      headers: io.netty.handler.codec.http.HttpHeaders
+  ): Boolean = streamingRequests.exists { isStreaming =>
+    HttpMethod
+      .of(method)
+      .exists { m =>
+        val builder = HttpMultiMap.newBuilder
+        headers.entries().asScala.foreach(e => builder.add(e.getKey, e.getValue))
+        try
+          isStreaming(Request(m, Request.decodeRequestTarget(uri), builder.result()))
+        catch
+          case NonFatal(_) =>
+            false
+      }
+  }
 
   /**
     * Whether the request is a WebSocket upgrade (`Connection: Upgrade` + `Upgrade: websocket`).

@@ -194,7 +194,9 @@ for background.
   `withIdleTimeoutMillis` are set on `Http.server` for every backend. Add
   `uni-netty` only for Netty's own options (native transport, handler executor
   threads) or an older JDK, and import the handlers from `wvlet.uni.http.router` and
-  `wvlet.uni.http.rpc`, not `wvlet.uni.http.netty`.
+  `wvlet.uni.http.rpc`, not `wvlet.uni.http.netty`. For large uploads,
+  `withStreamingRequests(req => ...)` hands the handler `HttpContent.StreamContent`
+  (`openStream`) instead of buffering the body.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
 - **Mixing two libraries for one concern in the same module.** Uni works
   alongside community libraries. If a project already uses uPickle, MUnit, sttp,

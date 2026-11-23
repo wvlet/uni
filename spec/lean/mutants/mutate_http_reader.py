@@ -112,7 +112,7 @@ MUTANTS = [
     (
         "body-limit-off-by-one",
         "a Content-Length equal to the limit is too large",
-        [("case Some(n) if n > limits.maxContentLength =>", "case Some(n) if n >= limits.maxContentLength =>")],
+        [("if declaredLength > maxBody then", "if declaredLength >= maxBody then")],
     ),
     (
         "chunk-limit-off-by-one",

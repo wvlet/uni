@@ -53,6 +53,13 @@ trait HttpServerConfigBase:
     */
   def allowedHosts: Seq[String] = Nil
 
+  /**
+    * Which requests the handler reads as a stream ([[HttpContent.StreamContent]]) rather than as a
+    * buffered body, decided on the request's head before any of its body is read. None streams no
+    * request.
+    */
+  def streamingRequests: Option[Request => Boolean] = None
+
   /** [[allowedHosts]], or the default derived from [[host]] when it is empty. */
   def effectiveAllowedHosts: Seq[String] =
     if allowedHosts.nonEmpty then

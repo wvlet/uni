@@ -64,6 +64,8 @@ case class NodeServerConfig(
     // Max time a kept-alive connection waits for its next request (Node's keepAliveTimeout). None:
     // Node's default
     idleTimeoutMillis: Option[Int] = None,
+    // Requests whose body the handler reads as a stream; Node buffers it first (maxContentLength)
+    override val streamingRequests: Option[Request => Boolean] = None,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
     // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
@@ -136,6 +138,11 @@ case class NodeServerConfig(
     copy(requestReadTimeoutMillis = Some(millis))
 
   def noRequestReadTimeout: NodeServerConfig = withRequestReadTimeoutMillis(0)
+
+  /** Pass the bodies of requests matching `isStreaming` as a stream over the buffered bytes. */
+  def withStreamingRequests(isStreaming: Request => Boolean): NodeServerConfig = copy(
+    streamingRequests = Some(isStreaming)
+  )
 
   /** Close a kept-alive connection that waits this long for its next request. */
   def withIdleTimeoutMillis(millis: Int): NodeServerConfig =

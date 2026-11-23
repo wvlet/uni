@@ -6,12 +6,19 @@ server that needs JDK 24+, or Netty when the optional `uni-netty` is on the
 classpath (for Netty's tuning options or an older JDK). The built-in
 and Native servers apply Netty's request limits (request line 4 KB, headers 8 KB),
 decode chunked and gzip/deflate request bodies, and compress responses.
-It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
-`withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
+It also takes the limits and timeouts every backend applies where it can:
+`withMaxContentLength`, `withMaxInitialLineLength`, `withMaxHeaderSize`,
+`withRequestReadTimeoutMillis`, `withIdleTimeoutMillis`, `withWriteTimeoutMillis`,
+`noRequestDecompression`, `withMaxStreamingConnections`, `withShutdownTimeoutMillis`,
+`withWebSocketMaxFrameSize`, and `withWebSocketPingIntervalMillis`.
+`withStreamingRequests(req => Boolean)` passes matching requests' bodies as
+`HttpContent.StreamContent` (`openStream: InputStream`) for large uploads, up to
+`withMaxStreamingRequestSize` (default 1 GiB) instead of `maxContentLength`.
+For backend-only options, pass that backend's
 options (a `ServerOptions`) from the platform's source folder or `Design`:
 `withBackend(Netty.options.withHandlerExecutorThreads(8))` (`wvlet.uni.http.netty.Netty`;
 `Native.options` on Scala Native); other backends ignore them. Port, handler,
-and size limits are set only on `Http.server`. The backends:
+limits, and timeouts are set only on `Http.server`. The backends:
 
 | Platform | Backend | Module | Options |
 |----------|---------|--------|---------|

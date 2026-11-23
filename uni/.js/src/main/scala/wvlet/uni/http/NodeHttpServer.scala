@@ -108,6 +108,17 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
   private val allowedHosts = config.effectiveAllowedHosts
 
+  // A predicate that throws streams nothing, as on the other backends
+  private def isStreamed(head: Request): Boolean = config
+    .streamingRequests
+    .exists { isStreaming =>
+      try
+        isStreaming(head)
+      catch
+        case scala.util.control.NonFatal(_) =>
+          false
+    }
+
   private def handleRequest(req: js.Dynamic, res: js.Dynamic): Unit =
     // The whole synchronous setup runs in the createServer callback, outside any later async
     // try/catch, so guard it: an error here (an unknown verb, a null/missing field, ...) must
@@ -158,7 +169,18 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
       def handleBody(): Unit =
         try
-          val content = HttpContent.fromBytes(bodyChunks.result(), headers)
+          val bytes   = bodyChunks.result()
+          val content =
+            if bytes.nonEmpty && isStreamed(Request(method = method, uri = uri, headers = headers))
+            then
+              // Node has buffered the body; hand it over as the stream the handler expects
+              HttpContent.stream(
+                java.io.ByteArrayInputStream(bytes),
+                bytes.length.toLong,
+                Some(HttpContent.contentTypeOf(headers))
+              )
+            else
+              HttpContent.fromBytes(bytes, headers)
           val request = Request(method = method, uri = uri, headers = headers, content = content)
           runResponse(res, handler.handle(request))
         catch

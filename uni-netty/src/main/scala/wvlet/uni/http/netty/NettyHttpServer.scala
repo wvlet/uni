@@ -169,7 +169,10 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
             )
             pipeline.addLast("keepAlive", HttpServerKeepAliveHandler())
             if config.requestDecompression then
-              val decompression = NettyRequestDecompression(config.maxDecompressedRequestSize)
+              val decompression = NettyRequestDecompression(
+                config.maxDecompressedRequestSize,
+                config.streamingRequests
+              )
               pipeline.addLast("requestDecompressor", decompression.decompressor)
               pipeline.addLast("requestDecompressionLimiter", decompression.limiter)
             pipeline.addLast("aggregator", BodyContinueAggregator(config.maxContentLength))
@@ -186,7 +189,8 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               streamLimiter,
               config.allowedOrigins,
               config.effectiveAllowedHosts,
-              config.detailedErrors
+              config.detailedErrors,
+              config.streamingRequests
             )
             handlerExecutorGroup match
               case Some(executor) =>

@@ -63,6 +63,7 @@ object NettyServerProvider:
       maxStreamingConnections = config
         .maxStreamingConnections
         .getOrElse(base.maxStreamingConnections),
+      streamingRequests = config.streamingRequests.orElse(base.streamingRequests),
       // Netty counts the shutdown deadline in whole seconds, and needs at least one
       shutdownTimeoutSeconds = config
         .shutdownTimeoutMillis

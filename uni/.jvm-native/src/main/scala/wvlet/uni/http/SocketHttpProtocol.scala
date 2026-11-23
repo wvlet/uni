@@ -35,16 +35,20 @@ private[http] enum ReadResult:
   *   the header block after the request line, and the trailers of a chunked body (431)
   * @param maxContentLength
   *   the body as sent, or after chunked decoding (413)
+  * @param maxStreamingRequestSize
+  *   the body of a request the handler reads as a stream, as sent or after chunked decoding (413)
   */
 private[http] case class HttpReaderLimits(
     maxInitialLineLength: Int = HttpReaderLimits.DefaultMaxInitialLineLength,
     maxHeaderSize: Int = HttpReaderLimits.DefaultMaxHeaderSize,
-    maxContentLength: Int = 1024 * 1024
+    maxContentLength: Int = 1024 * 1024,
+    maxStreamingRequestSize: Long = HttpReaderLimits.DefaultMaxStreamingRequestSize
 )
 
 private[http] object HttpReaderLimits:
-  final val DefaultMaxInitialLineLength = 4096
-  final val DefaultMaxHeaderSize        = 8192
+  final val DefaultMaxInitialLineLength    = 4096
+  final val DefaultMaxHeaderSize           = 8192
+  final val DefaultMaxStreamingRequestSize = 1L << 30
 
 /**
   * An HTTP/1.1 request reader over a connection. Handles keep-alive (multiple requests per
@@ -84,6 +88,11 @@ private[http] class HttpConnectionReader(
 
   private def buffered: Int = end - start
 
+  // Whether a streamed body is being read, so an empty buffer doesn't mean "waiting for a request"
+  private var bodyActive = false
+  // The streamed body of the current request, until the server finishes it
+  private var body: BodyStream = null
+
   /** The read buffer's current size, for tests. */
   private[http] def bufferCapacity: Int = buf.length
 
@@ -102,7 +111,7 @@ private[http] class HttpConnectionReader(
         start = 0
       if end == buf.length then
         buf = java.util.Arrays.copyOf(buf, buf.length * 2)
-    val n = read.read(buf, end, buf.length - end, buffered == 0)
+    val n = read.read(buf, end, buf.length - end, buffered == 0 && !bodyActive)
     if n > 0 then
       end += n
     n
@@ -299,7 +308,12 @@ private[http] class HttpConnectionReader(
 
   end scanLines
 
-  def readRequest(): ReadResult =
+  /**
+    * Read the next request. When `streaming` accepts its head, the request's content is a
+    * [[BodyStream]] over the rest of the body rather than the bytes; the caller must then call
+    * [[finishBody]] once the response is decided, before reading the next request.
+    */
+  def readRequest(streaming: Request => Boolean = null): ReadResult =
     // Skip CR and LF before the request line (RFC 9112 §2.2), as Netty does
     var skipping = true
     while skipping do
@@ -413,7 +427,7 @@ private[http] class HttpConnectionReader(
     val transferEncodings = headers.getAll(HttpHeader.TransferEncoding)
     val contentLengths    = headers.getAll(HttpHeader.ContentLength)
     val chunked           = transferEncodings.nonEmpty
-    var contentLength     = 0
+    var declaredLength    = 0L
     if chunked then
       if http10 then
         return bad("Transfer-Encoding is not allowed in HTTP/1.0")
@@ -435,10 +449,25 @@ private[http] class HttpConnectionReader(
       v.toLongOption match
         case None =>
           return bad("Invalid Content-Length")
-        case Some(n) if n > limits.maxContentLength =>
-          return ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large")
         case Some(n) =>
-          contentLength = n.toInt
+          declaredLength = n
+
+    // Whether the handler reads the body as a stream, decided on the head before any body bytes.
+    // Only a request with a body and a known method is offered; others are read as before.
+    val streamed =
+      streaming != null &&
+        (chunked || declaredLength > 0) && {
+          val m = methodAt(sp)
+          m != null && streaming(Request(m, Request.decodeRequestTarget(target), headers))
+        }
+    val maxBody =
+      if streamed then
+        limits.maxStreamingRequestSize
+      else
+        limits.maxContentLength.toLong
+    if declaredLength > maxBody then
+      return ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large")
+    val contentLength = declaredLength.toInt
 
     // Method names are case-sensitive (RFC 9110 §9.1); uni-netty answers an unknown one with 501.
     // Checked after the framing headers, so a request with broken ones gets 400, as in uni-netty.
@@ -460,8 +489,8 @@ private[http] class HttpConnectionReader(
         return ReadResult.Error(HttpStatus.ExpectationFailed_417, "Unsupported expectation")
 
     // The client waits for 100 Continue before it sends the body. Skip it when the body has started
-    // arriving anyway.
-    if expectContinue && buffered == headEnd && (chunked || contentLength > 0) then
+    // arriving anyway. A streamed body sends it on its first read, so a filter can still refuse it.
+    if !streamed && expectContinue && buffered == headEnd && (chunked || contentLength > 0) then
       if !sendContinue() then
         return ReadResult.Closed
 
@@ -471,7 +500,32 @@ private[http] class HttpConnectionReader(
         (!http10 || connectionTokens.contains("keep-alive")) &&
         !(chunked && contentLengths.nonEmpty)
 
-    val (body, bodyEnd) =
+    if streamed then
+      val stream = BodyStream(chunked, declaredLength, expectContinue && buffered == headEnd)
+      // The body starts at the front of the buffer; the stream consumes it from there
+      start += headEnd
+      if start == end then
+        start = 0
+        end = 0
+      body = stream
+      bodyActive = true
+      if chunked then
+        // Framed by chunks, so a Content-Length sent alongside doesn't describe the body
+        headers = headers.remove(HttpHeader.TransferEncoding).remove(HttpHeader.ContentLength)
+      val length =
+        if chunked then
+          -1L
+        else
+          declaredLength
+      val request = Request(
+        method = method,
+        uri = Request.decodeRequestTarget(target),
+        headers = headers,
+        content = HttpContent.stream(stream, length, Some(HttpContent.contentTypeOf(headers)))
+      )
+      return ReadResult.Req(request, keepAlive)
+
+    val (bodyBytes, bodyEnd) =
       if chunked then
         readChunked(headEnd) match
           case Left(error) =>
@@ -493,7 +547,7 @@ private[http] class HttpConnectionReader(
       // As Netty's aggregator does, the handler sees the decoded length rather than the framing
       headers = headers
         .remove(HttpHeader.TransferEncoding)
-        .set(HttpHeader.ContentLength, body.length.toString)
+        .set(HttpHeader.ContentLength, bodyBytes.length.toString)
 
     // Consume the request, retaining any leftover for the next (pipelined/keep-alive) request.
     start += bodyEnd
@@ -505,11 +559,75 @@ private[http] class HttpConnectionReader(
       method = method,
       uri = Request.decodeRequestTarget(target),
       headers = headers,
-      content = HttpContent.fromBytes(body, headers)
+      content = HttpContent.fromBytes(bodyBytes, headers)
     )
     ReadResult.Req(request, keepAlive)
 
   end readRequest
+
+  /**
+    * Parse a chunk-size line at `from`: the size, with the position after its CRLF in
+    * `chunkDataStart`, or -1 with the error in `scanError`. Extensions are skipped.
+    */
+  private var chunkDataStart = 0
+
+  private def failChunk(error: ReadResult): Long =
+    scanError = error
+    -1L
+
+  private def chunkSizeLine(from: Int): Long =
+    // chunk-size [; chunk-ext] CRLF
+    var p         = from
+    val lineStart = p
+    var size      = 0L
+    var digits    = 0
+    var b         = 0
+    var reading   = true
+    while reading do
+      val n = ensure(p)
+      if n <= 0 then
+        return failChunk(cutShort(n, "Incomplete request body"))
+      b = at(p)
+      val v = hexValue(b)
+      if v < 0 then
+        reading = false
+      else
+        // Cap just past Int.MaxValue, so a huge size can't overflow
+        size = math.min(size * 16 + v, Int.MaxValue.toLong + 1)
+        digits += 1
+        // Leading zeros keep the size at 0, so bound the digits too
+        if p - lineStart >= limits.maxInitialLineLength then
+          return failChunk(bad("Chunk size line too long"))
+        p += 1
+    // A size that doesn't fit in an Int is not a size, as in Netty: 400, not 413
+    if digits == 0 || size > Int.MaxValue then
+      return failChunk(bad("Invalid chunk size"))
+    if b == ';' then
+      // chunk-ext: anything but control characters, up to the CR
+      p += 1
+      var ext = true
+      while ext do
+        val n = ensure(p)
+        if n <= 0 then
+          return failChunk(cutShort(n, "Incomplete request body"))
+        b = at(p)
+        if b == '\r' || b == '\n' then
+          ext = false
+        else if isInvalidValueChar(b) then
+          return failChunk(bad("Invalid chunk extension"))
+        else if p - lineStart >= limits.maxInitialLineLength then
+          return failChunk(bad("Chunk size line too long"))
+        else
+          p += 1
+    val n = ensure(p + 1)
+    if n <= 0 then
+      return failChunk(cutShort(n, "Incomplete request body"))
+    if at(p) != '\r' || at(p + 1) != '\n' then
+      return failChunk(bad("Invalid chunk size"))
+    chunkDataStart = p + 2
+    size
+
+  end chunkSizeLine
 
   /**
     * Decode a chunked body starting at `from`: its bytes and the position after its last trailer
@@ -521,57 +639,13 @@ private[http] class HttpConnectionReader(
     var total = 0
     var p     = from
     while true do
-      // chunk-size [; chunk-ext] CRLF
-      val lineStart = p
-      var size      = 0L
-      var digits    = 0
-      var b         = 0
-      var reading   = true
-      while reading do
-        val n = ensure(p)
-        if n <= 0 then
-          return Left(cutShort(n, "Incomplete request body"))
-        b = at(p)
-        val v = hexValue(b)
-        if v < 0 then
-          reading = false
-        else
-          // Cap just past Int.MaxValue, so a huge size can't overflow
-          size = math.min(size * 16 + v, Int.MaxValue.toLong + 1)
-          digits += 1
-          // Leading zeros keep the size at 0, so bound the digits too
-          if p - lineStart >= limits.maxInitialLineLength then
-            return Left(bad("Chunk size line too long"))
-          p += 1
-      // A size that doesn't fit in an Int is not a size, as in Netty: 400, not 413
-      if digits == 0 || size > Int.MaxValue then
-        return Left(bad("Invalid chunk size"))
-      if b == ';' then
-        // chunk-ext: anything but control characters, up to the CR
-        p += 1
-        var ext = true
-        while ext do
-          val n = ensure(p)
-          if n <= 0 then
-            return Left(cutShort(n, "Incomplete request body"))
-          b = at(p)
-          if b == '\r' || b == '\n' then
-            ext = false
-          else if isInvalidValueChar(b) then
-            return Left(bad("Invalid chunk extension"))
-          else if p - lineStart >= limits.maxInitialLineLength then
-            return Left(bad("Chunk size line too long"))
-          else
-            p += 1
-      val n = ensure(p + 1)
-      if n <= 0 then
-        return Left(cutShort(n, "Incomplete request body"))
-      if at(p) != '\r' || at(p + 1) != '\n' then
-        return Left(bad("Invalid chunk size"))
+      val size = chunkSizeLine(p)
+      if size < 0 then
+        return Left(scanError)
       // Only a well-formed size line gets 413, so a malformed one gets 400 whatever its size
       if size > limits.maxContentLength - total then
         return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
-      p += 2
+      p = chunkDataStart
       if size == 0 then
         // Trailers, up to the empty line; they are checked like headers, then dropped
         val trailerEnd = scanLines(
@@ -601,9 +675,199 @@ private[http] class HttpConnectionReader(
 
   end readChunked
 
+  /**
+    * A streamed request body, read from this reader's buffer and socket with the same framing as a
+    * buffered one. It may be read from any thread until [[finishBody]]; reads are serialized, and
+    * the worker never touches the reader while the handler runs.
+    *
+    * A framing error, a size over `maxStreamingRequestSize`, or a timeout makes every read throw
+    * `IOException`, and is kept in [[failure]] so the server answers it instead of the handler's
+    * response.
+    */
+  private[http] final class BodyStream(
+      chunked: Boolean,
+      length: Long,
+      private var continuePending: Boolean
+  ) extends java.io.InputStream:
+    // Content-Length: bytes left in the body. Chunked: bytes left in the current chunk
+    private var remaining =
+      if chunked then
+        0L
+      else
+        length
+
+    private var total = 0L
+    // A chunk's data was read, so its CRLF comes next
+    private var chunkEnd = false
+    private var done     = !chunked && length == 0
+    private var finished = false
+    @volatile
+    private var error: ReadResult.Error = null
+
+    /** The error that broke the body off, if any. */
+    def failure: Option[ReadResult.Error] = Option(error)
+
+    /** Whether the client is still waiting for `100 Continue`, so it never sent the body. */
+    private[HttpConnectionReader] def awaitingContinue: Boolean = continuePending
+
+    private[HttpConnectionReader] def isDone: Boolean = done
+
+    // Whether more than `n` bytes of a Content-Length body are known to remain
+    private[HttpConnectionReader] def remainsMoreThan(n: Long): Boolean = !chunked && remaining > n
+
+    private val one = new Array[Byte](1)
+
+    override def read(): Int = synchronized {
+      if read(one, 0, 1) < 0 then
+        -1
+      else
+        one(0) & 0xff
+    }
+
+    override def read(b: Array[Byte], off: Int, len: Int): Int = synchronized {
+      if finished then
+        throw java.io.IOException("The request body can't be read after the response is sent")
+      readBody(b, off, len)
+    }
+
+    /** Read on without the `finished` check, for the server's drain after the response. */
+    private[HttpConnectionReader] def readBody(b: Array[Byte], off: Int, len: Int): Int =
+      if error != null then
+        throw HttpContent.RequestBodyException(error.status, error.message)
+      if len == 0 then
+        return 0
+      if done then
+        return -1
+      if continuePending then
+        continuePending = false
+        if !sendContinue() then
+          return fail(bad("Connection closed"))
+      if chunked && remaining == 0 then
+        if !nextChunk() then
+          return -1
+      if buffered == 0 then
+        start = 0
+        end = 0
+        val n = fill()
+        if n <= 0 then
+          return fail(cutShort(n, "Incomplete request body"))
+      val k = math.min(math.min(len.toLong, buffered.toLong), remaining).toInt
+      System.arraycopy(buf, start, b, off, k)
+      start += k
+      remaining -= k
+      if chunked then
+        chunkEnd = remaining == 0
+      else if remaining == 0 then
+        done = true
+      k
+
+    // Move to the next chunk's data. Returns false at the end of the body (after the trailers).
+    private def nextChunk(): Boolean =
+      if chunkEnd then
+        val n = ensure(1)
+        if n <= 0 then
+          fail(cutShort(n, "Incomplete request body"))
+        if at(0) != '\r' || at(1) != '\n' then
+          fail(bad("Invalid chunk data"))
+        start += 2
+        chunkEnd = false
+      val size = chunkSizeLine(0)
+      if size < 0 then
+        fail(scanError.asInstanceOf[ReadResult.Error])
+      if size > limits.maxStreamingRequestSize - total then
+        fail(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
+      start += chunkDataStart
+      if size == 0 then
+        val trailerEnd = scanLines(
+          0,
+          limits.maxHeaderSize,
+          TrailersTooLarge,
+          "Incomplete request body",
+          null
+        )
+        if trailerEnd < 0 then
+          fail(scanError.asInstanceOf[ReadResult.Error])
+        start += trailerEnd
+        done = true
+        false
+      else
+        remaining = size
+        total += size
+        true
+
+    end nextChunk
+
+    private def fail(e: ReadResult): Nothing =
+      error =
+        e match
+          case err: ReadResult.Error =>
+            err
+          case _ =>
+            ReadResult.Error(HttpStatus.BadRequest_400, "Incomplete request body")
+      throw HttpContent.RequestBodyException(error.status, error.message)
+
+    private[HttpConnectionReader] def finish(): Unit = synchronized {
+      finished = true
+    }
+
+  end BodyStream
+
+  /**
+    * End the current request's streamed body once its response is decided: no more reads, then read
+    * and drop what is left, up to `maxDrain` bytes, so the connection can serve its next request.
+    * Returns whether it can: false when the body broke off, was longer, or never came (the client
+    * still waits for `100 Continue`).
+    */
+  def finishBody(maxDrain: Int = DrainLimit): BodyEnd =
+    val stream = body
+    body = null
+    if stream == null then
+      BodyEnd(reusable = true, failure = None)
+    else
+      stream.finish()
+      // Only an error the handler's reads ran into replaces its response; one met while draining
+      // just means the connection can't be reused
+      val failure  = stream.failure
+      val reusable =
+        if failure.nonEmpty || stream.awaitingContinue || stream.remainsMoreThan(maxDrain) then
+          false
+        else
+          val scratch = new Array[Byte](8192)
+          var drained = 0L
+          try
+            while !stream.isDone && drained < maxDrain do
+              val n = stream.readBody(
+                scratch,
+                0,
+                math.min(scratch.length.toLong, maxDrain - drained).toInt
+              )
+              if n > 0 then
+                drained += n
+            stream.isDone
+          catch
+            case _: java.io.IOException =>
+              false
+      bodyActive = false
+      if start == end then
+        start = 0
+        end = 0
+      BodyEnd(reusable, failure)
+    end if
+
+  end finishBody
+
 end HttpConnectionReader
 
 private[http] object HttpConnectionReader:
+
+  /**
+    * How a streamed body ended: whether the connection can serve another request, and the error
+    * that broke the body off, which the server answers instead of the handler's response.
+    */
+  case class BodyEnd(reusable: Boolean, failure: Option[ReadResult.Error])
+
+  /** How much of a streamed body the server reads past the handler to keep the connection. */
+  final val DrainLimit = 64 * 1024
 
   /**
     * Reads socket bytes into `(buf, off, len)`: the number read, 0 on timeout, or less than 0 at

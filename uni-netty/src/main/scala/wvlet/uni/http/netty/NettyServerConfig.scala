@@ -68,6 +68,8 @@ case class NettyServerConfig(
     idleTimeoutMillis: Option[Int] = None,
     // Close a connection when one write of its response bytes takes this long (0 disables)
     writeTimeoutMillis: Int = 0,
+    // Requests whose body the handler reads as a stream; Netty buffers it first (maxContentLength)
+    override val streamingRequests: Option[Request => Boolean] = None,
     // Decode request bodies sent with Content-Encoding gzip/deflate (and x- aliases) before any
     // filter or handler sees them
     requestDecompression: Boolean = true,
@@ -202,6 +204,16 @@ case class NettyServerConfig(
     copy(writeTimeoutMillis = millis)
 
   def noWriteTimeout: NettyServerConfig = withWriteTimeoutMillis(0)
+
+  /**
+    * Pass the bodies of requests matching `isStreaming` as
+    * [[wvlet.uni.http.HttpContent.StreamContent]], as `Http.server.withStreamingRequests` does.
+    * Netty still buffers each body within `maxContentLength`, but doesn't decompress it, so
+    * handlers see the same bytes as on the built-in server.
+    */
+  def withStreamingRequests(isStreaming: Request => Boolean): NettyServerConfig = copy(
+    streamingRequests = Some(isStreaming)
+  )
 
   /**
     * Decode request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` /

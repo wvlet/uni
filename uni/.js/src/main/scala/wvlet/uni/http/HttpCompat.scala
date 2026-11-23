@@ -45,7 +45,8 @@ private[http] object HttpCompat extends HttpCompatApi:
           .getOrElse(base.webSocketPingIntervalMillis),
         maxHeaderSize = config.maxHeaderSize,
         requestReadTimeoutMillis = config.requestReadTimeoutMillis,
-        idleTimeoutMillis = config.idleTimeoutMillis
+        idleTimeoutMillis = config.idleTimeoutMillis,
+        streamingRequests = config.streamingRequests
       )
       .start()
 

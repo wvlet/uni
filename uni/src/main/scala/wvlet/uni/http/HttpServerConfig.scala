@@ -61,6 +61,10 @@ case class HttpServerConfig(
     maxDecompressedRequestSize: Option[Int] = None,
     maxStreamingConnections: Option[Int] = None,
     shutdownTimeoutMillis: Option[Long] = None,
+    // Requests whose body the handler reads as a stream, decided on the request head
+    override val streamingRequests: Option[Request => Boolean] = None,
+    maxStreamingRequestSize: Option[Long] = None,
+    streamingRequestTimeoutMillis: Option[Long] = None,
     // Backend-only options; each backend applies the ones of its own type
     backendOptions: Seq[ServerOptions] = Nil
 ) extends HttpServerConfigBase:
@@ -222,6 +226,50 @@ case class HttpServerConfig(
   def withShutdownTimeoutMillis(millis: Long): HttpServerConfig =
     require(millis >= 0, "shutdownTimeoutMillis must be >= 0")
     copy(shutdownTimeoutMillis = Some(millis))
+
+  /**
+    * Read the bodies of requests that match `isStreaming` as a stream rather than buffered, e.g.
+    * large uploads:
+    * {{{
+    * Http.server
+    *   .withStreamingRequests(req => req.method == HttpMethod.PUT && req.path.startsWith("/files/"))
+    *   .withHandler { req =>
+    *     val in = req.content.asInstanceOf[HttpContent.StreamContent].openStream
+    *     ...
+    *   }
+    * }}}
+    * `isStreaming` sees the request head (method, path, headers) before any body bytes are read,
+    * and should depend on nothing else: a backend may call it more than once per request. Filters
+    * run first, and a client that sent `Expect: 100-continue` uploads nothing until the handler
+    * starts reading. Streamed bodies are not decompressed, are limited by
+    * [[withMaxStreamingRequestSize]] instead of [[withMaxContentLength]], and each takes a slot of
+    * [[withMaxStreamingConnections]] while its handler runs.
+    *
+    * The built-in JVM server and Scala Native stream the body from the socket. Netty and Node.js
+    * buffer it within [[withMaxContentLength]] and pass the handler a stream over the buffered
+    * bytes; Netty also sends `100 Continue` before filters run.
+    */
+  def withStreamingRequests(isStreaming: Request => Boolean): HttpServerConfig = copy(
+    streamingRequests = Some(isStreaming)
+  )
+
+  def noStreamingRequests: HttpServerConfig = copy(streamingRequests = None)
+
+  /** Maximum size of a streamed request body (default: 1 GiB); a larger one gets 413. */
+  def withMaxStreamingRequestSize(bytes: Long): HttpServerConfig =
+    require(bytes > 0, "maxStreamingRequestSize must be positive")
+    copy(maxStreamingRequestSize = Some(bytes))
+
+  /**
+    * Close a connection whose streamed request body doesn't arrive in full within this time from
+    * the end of its head (default: 1 hour). Each read also waits at most 30 s for more bytes. 0
+    * disables the deadline.
+    */
+  def withStreamingRequestTimeoutMillis(millis: Long): HttpServerConfig =
+    require(millis >= 0, "streamingRequestTimeoutMillis must be >= 0")
+    copy(streamingRequestTimeoutMillis = Some(millis))
+
+  def noStreamingRequestTimeout: HttpServerConfig = withStreamingRequestTimeoutMillis(0)
 
   /**
     * Add backend-only options: `Netty.options` on the JVM, `Native.options` on Scala Native. The
