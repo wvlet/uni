@@ -181,7 +181,7 @@ It refuses to run on an uncommitted reader and always restores it. It applies ea
 
 The first run killed 16 of 17. `chunk-data-without-crlf` survived: the only chunk-data case sent an
 LF without its CR, not a CR without its LF. A new input, `/data-cr-without-lf`, kills it. The
-script runs on demand, not in CI, because each mutant recompiles `uni` (about 20 s each here).
+script runs on demand, not in CI, because each mutant recompiles `uni`.
 
 ## Docs
 
