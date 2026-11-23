@@ -60,7 +60,9 @@ private[parquet] object IcebergTable:
         */
       defaults: Map[String, Any] = Map.empty,
       /** The deleted row positions of each data file, sorted, from delete files and vectors */
-      deletes: IcebergDeletes.Positions = Map.empty
+      deletes: IcebergDeletes.Positions = Map.empty,
+      /** The equality deletes that apply to each data file */
+      equalityDeletes: IcebergDeletes.Equalities = Map.empty
   )
 
   /**
@@ -311,7 +313,7 @@ private[parquet] object IcebergTable:
           manifests.map(mf => paths.resolve(mf.path)),
           bytes =>
             val files     = mutable.ArrayBuffer.empty[(DataFile, Int)]
-            val sequences = mutable.HashMap.empty[String, Long]
+            val sequences = mutable.HashMap.empty[String, IcebergDeletes.DataFileScope]
             val deletes   = mutable.ArrayBuffer.empty[IcebergDeletes.DeleteFile]
             manifests
               .zip(bytes)
@@ -325,10 +327,14 @@ private[parquet] object IcebergTable:
                     if status(r) != Deleted then
                       val seq = sequenceNumber(r, mf)
                       if isDeletes then
-                        deletes += deleteFile(r, mf.path, paths, seq)
+                        deletes += deleteFile(r, mf.path, paths, seq, specId)
                       else
                         val f = dataFile(r, mf.path, paths, specs.get(specId), fields)
-                        sequences(f.path) = seq
+                        sequences(f.path) = IcebergDeletes.DataFileScope(
+                          seq,
+                          specId,
+                          partitionOf(r)
+                        )
                         files += (f -> specId)
                   }
               }
@@ -353,21 +359,55 @@ private[parquet] object IcebergTable:
             if deletes.isEmpty then
               Step.Done(table)
             else
-              val deletePaths = deletes.map(_.path).distinct.toIndexedSeq
+              val deletePaths            = deletes.map(_.path).distinct.toIndexedSeq
+              val (equality, positional) = deletes.toIndexedSeq.partition(_.isEquality)
+              // A key names a current top-level primitive column by field ID
+              def keyColumn(id: Int, path: String): String =
+                val f = fields
+                  .find(f => long(f, "id").contains(id.toLong))
+                  .getOrElse(
+                    throw ParquetException(
+                      s"Equality delete file ${path} has a key with field ID ${id}, which isn't a top-level column of the schema ${paths
+                          .root} is read with"
+                    )
+                  )
+                val name = string(f, "name").getOrElse("")
+                f.get("type") match
+                  case Some(JSONString(_)) =>
+                    name
+                  case _ =>
+                    throw ParquetException(
+                      s"Equality delete file ${path} has a key on ${name}, which isn't a primitive column; Uni applies keys of primitive columns only"
+                    )
               Step.Fetch(
                 deletePaths,
                 bytes =>
+                  val byPath = deletePaths.zip(bytes).toMap
                   Step.Done(
-                    table.copy(deletes =
-                      IcebergDeletes.positions(
-                        deletes.toIndexedSeq,
-                        deletePaths.zip(bytes).toMap,
-                        sequences.toMap,
+                    table.copy(
+                      deletes = IcebergDeletes.positions(
+                        positional,
+                        byPath,
+                        sequences.view.mapValues(_.sequenceNumber).toMap,
                         paths.resolve
+                      ),
+                      equalityDeletes = IcebergDeletes.equalities(
+                        equality,
+                        byPath,
+                        sequences.toMap,
+                        id =>
+                          specs
+                            .getOrElse(
+                              id,
+                              throw ParquetException(s"${source} has no partition spec ${id}")
+                            )
+                            .forall(_.transform == "void"),
+                        keyColumn
                       )
                     )
                   )
               )
+            end if
         )
         (snapshot.get("manifest-list"), snapshot.get("manifests")) match
           case (Some(JSONString(list)), _) =>
@@ -468,12 +508,25 @@ private[parquet] object IcebergTable:
         None
     }
 
+  /** A manifest entry's partition record, with comparable values */
+  private def partitionOf(entry: Any): Map[String, Any] =
+    entry.asInstanceOf[Map[String, Any]].get("data_file") match
+      case Some(d: Map[?, ?]) =>
+        d.asInstanceOf[Map[String, Any]].get("partition") match
+          case Some(p: Map[?, ?]) =>
+            IcebergDeletes.partitionKey(p.asInstanceOf[Map[String, Any]])
+          case _ =>
+            Map.empty
+      case _ =>
+        Map.empty
+
   /** A live entry of a delete manifest */
   private def deleteFile(
       entry: Any,
       manifest: String,
       paths: Paths,
-      sequenceNumber: Long
+      sequenceNumber: Long,
+      specId: Int
   ): IcebergDeletes.DeleteFile =
     val d =
       entry.asInstanceOf[Map[String, Any]].get("data_file") match
@@ -497,18 +550,37 @@ private[parquet] object IcebergTable:
     val path = str("file_path").getOrElse(
       throw ParquetException(s"An entry of ${manifest} has no file_path")
     )
-    if num("content").contains(2L) then
-      throw ParquetException(
-        s"The snapshot of ${paths
-            .root} has equality delete files (${path}), which Uni doesn't apply yet. Compact the table to rewrite them into data files"
-      )
+    val equalityIds =
+      if num("content").contains(2L) then
+        val ids =
+          d.get("equality_ids") match
+            case Some(xs: Seq[?]) =>
+              xs.collect { case i: Int =>
+                  i
+                }
+                .toIndexedSeq
+            case _ =>
+              IndexedSeq.empty
+        if ids.isEmpty then
+          throw ParquetException(s"Equality delete file ${path} in ${manifest} has no equality_ids")
+        if !str("file_format").forall(_.equalsIgnoreCase("PARQUET")) then
+          throw ParquetException(
+            s"Equality delete file ${path} is ${str("file_format")
+                .get}; Uni reads Parquet equality deletes"
+          )
+        ids
+      else
+        IndexedSeq.empty
     IcebergDeletes.DeleteFile(
       paths.resolve(path),
       str("file_format").getOrElse("PARQUET"),
       sequenceNumber,
       str("referenced_data_file").map(paths.resolve),
       num("content_offset"),
-      num("content_size_in_bytes")
+      num("content_size_in_bytes"),
+      equalityIds,
+      specId,
+      partitionOf(entry)
     )
 
   end deleteFile

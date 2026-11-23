@@ -533,10 +533,13 @@ val catalogVersion = Parquet.dataset(
   fields are kept in the metadata but not read as columns.
 - **Row deletes.** Merge-on-read deletes are applied: position-delete files (format version 2)
   and deletion vectors (format version 3, Puffin files) remove rows by their position in a data
-  file, for the data files they are newer than. They are read when the dataset opens, and a row
-  filter sees only the rows that remain.
-- **What fails** when the dataset opens, with the reason: equality delete files (compact the
-  table to rewrite them), an `initial-default` on a field inside a struct, encrypted tables,
+  file, for the data files they are newer than. Equality-delete files, which streaming writers
+  such as Flink use for upserts, remove the rows whose key columns equal one of their rows (null
+  equals null), in data files strictly older than the delete and, for a partitioned delete, in
+  the same partition. Deletes are read when the dataset opens, a row filter sees only the rows
+  that remain, and key columns are read even when `withColumns` leaves them out.
+- **What fails** when the dataset opens, with the reason: equality deletes keyed on a nested
+  or non-primitive column, an `initial-default` on a field inside a struct, encrypted tables,
   and data files that aren't Parquet. The
   manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
 - **Properties.** `ds.tableProperties` holds the table's properties.

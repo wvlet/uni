@@ -1,11 +1,15 @@
 package wvlet.uni.parquet
 
 import wvlet.uni.io.CRC32
+import wvlet.uni.parquet.ColumnVector.*
+import wvlet.uni.parquet.format.LogicalType
+
+import scala.collection.immutable.ArraySeq
 
 /**
   * Row deletes of an Iceberg table: position-delete files (Parquet rows of a data file path and a
-  * row position, format version 2) and deletion vectors (a roaring bitmap of row positions in a
-  * Puffin file, format version 3). Equality deletes are refused by the caller.
+  * row position, format version 2), deletion vectors (a roaring bitmap of row positions in a Puffin
+  * file, format version 3), and equality-delete files (Parquet rows of key values).
   */
 private[parquet] object IcebergDeletes:
 
@@ -21,9 +25,15 @@ private[parquet] object IcebergDeletes:
       referencedDataFile: Option[String],
       /** The deletion vector's blob in the Puffin file */
       contentOffset: Option[Long],
-      contentSize: Option[Long]
+      contentSize: Option[Long],
+      /** For an equality delete, the field IDs of its key columns; empty for position deletes */
+      equalityIds: IndexedSeq[Int] = IndexedSeq.empty,
+      /** The partition spec and the partition values (see [[partitionKey]]) it was written with */
+      specId: Int = 0,
+      partition: Map[String, Any] = Map.empty
   ):
     def isDeletionVector: Boolean = format.equalsIgnoreCase("puffin")
+    def isEquality: Boolean       = equalityIds.nonEmpty
 
   /** Data file path -> deleted row positions */
   type Positions = Map[String, Array[Long]]
@@ -111,6 +121,174 @@ private[parquet] object IcebergDeletes:
       .toMap
 
   end positions
+
+  // ---- Equality deletes ----
+
+  /**
+    * The key values of one equality-delete file: a row whose `columns` (the table's current names)
+    * hold one of `keys` is deleted. Keys are built by [[KeyReader]].
+    */
+  final class EqualityDelete(val columns: IndexedSeq[String], keys: scala.collection.Set[Any]):
+    def size: Int = keys.size
+
+    /** Whether a key from a [[KeyReader]] over `columns` is deleted */
+    def contains(key: Any): Boolean = keys.contains(key)
+
+  /** Data file path -> the equality deletes that apply to it */
+  type Equalities = Map[String, IndexedSeq[EqualityDelete]]
+
+  /** What decides which equality deletes apply to a data file */
+  case class DataFileScope(sequenceNumber: Long, specId: Int, partition: Map[String, Any])
+
+  /** A manifest's partition record, with bytes as comparable values */
+  def partitionKey(record: Map[String, Any]): Map[String, Any] = record.map {
+    case (k, b: Array[Byte]) =>
+      k -> ArraySeq.unsafeWrapArray(b)
+    case kv =>
+      kv
+  }
+
+  /**
+    * The equality deletes of each data file. A delete applies to a data file whose sequence number
+    * is strictly below its own and, unless the delete's spec is unpartitioned, that has the same
+    * spec and partition values. `columnName` gives the current top-level column of a field ID.
+    */
+  def equalities(
+      deletes: IndexedSeq[DeleteFile],
+      bytes: Map[String, Array[Byte]],
+      dataFiles: Map[String, DataFileScope],
+      unpartitioned: Int => Boolean,
+      columnName: (Int, String) => String
+  ): Equalities =
+    if deletes.isEmpty then
+      Map.empty
+    else
+      val loaded           = deletes.map(d => d -> equalityDelete(d, bytes(d.path), columnName))
+      val (global, scoped) = loaded.partition((d, _) => unpartitioned(d.specId))
+      val byPartition      = scoped.groupBy((d, _) => (d.specId, d.partition))
+      dataFiles.flatMap { (path, f) =>
+        val applied = (global ++ byPartition.getOrElse((f.specId, f.partition), IndexedSeq.empty))
+          .collect {
+            case (d, e) if f.sequenceNumber < d.sequenceNumber =>
+              e
+          }
+        Option.when(applied.nonEmpty)(path -> applied)
+      }
+
+  private def equalityDelete(
+      d: DeleteFile,
+      bytes: Array[Byte],
+      columnName: (Int, String) => String
+  ): EqualityDelete =
+    val f = Parquet.open(bytes)
+    try
+      val fields = f.schema.fields
+      // The file's column of each key: by field ID, or by the table's name for a file without IDs
+      val fileColumns = d
+        .equalityIds
+        .map { id =>
+          val name = columnName(id, d.path)
+          fields
+            .find(_.fieldId.contains(id))
+            .orElse(fields.find(c => c.fieldId.isEmpty && c.name == name))
+            .getOrElse(
+              throw ParquetException(
+                s"Equality delete file ${d.path} has no column with field ID ${id} (${name})"
+              )
+            )
+            .name
+        }
+      val keys = scala.collection.mutable.HashSet.empty[Any]
+      f.readBatches(ParquetReadOptions.default.withColumns(fileColumns*))
+        .foreach { batch =>
+          val reader = KeyReader(fileColumns.map(n => batch.column(n)))
+          var i      = 0
+          while i < batch.numRows do
+            keys += reader.key(i)
+            i += 1
+        }
+      EqualityDelete(d.equalityIds.map(columnName(_, d.path)), keys)
+    finally
+      f.close()
+
+  end equalityDelete
+
+  /** A null in a single-column key, which a set can't hold as null */
+  private case object NullKey
+
+  /**
+    * A floating-point key by its bits, as Iceberg compares them (`Double.compare`): NaN equals NaN,
+    * and -0.0 differs from 0.0
+    */
+  private case class FloatingKey(bits: Long)
+
+  /**
+    * Builds the keys of a batch's rows from the key column vectors: their stored values, so that a
+    * value matches however the read decodes it and across type widening. Integers compare as longs,
+    * floats as doubles, decimals by unscaled value, and strings, binary, and fixed values by bytes.
+    * Null equals null.
+    */
+  final class KeyReader(vectors: IndexedSeq[ColumnVector]):
+    private val columns  = vectors.toArray
+    private val decimals = columns.map(
+      _.field.logicalType.exists(_.isInstanceOf[LogicalType.Decimal])
+    )
+
+    columns.foreach {
+      case _: BooleanColumn | _: IntColumn | _: LongColumn | _: FloatColumn | _: DoubleColumn |
+          _: BinaryColumn =>
+      case v =>
+        throw ParquetException(
+          s"Column ${v.name} is an equality delete key, which must be a primitive column"
+        )
+    }
+
+    def key(row: Int): Any =
+      if columns.length == 1 then
+        val v = valueOf(0, row)
+        if v == null then
+          NullKey
+        else
+          v
+      else
+        val a = new Array[Any](columns.length)
+        var j = 0
+        while j < a.length do
+          a(j) = valueOf(j, row)
+          j += 1
+        ArraySeq.unsafeWrapArray(a)
+
+    private def valueOf(j: Int, i: Int): Any =
+      val v = columns(j)
+      if v.isNull(i) then
+        null
+      else
+        v match
+          case c: BooleanColumn =>
+            c.values(i)
+          case c: IntColumn =>
+            if decimals(j) then
+              BigInt(c.values(i))
+            else
+              c.values(i).toLong
+          case c: LongColumn =>
+            if decimals(j) then
+              BigInt(c.values(i))
+            else
+              c.values(i)
+          case c: FloatColumn =>
+            FloatingKey(java.lang.Double.doubleToLongBits(c.values(i).toDouble))
+          case c: DoubleColumn =>
+            FloatingKey(java.lang.Double.doubleToLongBits(c.values(i)))
+          case c: BinaryColumn =>
+            if decimals(j) then
+              BigInt(c.getBytes(i))
+            else
+              ArraySeq.unsafeWrapArray(c.getBytes(i))
+          case _ =>
+            null
+
+  end KeyReader
 
   private def distinct(a: Array[Long]): Array[Long] =
     if a.length < 2 then

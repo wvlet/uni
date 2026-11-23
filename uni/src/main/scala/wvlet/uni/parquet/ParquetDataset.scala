@@ -119,7 +119,9 @@ class ParquetDataset private[parquet] (
       */
     columnDefaults: Map[String, Any] = Map.empty,
     /** Deleted row positions of each file (sorted), from an Iceberg table's delete files */
-    rowDeletes: Map[String, Array[Long]] = Map.empty
+    rowDeletes: Map[String, Array[Long]] = Map.empty,
+    /** The equality deletes of each file, from an Iceberg table's equality-delete files */
+    equalityDeletes: IcebergDeletes.Equalities = Map.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -162,7 +164,8 @@ class ParquetDataset private[parquet] (
       fieldIds,
       tableProperties,
       columnDefaults,
-      rowDeletes
+      rowDeletes,
+      equalityDeletes
     )
 
   override def close(): Unit =
@@ -335,9 +338,11 @@ class ParquetDataset private[parquet] (
     * @param fileColumns
     *   the columns read from files (not partitions)
     * @param eval
-    *   the output columns, then the columns only the row filter needs
+    *   the output columns, then the columns only the row filter or equality deletes need
     * @param rowFilter
     *   the exact filter, checked against batches of the `eval` columns
+    * @param evalIndex
+    *   the position of each `eval` column, for finding the key columns of equality deletes
     */
   private case class Plan(
       schema: ParquetSchema,
@@ -345,7 +350,8 @@ class ParquetDataset private[parquet] (
       fileColumns: IndexedSeq[String],
       options: ParquetReadOptions,
       eval: IndexedSeq[ParquetField],
-      rowFilter: Option[ParquetFilter.RowFilter]
+      rowFilter: Option[ParquetFilter.RowFilter],
+      evalIndex: Map[String, Int] = Map.empty
   )
 
   private def selectByPartition(options: ParquetReadOptions): IndexedSeq[Selected] =
@@ -485,9 +491,15 @@ class ParquetDataset private[parquet] (
     // A dotted filter name may refer to a top-level column with that name or to a struct field
     val filterNames = options.filter.toSeq.flatMap(_.columnNames)
     val filterTops  = filterNames.flatMap(n => Seq(n, n.takeWhile(_ != '.'))).distinct
+    // Equality deletes match rows by their key columns, which are read even when not selected
+    val keyColumns =
+      selected
+        .flatMap(s => equalityDeletes.getOrElse(s.file.path, IndexedSeq.empty))
+        .flatMap(_.columns)
+        .distinct
     val wanted: Option[Set[String]] = options
       .columns
-      .map(c => (c ++ filterTops).toSet -- partitionKeys)
+      .map(c => (c ++ filterTops ++ keyColumns).toSet -- partitionKeys)
     // Union of the files' top-level fields by name, in first-seen order
     val union   = scala.collection.mutable.LinkedHashMap.empty[String, ParquetField]
     val present = scala.collection.mutable.HashMap.empty[String, Int]
@@ -606,16 +618,21 @@ class ParquetDataset private[parquet] (
       .filter(_ => selected.nonEmpty)
       .map(f => ParquetFilter.RowFilter(f, schema, options.binaryAsString))
     val outputNames = output.map(_.name).toSet
-    val eval        =
+    val eval        = (
       output ++
-        rowFilter.toSeq.flatMap(_.topColumns).filterNot(outputNames.contains).flatMap(schema.field)
+        (rowFilter.toSeq.flatMap(_.topColumns) ++ keyColumns)
+          .distinct
+          .filterNot(outputNames.contains)
+          .flatMap(schema.field)
+    ).toIndexedSeq
     Plan(
       schema,
       output,
       eval.map(_.name).filterNot(partitionKeys.contains),
       options,
       eval,
-      rowFilter
+      rowFilter,
+      eval.map(_.name).zipWithIndex.toMap
     )
 
   end buildPlan
@@ -844,9 +861,17 @@ class ParquetDataset private[parquet] (
       .takeWhile(_ < numRows)
       .map(start => ColumnBatch(math.min(size, numRows - start).toInt, IndexedSeq.empty))
 
-  /** A file's batch as the read returns it: in the plan's columns, with rows filtered */
+  /**
+    * A file's batch as the read returns it: in the plan's columns, without the rows equality
+    * deletes remove, with rows filtered
+    */
   private def finish(b: ColumnBatch, s: Selected, plan: Plan): ColumnBatch =
-    val all  = toOutput(b, s.file, plan)
+    val all =
+      equalityDeletes.get(s.file.path) match
+        case Some(deletes) =>
+          withoutEqual(toOutput(b, s.file, plan), deletes, plan)
+        case None =>
+          toOutput(b, s.file, plan)
     val kept =
       if s.rowResidual.isDefined then
         plan.rowFilter.fold(all)(_(all))
@@ -856,6 +881,47 @@ class ParquetDataset private[parquet] (
       kept
     else
       ColumnBatch(kept.numRows, kept.columns.take(plan.output.size))
+
+  /**
+    * The batch without the rows whose key columns hold a key of one of the deletes. The batch has
+    * the plan's `eval` columns, so a key reads as the row's value after renames, partition values,
+    * and defaults
+    */
+  private def withoutEqual(
+      b: ColumnBatch,
+      deletes: IndexedSeq[IcebergDeletes.EqualityDelete],
+      plan: Plan
+  ): ColumnBatch =
+    // Deletes on the same key columns share one key per row
+    val groups = deletes
+      .groupBy(_.columns)
+      .toArray
+      .map { (columns, ds) =>
+        (IcebergDeletes.KeyReader(columns.map(c => b.columns(plan.evalIndex(c)))), ds.toArray)
+      }
+    val keep = scala.collection.mutable.ArrayBuilder.ofInt()
+    var r    = 0
+    while r < b.numRows do
+      var deleted = false
+      var g       = 0
+      while !deleted && g < groups.length do
+        val (reader, ds) = groups(g)
+        val key          = reader.key(r)
+        var j            = 0
+        while !deleted && j < ds.length do
+          deleted = ds(j).contains(key)
+          j += 1
+        g += 1
+      if !deleted then
+        keep += r
+      r += 1
+    val rows = keep.result()
+    if rows.length == b.numRows then
+      b
+    else
+      ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
+
+  end withoutEqual
 
   /** The batch with the plan's columns: the file's vectors, nulls, and partition values */
   private def toOutput(b: ColumnBatch, file: DatasetFile, plan: Plan): ColumnBatch =
@@ -1565,7 +1631,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       fieldIds = table.fieldIds,
       tableProperties = table.properties,
       columnDefaults = table.defaults,
-      rowDeletes = table.deletes
+      rowDeletes = table.deletes,
+      equalityDeletes = table.equalityDeletes
     )
 
   end icebergDataset
