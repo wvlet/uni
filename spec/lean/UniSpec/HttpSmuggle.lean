@@ -23,9 +23,10 @@ first empty line, ignores a line without a colon, and takes the body as chunked 
 frame. Members use their own helpers below, not the reader's (`scanLine`, `isTokenChar`, `lower`,
 `trim`), so a bug in a shared helper cannot make both sides agree by accident.
 
-The rule `GenHttpReaderCases` checks, and a later theorem is to prove: whenever the reader accepts a
-request and keeps the connection open after it, every member either rejects it or finds the same
-head length and the same framing. A member that rejects forwards nothing, and after a close the
+The rule, proven as `no_smuggling` in `HttpSmuggleProof.lean` and also checked by
+`GenHttpReaderCases` on inputs and their one-edit variants: whenever the reader accepts a request
+and keeps the connection open after it, every member either rejects it or finds the same head
+length and the same framing. A member that rejects forwards nothing, and after a close the
 reader never reads another boundary, so neither case can smuggle a request. The rule is relative to
 this family; for example, a parser that compares names case-sensitively is outside it. Chunked
 bodies are not covered here.

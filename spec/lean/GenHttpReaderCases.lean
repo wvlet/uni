@@ -172,7 +172,8 @@ def inputs : List String := [
 
 Every input and every variant below is checked against the lenient family: at each request the
 reader accepts and keeps the connection open after, every member must reject it or agree on the
-head length and framing. Variants change the head of an input's first request by one edit. Those the
+head length and framing. `no_smuggling` (`UniSpec/HttpSmuggleProof.lean`) proves this for every
+input, so the check guards the generator and the model's executable code, and picks the cases. Variants change the head of an input's first request by one edit. Those the
 reader rejects or closes after, but on which the edit makes two members frame differently, are the
 inputs a lenient front proxy could smuggle with, so a selection of them become cases too.
 -/
