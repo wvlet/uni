@@ -33,7 +33,7 @@ class FetchChannel extends HttpAsyncChannel:
   override def send(request: HttpRequest, config: HttpClientConfig): Rx[HttpResponse] =
     val future = fetch(request).flatMap { resp =>
       val head = readResponseHead(resp)
-      resp.arrayBuffer().toFuture.map(buf => head.withContent(toContent(buf)))
+      resp.arrayBuffer().toFuture.map(buf => head.withContent(toContent(buf, head)))
     }
 
     Rx.future(future)
@@ -65,7 +65,9 @@ class FetchChannel extends HttpAsyncChannel:
           .toFuture
           .onComplete {
             case Success(buf) =>
-              source.setException(HttpException.fromResponse(head.withContent(toContent(buf))))
+              source.setException(
+                HttpException.fromResponse(head.withContent(toContent(buf, head)))
+              )
             case Failure(e) =>
               source.setException(e)
           }
@@ -128,12 +130,11 @@ class FetchChannel extends HttpAsyncChannel:
       }
     Response(HttpStatus.ofCode(resp.status), headerBuilder.result())
 
-  private def toContent(buf: ArrayBuffer): HttpContent =
-    val bytes = new Int8Array(buf).toArray
-    if bytes.isEmpty then
-      HttpContent.Empty
-    else
-      HttpContent.bytes(bytes)
+  /** The body, with the content type of the response headers */
+  private def toContent(buf: ArrayBuffer, head: HttpResponse): HttpContent = HttpContent.fromBytes(
+    new Int8Array(buf).toArray,
+    head.headers
+  )
 
   private def readChunks(resp: org.scalajs.dom.Response, source: RxVar[Option[Array[Byte]]]): Unit =
     if resp.body == null then

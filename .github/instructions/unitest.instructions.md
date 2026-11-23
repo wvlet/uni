@@ -25,7 +25,7 @@ UniTest provides a rich set of assertion syntaxes for verifying test expectation
 | `x shouldBe empty`           | check x.isEmpty == true, when x is Option or Seq                                     |
 | `x shouldBeTheSameInstanceAs y` | check x eq y; x and y are the same object instance                                   |
 | `x shouldNotBeTheSameInstanceAs y` | check x ne y; x and y should not be the same instance                               |
-| `x shouldMatch { case .. => }` | check x matches given patterns                                                       |
+| `x shouldMatch { case .. => }` | check x matches given patterns, then run the assertions in the matching case        |
 | `x shouldContain y`          | check x contains given value y                                                       |
 | `x shouldNotContain y`       | check x doesn't contain a given value y                                              |
 | `fail("reason")`             | fail the test if this code path should not be reached                                |

@@ -99,15 +99,9 @@ private[http] object JavaHttpChannelHelper:
   def readResponseBody(head: Response, httpResponse: JHttpResponse): Response =
     val inputStream = openBody(head, httpResponse)
     try
-      val body    = inputStream.readAllBytes()
-      val content =
-        if body.isEmpty then
-          HttpContent.Empty
-        else
-          HttpContent.bytes(body)
-      head.withContent(content)
-    finally
-      inputStream.close()
+      // The body takes its content type from the response headers
+      head.withContent(HttpContent.fromBytes(inputStream.readAllBytes(), head.headers))
+    finally inputStream.close()
 
   /**
     * Stream chunks read from the input stream returned by `open`. Each subscription calls `open` on

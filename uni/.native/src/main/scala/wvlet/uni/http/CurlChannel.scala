@@ -47,7 +47,8 @@ class CurlChannel extends HttpChannel:
       val result = curl_easy_perform(curl)
       if result != CURLE_OK then
         throwCurlError(result)
-      readHead(curl, headerBuffer).withContent(toContent(getBufferData(bodyBuffer)))
+      val head = readHead(curl, headerBuffer)
+      head.withContent(toContent(getBufferData(bodyBuffer), head))
     }
 
   /**
@@ -120,7 +121,7 @@ class CurlChannel extends HttpChannel:
             drainBody()
             if !streamsBody then
               throw HttpException.fromResponse(
-                head.withContent(toContent(getBufferData(bodyBuffer)))
+                head.withContent(toContent(getBufferData(bodyBuffer), head))
               )
           }
         finally
@@ -253,11 +254,9 @@ class CurlChannel extends HttpChannel:
       parseHeaders(finalHeaderBlock(getBufferString(headerBuffer)))
     )
 
-  private def toContent(bytes: Array[Byte]): HttpContent =
-    if bytes.isEmpty then
-      HttpContent.Empty
-    else
-      HttpContent.bytes(bytes)
+  /** The body, with the content type of the response headers */
+  private def toContent(bytes: Array[Byte], head: HttpResponse): HttpContent = HttpContent
+    .fromBytes(bytes, head.headers)
 
   private def throwCurlError(result: CInt): Nothing =
     val errorMsg = fromCString(curl_easy_strerror(result))
