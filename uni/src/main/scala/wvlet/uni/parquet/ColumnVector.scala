@@ -223,6 +223,9 @@ object ColumnVector:
   ) extends ColumnVector:
     def child(name: String): Option[ColumnVector] = children.find(_.name == name)
 
+    // Parsed VARIANT metadata by dictionary entry of the `metadata` column, filled as rows decode
+    private[parquet] var variantMetadata: Array[AnyRef] = null
+
     /** Whether this is a VARIANT group, whose rows [[getValue]] decodes */
     def isVariant: Boolean = field.logicalType.contains(LogicalType.Variant)
 

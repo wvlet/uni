@@ -117,8 +117,8 @@ enum LogicalType:
 
   /**
     * WKB geography in a binary column, with its coordinate reference system and the edge
-    * interpolation algorithm (`spherical`, `vincenty`, `thomas`, `andoyer`, or `karney`) if the
-    * file names them
+    * interpolation algorithm (`spherical`, `vincenty`, `thomas`, `andoyer`, or `karney`, or the
+    * enum number of one this reader doesn't know) if the file names them
     */
   case Geography(crs: Option[String], algorithm: Option[String])
 

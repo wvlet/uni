@@ -166,7 +166,12 @@ private[parquet] object MetadataEncoder:
       case LogicalType.Geography(crs, algorithm) =>
         w.structField(18) {
           crs.foreach(w.string(1, _))
-          algorithm.map(LogicalType.GeographyAlgorithms.indexOf).filter(_ >= 0).foreach(w.i32(2, _))
+          // A known name, or the number of an algorithm this reader doesn't know
+          algorithm
+            .flatMap(a =>
+              Some(LogicalType.GeographyAlgorithms.indexOf(a)).filter(_ >= 0).orElse(a.toIntOption)
+            )
+            .foreach(w.i32(2, _))
         }
       case LogicalType.Interval | LogicalType.MapKeyValue | LogicalType.Other(_) =>
         ()

@@ -204,7 +204,7 @@ private[parquet] object MetadataDecoder:
       case (18, g: TStruct) =>
         LogicalType.Geography(
           g.stringOpt(1),
-          g.intOpt(2).map(i => LogicalType.GeographyAlgorithms.lift(i).getOrElse(s"algorithm ${i}"))
+          g.intOpt(2).map(i => LogicalType.GeographyAlgorithms.lift(i).getOrElse(s"${i}"))
         )
       case (id, _) =>
         LogicalType.Other(id)

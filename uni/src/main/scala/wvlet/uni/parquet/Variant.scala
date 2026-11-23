@@ -25,13 +25,13 @@ private[parquet] object Variant:
 
   /** Row i of a non-null VARIANT group */
   def decode(s: StructColumn, i: Int): Any =
-    val meta =
-      s.child("metadata") match
-        case Some(b: BinaryColumn) if !b.isNull(i) =>
-          Metadata(b.data, b.offsets(i), b.length(i))
-        case _ =>
-          throw ParquetException.corrupt(s"VARIANT column ${s.field.pathString} has no metadata")
     try
+      val meta =
+        s.child("metadata") match
+          case Some(b: BinaryColumn) if !b.isNull(i) =>
+            metadata(s, b, i)
+          case _ =>
+            throw ParquetException.corrupt(s"VARIANT column ${s.field.pathString} has no metadata")
       shredded(meta, s, i) match
         case Missing =>
           null
@@ -42,6 +42,27 @@ private[parquet] object Variant:
         throw ParquetException.corrupt(
           s"VARIANT value of ${s.field.pathString} overruns its bytes: ${e.getMessage}"
         )
+
+  /**
+    * Row i's field-name dictionary. Rows decoded from the same dictionary entry of the metadata
+    * column share one parsed dictionary, and so its decoded names.
+    */
+  private def metadata(s: StructColumn, b: BinaryColumn, i: Int): Metadata =
+    val k = b.dictionaryIndex(i)
+    if k < 0 then
+      Metadata(b.data, b.offsets(i), b.length(i))
+    else
+      var cache = s.variantMetadata
+      if cache == null || cache.length != b.dictionarySize then
+        cache = new Array[AnyRef](b.dictionarySize)
+        s.variantMetadata = cache
+      cache(k) match
+        case m: Metadata =>
+          m
+        case _ =>
+          val m = Metadata(b.data, b.offsets(i), b.length(i))
+          cache(k) = m
+          m
 
   /** The value of a `{value, typed_value}` group at row i, or Missing when both are null */
   private def shredded(meta: Metadata, g: StructColumn, i: Int): Any =
@@ -115,7 +136,11 @@ private[parquet] object Variant:
     private val size       = uint(b, off + 1, offsetSize)
     private val offsets    = off + 1 + offsetSize
     private val strings    = offsets + (size + 1) * offsetSize
-    private val names      = new Array[String](size)
+    if size < 0 || size >= len || strings + uint(b, strings - offsetSize, offsetSize) > off + len
+    then
+      throw ParquetException.corrupt(s"VARIANT metadata overruns its ${len} bytes")
+
+    private val names = new Array[String](size)
 
     def name(id: Int): String =
       if id < 0 || id >= size then
