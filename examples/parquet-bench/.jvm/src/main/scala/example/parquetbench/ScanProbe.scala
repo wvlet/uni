@@ -15,7 +15,7 @@ object ScanProbe:
   def main(args: Array[String]): Unit =
     wvlet.uni.io.FileSystemInit.init()
     val path       = args(0)
-    val iterations = args.lift(1).map(_.toInt).getOrElse(15)
+    val iterations = args.drop(1).find(!_.startsWith("--")).map(_.toInt).getOrElse(15)
     val threads    = ManagementFactory.getThreadMXBean.asInstanceOf[com.sun.management.ThreadMXBean]
     val tid        = Thread.currentThread().threadId()
     if !args.contains("--no-digest") then
