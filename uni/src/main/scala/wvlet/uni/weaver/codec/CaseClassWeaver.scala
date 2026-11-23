@@ -27,6 +27,12 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
 
   override def innerWeavers: Seq[Weaver[?]] = fieldWeavers
 
+  /**
+    * The field names in declaration order, for formats that address fields by position (CSV without
+    * a header)
+    */
+  private[uni] def fieldNames: IndexedSeq[String] = surface.params.map(_.name).toIndexedSeq
+
   // Pre-compute canonicalized name lookup for flexible field matching
   private val paramsByCanonicalName: Map[String, (Int, Parameter)] =
     surface

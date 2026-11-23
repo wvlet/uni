@@ -131,6 +131,36 @@ val local = cron.next(after, UtcOffset.ofHours(9)) // 09:30 in +09:00
 val text  = cron.describe                          // At 09:30, Monday through Friday
 ```
 
+## CSV and TSV
+
+`CSV.read[A]` maps columns to fields by header name, and Weaver converts each text value to the
+field type. An unquoted empty field is missing, so the field takes its default or `None`; a quoted
+`""` is an empty string. `TSV` uses backslash escapes (`\t`, `\n`, `\\`) and `\N` for missing
+values, as PostgreSQL `COPY` does; `TSV.quoted` reads spreadsheet TSV. Malformed input throws
+`TextParseException` with the line and column.
+
+```scala
+import wvlet.uni.text.csv.{CSV, CSVReader, TSV}
+import wvlet.uni.io.IOPath
+
+case class Member(name: String, age: Int, email: Option[String] = None) derives Weaver
+
+val members = CSV.read[Member]("name,age,email\nAlice,30,a@example.com\nBob,25,\n")
+val cells   = CSV.parse("a,b\n1,\"x, y\"\n")         // Seq(Vector(a, b), Vector(1, x, y))
+val csvText = CSV.withFormulaEscape().write(members)  // header from the field names
+val semi    = CSV.withDelimiter(';').noHeader().read[Member]("Carol;41;\n")
+val tsvRows = TSV.parse("a\tb\nx\\ty\t\\N\n")        // Seq(Vector(a, b), Vector(x\ty, ""))
+```
+
+`readFile` streams a file row by row (on Node.js it reads the whole file first). For bytes from S3
+or HTTP, pass `CSVReader.decodeUTF8(chunks)` to `CSV.reader[A]`. Close the reader if you stop early:
+
+```scala skip
+val reader = CSV.readFile[Member](IOPath.parse("members.csv"))
+try reader.take(10).foreach(println)
+finally reader.close()
+```
+
 ## Persisted settings (SettingStore)
 
 An `RxVar` saved as `{"version", "state"}` JSON on every change: `~/.config/<app>/<fileName>` on
