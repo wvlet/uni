@@ -61,6 +61,9 @@ object ObjectUri:
   *
   * @param lastModified
   *   the store's timestamp as sent (ISO-8601 in listings, RFC 1123 in HEAD responses)
+  * @param version
+  *   the token [[ObjectStore.putIfMatch]] compares: the ETag on S3 and Azure, the generation on
+  *   GCS. Pass it back unchanged; `head` and `list` give the same token for the same object.
   */
 case class ObjectInfo(
     uri: ObjectUri,
@@ -68,7 +71,8 @@ case class ObjectInfo(
     etag: Option[String] = None,
     lastModified: Option[String] = None,
     contentType: Option[String] = None,
-    isDirectory: Boolean = false
+    isDirectory: Boolean = false,
+    version: Option[String] = None
 )
 
 /**
@@ -90,16 +94,34 @@ trait ObjectStore extends AutoCloseable:
   def put(uri: ObjectUri, content: Array[Byte], contentType: String = ObjectStore.Binary): Unit
 
   /**
-    * Creates the object only if nothing is stored at `uri` yet: true when this call created it,
-    * false when an object was already there. Of several concurrent calls for one key, at most one
-    * returns true, so this can commit a version file (S3 `If-None-Match: *`, GCS
-    * `ifGenerationMatch=0`, Azure `If-None-Match: *`).
+    * Creates the object only if nothing is stored at `uri` yet. Returns the new object's version
+    * (see [[ObjectInfo.version]]) when this call created it, and `None` when an object was already
+    * there. Of several concurrent calls for one key, at most one returns a version, so this can
+    * commit a version file or take a lease (S3 `If-None-Match: *`, GCS `ifGenerationMatch=0`, Azure
+    * `If-None-Match: *`).
     */
   def putIfAbsent(
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String = ObjectStore.Binary
-  ): Boolean
+  ): Option[String]
+
+  /**
+    * Replaces the object only if its current version is still `version` (from
+    * [[ObjectInfo.version]] or an earlier put). Returns the new version when this call replaced it,
+    * and `None` when the object changed or no longer exists. Of several concurrent calls with the
+    * same version, at most one succeeds, so this can swap a pointer or renew a lease (S3 and Azure
+    * `If-Match`, GCS `ifGenerationMatch`). Other failures raise [[StorageException]].
+    *
+    * Call `head` before `get` when you read the object to change: if another writer lands in
+    * between, the swap fails instead of committing changes to stale bytes.
+    */
+  def putIfMatch(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String = ObjectStore.Binary
+  ): Option[String]
 
   /**
     * Objects under the prefix `uri`. With `recursive = false`, keys are grouped at the next `/` and
@@ -141,7 +163,14 @@ trait ObjectStore extends AutoCloseable:
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String = ObjectStore.Binary
-  ): Rx[Boolean]
+  ): Rx[Option[String]]
+
+  def putIfMatchAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String = ObjectStore.Binary
+  ): Rx[Option[String]]
 
   def listAsync(uri: ObjectUri, recursive: Boolean = true): Rx[Seq[ObjectInfo]]
   def deleteAsync(uri: ObjectUri): Rx[Unit]

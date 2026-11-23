@@ -186,7 +186,8 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
           resp.header("Content-Length").flatMap(_.trim.toLongOption).getOrElse(0L),
           resp.header("ETag"),
           resp.header("Last-Modified"),
-          resp.header("Content-Type")
+          resp.header("Content-Type"),
+          version = resp.header("ETag")
         )
       )
 
@@ -240,25 +241,58 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
     contentType = Some(contentType)
   )
 
-  // 409 BlobAlreadyExists (or 412 from some emulators): the blob exists
-  private def createResult(call: StorageCall, resp: Response): Boolean =
+  // 409 BlobAlreadyExists (If-None-Match on an existing blob; some emulators answer 412) and 412
+  // ConditionNotMet (If-Match on a changed or missing blob) are lost races. Other 404s, such as
+  // ContainerNotFound, still raise.
+  private def conditionalResult(call: StorageCall, resp: Response): Option[String] =
     if resp.statusCode == 409 || resp.statusCode == 412 then
-      false
+      None
     else
       checked(call, resp)
-      true
+      Some(
+        resp
+          .header("ETag")
+          .getOrElse(
+            throw StorageException(
+              CloudErrorCode.InvalidResponse,
+              s"No ETag in the answer for ${call.uri}"
+            )
+          )
+      )
 
-  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
+  override def putIfAbsent(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Option[String] =
     val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
-    createResult(call, send(call))
+    conditionalResult(call, send(call))
 
   override def putIfAbsentAsync(
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String
-  ): Rx[Boolean] =
+  ): Rx[Option[String]] =
     val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
-    sendAsync(call).map(createResult(call, _))
+    sendAsync(call).map(conditionalResult(call, _))
+
+  override def putIfMatch(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Option[String] =
+    val call = putCall(uri, content, contentType, Seq("If-Match" -> version))
+    conditionalResult(call, send(call))
+
+  override def putIfMatchAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Rx[Option[String]] =
+    val call = putCall(uri, content, contentType, Seq("If-Match" -> version))
+    sendAsync(call).map(conditionalResult(call, _))
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit =
     val call = putCall(uri, content, contentType)
@@ -459,6 +493,12 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
 end AzureObjectStore
 
 object AzureObjectStore:
+  private[storage] def quotedETag(etag: String): String =
+    if etag.startsWith("\"") then
+      etag
+    else
+      s"\"${etag}\""
+
   /** One request to the Blob service, before signing. `query` holds raw (not encoded) values. */
   private[storage] case class StorageCall(
       method: HttpMethod,
@@ -492,7 +532,9 @@ object AzureObjectStore:
               prop("Content-Length").flatMap(_.trim.toLongOption).getOrElse(0L),
               prop("Etag"),
               prop("Last-Modified"),
-              prop("Content-Type")
+              prop("Content-Type"),
+              // Listings send the ETag without the quotes HEAD and PUT answers have
+              version = prop("Etag").map(quotedETag)
             )
           )
         case "BlobPrefix" =>

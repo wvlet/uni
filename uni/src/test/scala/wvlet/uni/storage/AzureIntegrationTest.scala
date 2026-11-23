@@ -249,14 +249,46 @@ class AzureIntegrationTest extends UniTest:
   test("putIfAbsent creates an object only once") {
     requireServer()
     val uri = prefix.resolve("once/v1.metadata.json")
-    store.putIfAbsent(uri, "first".getBytes("UTF-8")) shouldBe true
-    store.putIfAbsent(uri, "second".getBytes("UTF-8")) shouldBe false
+    val v1  = store.putIfAbsent(uri, "first".getBytes("UTF-8"))
+    v1.isDefined shouldBe true
+    store.putIfAbsent(uri, "second".getBytes("UTF-8")) shouldBe None
     String(store.get(uri), "UTF-8") shouldBe "first"
+    store.head(uri).flatMap(_.version) shouldBe v1
     val other = prefix.resolve("once/v2.metadata.json")
     store
       .putIfAbsentAsync(other, "a".getBytes("UTF-8"))
       .flatMap(created => store.putIfAbsentAsync(other, "b".getBytes("UTF-8")).map(created -> _))
-      .map(_ shouldBe (true, false))
+      .map((created, again) => (created.isDefined, again) shouldBe (true, None))
+  }
+
+  test("putIfMatch replaces an object only at the version the caller read") {
+    requireServer()
+    val uri = prefix.resolve("cas/pointer.json")
+    store.put(uri, "v1".getBytes("UTF-8"))
+    val v1 = store.head(uri).flatMap(_.version).get
+    store.list(prefix.resolve("cas/")).map(_.version) shouldBe Seq(Some(v1))
+
+    val v2 = store.putIfMatch(uri, "v2".getBytes("UTF-8"), v1).get
+    (v2 != v1) shouldBe true
+    store.putIfMatch(uri, "stale".getBytes("UTF-8"), v1) shouldBe None
+    String(store.get(uri), "UTF-8") shouldBe "v2"
+
+    // The returned version chains the next swap with no head in between
+    val v3 = store.putIfMatch(uri, "v3".getBytes("UTF-8"), v2).get
+    store.head(uri).flatMap(_.version) shouldBe Some(v3)
+
+    // A missing object is a lost race, not an error, and the swap creates nothing
+    val missing = prefix.resolve("cas/missing.json")
+    store.putIfMatch(missing, "x".getBytes("UTF-8"), v1) shouldBe None
+    store.head(missing) shouldBe None
+
+    store
+      .putIfMatchAsync(uri, "v4".getBytes("UTF-8"), v3)
+      .flatMap(v4 => store.putIfMatchAsync(uri, "v5".getBytes("UTF-8"), v3).map(v4 -> _))
+      .map { (v4, lost) =>
+        (v4.isDefined, lost) shouldBe (true, None)
+        String(store.get(uri), "UTF-8") shouldBe "v4"
+      }
   }
 
 end AzureIntegrationTest

@@ -25,8 +25,17 @@ val oneLevel           = store.list(ObjectUri.parse("s3://my-bucket/logs/"), rec
 store.delete("s3://my-bucket/a.txt")
 
 // Create only if absent (S3 If-None-Match, GCS ifGenerationMatch=0, Azure If-None-Match):
-// true when this call created it; of concurrent callers, at most one gets true
-val created: Boolean = store.putIfAbsent(ObjectUri.parse("s3://my-bucket/v1.json"), "{}".getBytes("UTF-8"))
+// Some(version) when this call created it, None if an object exists; at most one racer wins
+val created: Option[String] = store.putIfAbsent(ObjectUri.parse("s3://my-bucket/v1.json"), "{}".getBytes("UTF-8"))
+
+// Compare-and-swap (S3/Azure If-Match on the ETag, GCS ifGenerationMatch): head BEFORE get,
+// then replace only if unchanged. Some(newVersion) chains the next swap; None = lost race
+// (changed or missing). Other failures throw StorageException.
+val pointer = ObjectUri.parse("s3://my-bucket/current.json")
+store.put(pointer, "v1".getBytes("UTF-8"))
+val swapped: Option[String] = store.head(pointer).flatMap(_.version).flatMap { v =>
+  store.putIfMatch(pointer, "v2".getBytes("UTF-8"), v)
+}
 
 try store.get("s3://my-bucket/missing")
 catch case e: StorageException if e.isNotFound => Array.emptyByteArray

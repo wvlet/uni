@@ -151,25 +151,79 @@ class GcsObjectStore(val config: GcsConfig) extends ObjectStore with LogSupport:
     .setHeader("Content-Type", contentType)
     .withContent(HttpContent.bytes(content))
 
-  // Generation 0 means the object must not exist yet
-  private def createRequest(uri: ObjectUri, content: Array[Byte], contentType: String): Request =
-    putRequest(uri, content, contentType, Seq("ifGenerationMatch" -> "0"))
+  // ifGenerationMatch=0 means the object must not exist yet; any other generation must be the
+  // current one. A failed precondition (including a missing object) answers 412.
+  private def conditionalRequest(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String,
+      generation: String
+  ): Request = putRequest(uri, content, contentType, Seq("ifGenerationMatch" -> generation))
 
-  private def createResult(uri: ObjectUri, resp: Response): Boolean =
+  private def conditionalResult(uri: ObjectUri, resp: Response): Option[String] =
     if resp.statusCode == 412 then
-      false
+      None
     else
-      checked(uri, resp)
-      true
+      json(checked(uri, resp)) match
+        case o: JSON.JSONObject =>
+          Some(
+            generationOf(o).getOrElse(
+              throw StorageException(
+                CloudErrorCode.InvalidResponse,
+                s"No generation in the GCS answer for ${uri}"
+              )
+            )
+          )
+        case _ =>
+          throw invalidResponse(uri)
 
-  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
-    createResult(uri, send(createRequest(uri, content, contentType)))
+  override def putIfAbsent(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Option[String] = conditionalResult(
+    uri,
+    send(conditionalRequest(uri, content, contentType, "0"))
+  )
 
   override def putIfAbsentAsync(
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String
-  ): Rx[Boolean] = sendAsync(createRequest(uri, content, contentType)).map(createResult(uri, _))
+  ): Rx[Option[String]] = sendAsync(conditionalRequest(uri, content, contentType, "0")).map(
+    conditionalResult(uri, _)
+  )
+
+  override def putIfMatch(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Option[String] = conditionalResult(
+    uri,
+    send(conditionalRequest(uri, content, contentType, generationArg(version)))
+  )
+
+  override def putIfMatchAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Rx[Option[String]] = Rx
+    .single(())
+    .flatMap(_ =>
+      sendAsync(conditionalRequest(uri, content, contentType, generationArg(version))).map(
+        conditionalResult(uri, _)
+      )
+    )
+
+  // "0" would turn the swap into a create, so only positive generations are accepted
+  private def generationArg(version: String): String =
+    if !version.toLongOption.exists(_ > 0) then
+      throw IllegalArgumentException(
+        s"Not a GCS object version (a positive generation from ObjectInfo.version): ${version}"
+      )
+    version
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit = checked(
     uri,
@@ -382,8 +436,19 @@ object GcsObjectStore:
       .getOrElse(0L),
     str(o, "etag"),
     str(o, "updated"),
-    str(o, "contentType")
+    str(o, "contentType"),
+    version = generationOf(o)
   )
+
+  // The JSON API sends int64 values as strings
+  private def generationOf(o: JSON.JSONObject): Option[String] = o
+    .get("generation")
+    .collect {
+      case JSON.JSONString(s) =>
+        s
+      case JSON.JSONLong(v) =>
+        v.toString
+    }
 
   private[storage] def parseListing(prefix: ObjectUri, v: JSON.JSONValue): ListPage =
     v match
