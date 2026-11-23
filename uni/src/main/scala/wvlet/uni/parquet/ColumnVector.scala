@@ -222,9 +222,20 @@ object ColumnVector:
       protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def child(name: String): Option[ColumnVector] = children.find(_.name == name)
-    def getValue(i: Int): Any                     =
+
+    /** Whether this is a VARIANT group, whose rows [[getValue]] decodes */
+    def isVariant: Boolean = field.logicalType.contains(LogicalType.Variant)
+
+    /**
+      * Row i as a map of field names to values, or for a VARIANT group the decoded value: null,
+      * Boolean, Int, Long, Float, Double, BigDecimal, String, Array[Byte], LocalDate, LocalTime,
+      * Instant, UUID, a `Map[String, Any]` for an object, or a `Seq[Any]` for an array
+      */
+    def getValue(i: Int): Any =
       if isNull(i) then
         null
+      else if isVariant then
+        Variant.decode(this, i)
       else
         VectorMap.from(children.map(c => c.name -> c.getValue(i)))
 
@@ -328,7 +339,7 @@ object ColumnVector:
           withBinaryAsString(m.values),
           m.nulls
         )
-      case s: StructColumn =>
+      case s: StructColumn if !s.isVariant =>
         StructColumn(s.field, s.size, s.children.map(withBinaryAsString), s.nulls)
       case other =>
         other

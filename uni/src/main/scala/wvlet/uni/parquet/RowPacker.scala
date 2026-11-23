@@ -62,6 +62,8 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
             pack(p, m.keys, j)
             pack(p, m.values, j)
             j += 1
+        case s: StructColumn if s.isVariant =>
+          packAny(p, Variant.decode(s, i))
         case s: StructColumn =>
           p.packMapHeader(s.children.size)
           s.children
@@ -69,6 +71,43 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
               p.packString(child.name)
               pack(p, child, i)
             }
+
+  /** A decoded VARIANT value, mapped as the column types above are */
+  private def packAny(p: Packer, v: Any): Unit =
+    v match
+      case null =>
+        p.packNil
+      case b: Boolean =>
+        p.packBoolean(b)
+      case s: String =>
+        p.packString(s)
+      case b: Array[Byte] =>
+        p.packBinaryHeader(b.length)
+        p.writePayload(b, 0, b.length)
+      case t: java.time.Instant =>
+        p.packTimestamp(t)
+      case d: BigDecimal =>
+        p.packString(d.toString)
+      case m: Map[?, ?] =>
+        p.packMapHeader(m.size)
+        m.foreach { (k, x) =>
+          p.packString(k.toString)
+          packAny(p, x)
+        }
+      case s: Seq[?] =>
+        p.packArrayHeader(s.size)
+        s.foreach(packAny(p, _))
+      case i: Int =>
+        p.packInt(i)
+      case l: Long =>
+        p.packLong(l)
+      case f: Float =>
+        p.packFloat(f)
+      case d: Double =>
+        p.packDouble(d)
+      case other =>
+        // LocalDate, LocalTime, UUID
+        p.packString(other.toString)
 
   private def packInt(p: Packer, v: Int, lt: Option[LogicalType]): Unit =
     lt match
@@ -133,6 +172,9 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
             p.packString(other.toString)
       case _ if physical == PhysicalType.INT96 && len == 12 =>
         p.packTimestamp(LogicalValues.int96ToInstant(c.data, off))
+      case Some(LogicalType.Geometry(_) | LogicalType.Geography(_, _)) =>
+        p.packBinaryHeader(len)
+        p.writePayload(c.data, off, len)
       case _ if binaryAsString =>
         p.packRawStringHeader(len)
         p.writePayload(c.data, off, len)

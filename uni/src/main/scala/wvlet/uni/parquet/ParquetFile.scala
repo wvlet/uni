@@ -1,6 +1,7 @@
 package wvlet.uni.parquet
 
 import wvlet.uni.json.JSON.JSONObject
+import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.parquet.column.ChunkInput
 import wvlet.uni.parquet.column.ColumnChunkCursor
 import wvlet.uni.parquet.column.RowGroupBatches
@@ -484,6 +485,20 @@ object ParquetFile:
   ): Iterator[A] =
     if batch.numRows == 0 then
       Iterator.empty
+    else if batch.columns.exists(hasVariant) then
+      // A variant's type varies by row, so its rows go through MessagePack
+      val packer = RowPacker(options.binaryAsString)
+      Iterator
+        .range(0, batch.numRows)
+        .map { i =>
+          val p = MessagePack.newPacker()
+          packer.packRow(p, batch, i)
+          val ctx = WeaverContext()
+          weaver.unpack(MessagePack.newUnpacker(p.toByteArray), ctx)
+          if ctx.hasError then
+            throw ctx.getError.get
+          ctx.getLastValue.asInstanceOf[A]
+        }
     else
       // Weaver reads the vectors directly, with no MessagePack in between
       val unpacker = VectorUnpacker(batch, options.binaryAsString)
@@ -497,6 +512,17 @@ object ParquetFile:
             throw ctx.getError.get
           ctx.getLastValue.asInstanceOf[A]
         }
+
+  private def hasVariant(v: ColumnVector): Boolean =
+    v match
+      case s: ColumnVector.StructColumn =>
+        s.isVariant || s.children.exists(hasVariant)
+      case l: ColumnVector.ListColumn =>
+        hasVariant(l.elements)
+      case m: ColumnVector.MapColumn =>
+        hasVariant(m.keys) || hasVariant(m.values)
+      case _ =>
+        false
 
   /** Runs the streams one after another and collects their values */
   private[parquet] def sequence[A](rxs: Seq[Rx[A]]): Rx[Seq[A]] =

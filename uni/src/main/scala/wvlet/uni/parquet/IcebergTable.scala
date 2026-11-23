@@ -1004,6 +1004,15 @@ private[parquet] object IcebergTable:
 
   private val DecimalType = """decimal\(\s*(\d+)\s*,\s*(\d+)\s*\)""".r
   private val FixedType   = """fixed\[\s*(\d+)\s*\]""".r
+  // geometry(crs) and geography(crs, algorithm); a CRS such as `srid:4326` has no comma
+  private val GeometryType  = """geometry\(([^,)]+)\)""".r
+  private val GeographyType = """geography\(([^,)]+)(?:,([^)]+))?\)""".r
+
+  /** Geospatial values: WKB in a binary column */
+  private def geo(lt: LogicalType): ParquetType = ParquetType.Primitive(
+    PhysicalType.BYTE_ARRAY,
+    Some(lt)
+  )
 
   private def column(f: JSONObject, source: String): ParquetColumn =
     val name = string(f, "name").getOrElse("")
@@ -1068,6 +1077,16 @@ private[parquet] object IcebergTable:
             ParquetType.decimal(p.toInt, sc.toInt)
           case FixedType(n) =>
             ParquetType.fixed(n.toInt)
+          case "variant" =>
+            ParquetType.VariantGroup
+          case "geometry" =>
+            geo(LogicalType.Geometry(None))
+          case GeometryType(crs) =>
+            geo(LogicalType.Geometry(Some(crs.trim)))
+          case "geography" =>
+            geo(LogicalType.Geography(None, None))
+          case GeographyType(crs, algorithm) =>
+            geo(LogicalType.Geography(Some(crs.trim), Option(algorithm).map(_.trim.toLowerCase)))
           case other =>
             unsupported(other)
       case Some(o: JSONObject) =>

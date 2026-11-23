@@ -43,6 +43,10 @@ def explore(path: String): Unit =
 - `readRows` values have the logical type applied: `Instant`, `LocalDate`, `LocalTime`,
   `BigDecimal`, `java.util.UUID`; lists are `Seq`, maps `Map`, groups `Map[String, Any]`, nulls
   `null`. Unannotated binary is `Array[Byte]` unless `withBinaryAsString(true)`.
+- A VARIANT column (shredded or not; DuckDB, Spark 4, Iceberg v3) reads as a Scala value:
+  `Map[String, Any]` for objects (fields in name order), `Seq[Any]` for arrays, and `Int`, `Long`,
+  `Double`, `BigDecimal`, `String`, `Instant`, and so on for primitives. GEOMETRY and GEOGRAPHY
+  columns read as WKB `Array[Byte]`. Neither is written.
 - Prefer `readRows` over `readAs[Map[String, Any]]`: the latter goes through Weaver, so integers
   become `Long` and DATE, DECIMAL, and UUID become strings.
 - `ParquetFile` also has `readRows(options)`, `readJson(options)`, and, for browsers,
@@ -244,8 +248,8 @@ def typedDataset(root: String) = Parquet.dataset(
   file; pass the catalog's `.metadata.json` path as the root to read exactly the catalog's
   version. Format versions 1 to 3 are read: v3 `timestamp_ns` columns read as nanosecond
   timestamps, and a column older files lack reads as its `initial-default`. Position deletes
-  and deletion vectors are applied. Equality deletes, `variant`/`geometry`/`geography` columns,
-  and non-Parquet data files fail by name.
+  and deletion vectors are applied. `variant` columns read as Scala values and
+  `geometry`/`geography` as WKB bytes. Equality deletes and non-Parquet data files fail by name.
 - `ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)` writes an
   Iceberg table (Hadoop table, format v2; `withTableProperties(Map("format-version" -> "3"))`
   for v3 with row lineage and nanosecond timestamps): `ErrorIfExists` creates it, `Append` commits a

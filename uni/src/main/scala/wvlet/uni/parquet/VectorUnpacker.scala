@@ -531,6 +531,8 @@ private[parquet] object VectorUnpacker:
               CBinLogical
             case _ if int96 =>
               CInt96
+            case Some(LogicalType.Geometry(_) | LogicalType.Geography(_, _)) =>
+              CBin
             case _ if binaryAsString =>
               CStr
             case _ =>
