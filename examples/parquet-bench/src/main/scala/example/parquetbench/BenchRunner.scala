@@ -2,7 +2,7 @@ package example.parquetbench
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
-import wvlet.uni.parquet.Parquet
+import wvlet.uni.cloud.parquet.Parquet
 
 /**
   * A case to time: `run` reads `path` (or writes the data of `path` to another file) and returns

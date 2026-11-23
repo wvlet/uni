@@ -1,12 +1,12 @@
 # Reading and writing Parquet files
 
-`wvlet.uni.parquet` (in the `uni` artifact) reads and writes Apache Parquet in pure Scala
+`wvlet.uni.cloud.parquet` (in the `uni` artifact) reads and writes Apache Parquet in pure Scala
 on the JVM, Scala.js, and Scala Native. It needs no parquet-java or Hadoop.
 
 ## Rows into case classes
 
 ```scala
-import wvlet.uni.parquet.{Parquet, ParquetReadOptions}
+import wvlet.uni.cloud.parquet.{Parquet, ParquetReadOptions}
 import wvlet.uni.weaver.Weaver
 
 import java.time.Instant
@@ -55,7 +55,7 @@ def explore(path: String): Unit =
 ## Open a file, project columns, read vectors
 
 ```scala
-import wvlet.uni.parquet.ColumnVector.LongColumn
+import wvlet.uni.cloud.parquet.ColumnVector.LongColumn
 
 def sumIds(path: String): Long =
   val file = Parquet.open(path) // also Parquet.open(bytes: Array[Byte])
@@ -158,7 +158,7 @@ See [storage.md](storage.md) for credentials and other stores.
 ## Filter rows
 
 ```scala
-import wvlet.uni.parquet.ParquetFilter.col
+import wvlet.uni.cloud.parquet.ParquetFilter.col
 
 val since2026 = ParquetReadOptions.default
   .withFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("address.city") === "Tokyo")
@@ -186,8 +186,8 @@ prefix and reads them as one table. `key=value` folders (`dt=2026-11-20/country=
 columns after the files' own columns.
 
 ```scala
-import wvlet.uni.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
-import wvlet.uni.parquet.ParquetFilter.col
+import wvlet.uni.cloud.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
+import wvlet.uni.cloud.parquet.ParquetFilter.col
 import java.time.LocalDate
 
 case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
@@ -258,17 +258,18 @@ def typedDataset(root: String) = Parquet.dataset(
   snapshot atomically (`ObjectStore.putIfAbsent` on `metadata/vN.metadata.json`, retrying a lost
   race). Data goes under `data/` with the partition columns and field IDs kept; manifests carry
   column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.
-  `Parquet.renameIcebergTable(from, to)` moves a local table and writes its manifests and
+  Table operations are on `wvlet.uni.cloud.iceberg.Iceberg`:
+  `Iceberg.renameTable(from, to)` moves a local table and writes its manifests and
   position-delete files again with the moved paths (current snapshot only).
-  `Parquet.deleteIcebergRows(root, filter)` deletes the matching rows merge-on-read and returns
+  `Iceberg.deleteRows(root, filter)` deletes the matching rows merge-on-read and returns
   how many: deletion vectors (Puffin) in v3 tables, position-delete files in v2, data files kept.
-  `Parquet.updateIcebergRows(root, filter)(row => row.updated("k", v))` (or
-  `updateIcebergRows[A](root, filter)(a => a.copy(...))` for case classes) updates them
+  `Iceberg.updateRows(root, filter)(row => row.updated("k", v))` (or
+  `Iceberg.updateRows[A](root, filter)(a => a.copy(...))` for case classes) updates them
   merge-on-read in one `overwrite` snapshot (new data files for the new rows, deletes for the old;
   v3 rows keep their `_row_id`) and returns how many; a lost race keeps the written data files
   when the other commit left the touched files and the schema alone, and otherwise reads the rows
   and calls the function again, so keep the function free of side effects.
-  `Parquet.compactIcebergTable(root)` (or with `IcebergCompactionOptions.default
+  `Iceberg.compactTable(root)` (or with `IcebergCompactionOptions.default
   .withTargetFileSize(bytes).withFilter(f).noFileMerging()`) rewrites files with deletes applied,
   merges small files per partition, and removes delete files no file needs, in one `replace`
   snapshot; v3 row IDs are kept. It returns an `IcebergCompaction` with the counts.
@@ -282,7 +283,7 @@ reads back, locally or under an `s3://`, `gs://`, `az://` prefix, like DuckDB's 
 'dir' (FORMAT parquet, PARTITION_BY (...))`.
 
 ```scala
-import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode, WrittenFile}
+import wvlet.uni.cloud.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode, WrittenFile}
 
 def writeVisits(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
   root,
@@ -332,7 +333,7 @@ def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
   sorted). Row groups record `sorting_columns`.
 
 ```scala
-import wvlet.uni.parquet.ParquetSortKey
+import wvlet.uni.cloud.parquet.ParquetSortKey
 
 def writeSorted(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
   root,
@@ -367,7 +368,7 @@ Recursive types and `Option[Option[A]]` are rejected.
 
 ```scala
 import wvlet.uni.control.Control
-import wvlet.uni.parquet.{ParquetSchema, ParquetWriteOptions}
+import wvlet.uni.cloud.parquet.{ParquetSchema, ParquetWriteOptions}
 
 def writeAll(path: String, events: Seq[Event]): Unit = Parquet.write(path, events)
 
@@ -395,7 +396,7 @@ val derived: ParquetSchema = ParquetSchema.of[Event]
 ## Write records with an explicit schema
 
 ```scala
-import wvlet.uni.parquet.ParquetType
+import wvlet.uni.cloud.parquet.ParquetType
 
 val schema = ParquetSchema
   .builder("event")
@@ -452,12 +453,12 @@ def copyColumns(from: String, to: String): Unit =
 
 ## Deliver results as Arrow IPC
 
-`wvlet.uni.arrow.Arrow` writes the same `ColumnBatch`es as Apache Arrow IPC, so Python (pyarrow,
+`wvlet.uni.cloud.arrow.Arrow` writes the same `ColumnBatch`es as Apache Arrow IPC, so Python (pyarrow,
 pandas, polars), Arrow JS, and ADBC clients load columns without decoding rows. Pure Scala on every
 platform, no dependencies; writing only (no Arrow reader yet).
 
 ```scala
-import wvlet.uni.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
+import wvlet.uni.cloud.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
 import wvlet.uni.http.Response
 
 // An HTTP response with the whole result in memory

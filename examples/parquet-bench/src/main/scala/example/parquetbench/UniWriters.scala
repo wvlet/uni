@@ -1,13 +1,13 @@
 package example.parquetbench
 
 import wvlet.uni.io.FileSystem
-import wvlet.uni.parquet.ColumnBatch
-import wvlet.uni.parquet.ColumnVector
-import wvlet.uni.parquet.ColumnVector.*
-import wvlet.uni.parquet.Parquet
-import wvlet.uni.parquet.ParquetSchema
-import wvlet.uni.parquet.ParquetWriteOptions
-import wvlet.uni.parquet.format.CompressionCodec
+import wvlet.uni.cloud.parquet.ColumnBatch
+import wvlet.uni.cloud.parquet.ColumnVector
+import wvlet.uni.cloud.parquet.ColumnVector.*
+import wvlet.uni.cloud.parquet.Parquet
+import wvlet.uni.cloud.parquet.ParquetSchema
+import wvlet.uni.cloud.parquet.ParquetWriteOptions
+import wvlet.uni.cloud.parquet.format.CompressionCodec
 
 /** The rows of the benchmark files, read once and kept in memory for the write cases */
 object BenchData:

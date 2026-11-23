@@ -1,8 +1,8 @@
 package example.parquetbench
 
-import wvlet.uni.parquet.ColumnVector
-import wvlet.uni.parquet.ColumnVector.*
-import wvlet.uni.parquet.Parquet
+import wvlet.uni.cloud.parquet.ColumnVector
+import wvlet.uni.cloud.parquet.ColumnVector.*
+import wvlet.uni.cloud.parquet.Parquet
 
 /**
   * Uni readers. Each returns (rows, checksum); the checksum keeps the JIT from skipping

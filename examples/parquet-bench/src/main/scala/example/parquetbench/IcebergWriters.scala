@@ -2,9 +2,9 @@ package example.parquetbench
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
-import wvlet.uni.parquet.Parquet
-import wvlet.uni.parquet.ParquetDatasetWriteOptions
-import wvlet.uni.parquet.ParquetTableFormat
+import wvlet.uni.cloud.parquet.Parquet
+import wvlet.uni.cloud.parquet.ParquetDatasetWriteOptions
+import wvlet.uni.cloud.parquet.ParquetTableFormat
 
 /**
   * Uni's Iceberg writer: each case creates a new table (snapshot 1) from the in-memory lineitem

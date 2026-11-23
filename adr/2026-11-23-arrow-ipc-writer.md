@@ -23,3 +23,7 @@ Servers built on Uni need to send query results to Python (pyarrow, pandas, pola
 - Values the Parquet writer accepts but Arrow rejects are not all caught. For example, an unscaled decimal over its precision only fails pyarrow's full validation.
 - A Scala 3 issue shaped the encoder: an inline method that referenced a case class from another package failed at run time with `NoClassDefFoundError` for the package. Buffers are recorded through a plain method (`BatchEncoder.endBuffer`).
 - Follow-ups: the Arrow reader (and `DictionaryBatch` with it), Flight SQL, and the C Data Interface.
+
+## Addendum: `wvlet.uni.cloud.arrow`
+
+The writer is now in `wvlet.uni.cloud.arrow`, next to `cloud.parquet` (`2026-11-21-package-layout.md`). The Parquet internals it reuses (`BatchShredder`, `Assembly`, and `LogicalValues`) are `private[cloud]` instead of `private[uni]`. Its fixed-width reads come from `wvlet.uni.io.codec.Bytes`.
