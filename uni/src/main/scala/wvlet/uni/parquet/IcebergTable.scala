@@ -255,7 +255,9 @@ private[parquet] object IcebergTable:
       )
     m.get("encryption-keys") match
       case Some(JSONArray(keys)) if keys.nonEmpty =>
-        throw ParquetException(s"${source} is an encrypted Iceberg table, which Uni doesn't read")
+        throw ParquetException(
+          s"${source} is an encrypted Iceberg table, which Uni doesn't read; use an engine built on iceberg-java, which has the key management it needs"
+        )
       case _ =>
     val location = string(m, "location").getOrElse(
       throw ParquetException(s"${source} has no table location")
