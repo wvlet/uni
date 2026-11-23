@@ -6,6 +6,12 @@ import wvlet.uni.cloud.parquet.ParquetException
 private[parquet] sealed abstract class ValueBuffer:
   def size: Int
 
+  /** The number of values the buffer holds without growing */
+  def capacity: Int
+
+  /** Grows the buffer, if needed, to hold `n` values in all without growing again */
+  def reserve(n: Int): Unit
+
   /** Bytes the values take, for deciding where a batch ends */
   def byteSize: Long
 
@@ -48,6 +54,12 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
 
+  def capacity: Int = values.length
+
+  def reserve(n: Int): Unit =
+    if n > values.length then
+      values = java.util.Arrays.copyOf(values, n)
+
   def byteSize: Long = size.toLong * 1
 
   def slice(from: Int, until: Int): BooleanBuffer =
@@ -85,6 +97,12 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def capacity: Int = values.length
+
+  def reserve(n: Int): Unit =
+    if n > values.length then
+      values = java.util.Arrays.copyOf(values, n)
 
   def byteSize: Long = size.toLong * 4
 
@@ -124,6 +142,12 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
 
+  def capacity: Int = values.length
+
+  def reserve(n: Int): Unit =
+    if n > values.length then
+      values = java.util.Arrays.copyOf(values, n)
+
   def byteSize: Long = size.toLong * 8
 
   def slice(from: Int, until: Int): LongBuffer =
@@ -162,6 +186,12 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
 
+  def capacity: Int = values.length
+
+  def reserve(n: Int): Unit =
+    if n > values.length then
+      values = java.util.Arrays.copyOf(values, n)
+
   def byteSize: Long = size.toLong * 4
 
   def slice(from: Int, until: Int): FloatBuffer =
@@ -199,6 +229,12 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def capacity: Int = values.length
+
+  def reserve(n: Int): Unit =
+    if n > values.length then
+      values = java.util.Arrays.copyOf(values, n)
 
   def byteSize: Long = size.toLong * 8
 
@@ -263,6 +299,17 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
   def ensureValues(extra: Int): Unit =
     if size + extra + 1 > offsets.length then
       offsets = java.util.Arrays.copyOf(offsets, ValueBuffer.grow(offsets.length, size + extra + 1))
+
+  def capacity: Int = offsets.length - 1
+
+  def reserve(n: Int): Unit =
+    if n + 1 > offsets.length then
+      offsets = java.util.Arrays.copyOf(offsets, n + 1)
+
+  /** Grows the data array, if needed, to hold `bytes` bytes in all without growing again */
+  def reserveData(bytes: Int): Unit =
+    if bytes > data.length then
+      data = java.util.Arrays.copyOf(data, bytes)
 
   def ensureData(extra: Int): Unit =
     val needed = dataSize + extra

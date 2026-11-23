@@ -48,6 +48,10 @@ private[parquet] final class ColumnChunkCursor(
   // Position in the chunk, and the level entries read from its pages so far (held page included)
   private var pos        = 0L
   private var levelsRead = 0L
+  // Bytes of dictionary pages, which hold no level entries
+  private var dictionaryBytes = 0L
+  // Dictionary indices of the page being decoded, kept across pages
+  private var indices: Array[Int] = null
 
   private var dictionary: Option[ValueBuffer] = None
 
@@ -70,6 +74,8 @@ private[parquet] final class ColumnChunkCursor(
   private var rowStarts      = 0
   private var values         = ValueDecoder.newBuffer(field.physicalType, initialLevels(1024))
   private var held: HeldPage = null
+  // Whether the batch being filled takes every row left in the chunk
+  private var toChunkEnd = false
 
   /** A data page whose levels are decoded and whose values are not yet */
   private final class HeldPage(
@@ -145,9 +151,12 @@ private[parquet] final class ColumnChunkCursor(
 
   /**
     * Decodes pages until `target` complete rows are ready, or fewer when the values pass the soft
-    * limit or the chunk ends. Returns the number of complete rows ready, at most `target`.
+    * limit or the chunk ends. Returns the number of complete rows ready, at most `target`. With
+    * `toEnd`, `target` is every row left in the chunk, so the buffers are sized for the whole rest
+    * of it instead of growing page by page.
     */
-  def fill(target: Int): Int =
+  def fill(target: Int, toEnd: Boolean = false): Int =
+    toChunkEnd = toEnd
     var result = -1
     while result < 0 do
       if held == null then
@@ -196,12 +205,18 @@ private[parquet] final class ColumnChunkCursor(
         c
     val out =
       if base == 0 && v == values.size then
-        // Everything committed goes out: hand over the arrays, and start new ones for the rest
+        // Everything committed goes out: hand over the arrays, and start new ones for the rest,
+        // sized like this batch so the next one does not grow from scratch
         val tail = levelEnd - e
+        val left = total - levelsRead + tail
         val data = ColumnData(field, values, defLevels, repLevels, e)
-        values = ValueDecoder.newBuffer(field.physicalType, initialLevels(1024))
-        defLevels = moveLevels(defLevels, e, tail)
-        repLevels = moveLevels(repLevels, e, tail)
+        values = ValueDecoder.newBuffer(
+          field.physicalType,
+          math.min(math.max(v, 1024).toLong, left).toInt
+        )
+        val levels = math.max(tail.toLong, math.min(math.max(e, 1024).toLong, left)).toInt
+        defLevels = moveLevels(defLevels, e, tail, levels)
+        repLevels = moveLevels(repLevels, e, tail, levels)
         committed -= e
         levelEnd = tail
         valueBase = 0
@@ -249,11 +264,11 @@ private[parquet] final class ColumnChunkCursor(
     else
       java.util.Arrays.copyOfRange(levels, from, until)
 
-  private def moveLevels(levels: Array[Int], from: Int, n: Int): Array[Int] =
+  private def moveLevels(levels: Array[Int], from: Int, n: Int, capacity: Int): Array[Int] =
     if levels == null then
       null
     else
-      val a = new Array[Int](math.max(n, initialLevels(1024)))
+      val a = new Array[Int](math.max(n, capacity))
       System.arraycopy(levels, from, a, 0, n)
       a
 
@@ -261,26 +276,116 @@ private[parquet] final class ColumnChunkCursor(
     if levels != null then
       System.arraycopy(levels, from, levels, 0, n)
 
+  /** Level entries the chunk still has after the read pages and `pending` more */
+  private def entriesLeft(pending: Int): Long = math.max(0L, total - levelsRead - pending)
+
+  /**
+    * Of the [[entriesLeft]], those the rest of the chunk is projected to hold from the entries per
+    * byte of the data pages read so far. Projecting from the pages read keeps a corrupt value count
+    * alone from forcing a huge allocation.
+    */
+  private def entriesAhead(pending: Int): Long =
+    val left      = entriesLeft(pending)
+    val dataBytes = pos - dictionaryBytes
+    if left == 0 || dataBytes <= 0 then
+      0L
+    else
+      val projected = ((levelsRead + pending).toDouble / dataBytes * (input.length - pos)).toLong +
+        1
+      // A batch stops near the soft limit, so sizing past it only wastes memory
+      math.min(math.min(left, projected), softLimit / 4)
+
+  /**
+    * The size to grow an array of `current` entries to, to hold `needed`. When the batch takes the
+    * rest of the chunk, it leaves room for the `ahead` projected entries and never grows past what
+    * the chunk can still add (`left`), so the last page fills it exactly and the array can become
+    * the vector without a copy. Otherwise it doubles.
+    */
+  private def grownSize(current: Int, needed: Long, ahead: Long, left: Long): Int =
+    val doubled = ValueBuffer.grow(current, needed.toInt)
+    if !toChunkEnd then
+      doubled
+    else
+      math
+        .min(
+          math.max(needed + ahead, math.min(doubled.toLong, needed + left)),
+          ValueBuffer.MaxArrayLength.toLong
+        )
+        .toInt
+
   private def ensureLevels(n: Int): Unit =
     val needed = levelEnd.toLong + n
     if needed > ValueBuffer.MaxArrayLength then
       throw ParquetException.unsupported(
         s"a batch with more than ${ValueBuffer.MaxArrayLength} values in column ${field.pathString}"
       )
-    if defLevels != null && defLevels.length < needed then
-      defLevels = java
-        .util
-        .Arrays
-        .copyOf(defLevels, ValueBuffer.grow(defLevels.length, needed.toInt))
-    if repLevels != null && repLevels.length < needed then
-      repLevels = java
-        .util
-        .Arrays
-        .copyOf(repLevels, ValueBuffer.grow(repLevels.length, needed.toInt))
+    if (defLevels != null && defLevels.length < needed) ||
+      (repLevels != null && repLevels.length < needed)
+    then
+      val ahead = entriesAhead(n)
+      val left  = entriesLeft(n)
+      if defLevels != null && defLevels.length < needed then
+        defLevels = java
+          .util
+          .Arrays
+          .copyOf(defLevels, grownSize(defLevels.length, needed, ahead, left))
+      if repLevels != null && repLevels.length < needed then
+        repLevels = java
+          .util
+          .Arrays
+          .copyOf(repLevels, grownSize(repLevels.length, needed, ahead, left))
+
+  /**
+    * When the batch takes the rest of the chunk, sizes the value buffer for it before the held
+    * page's values go in, as [[grownSize]] does for levels. A flat nullable column of fixed-size
+    * values gets a slot for every level entry, so Assembly can spread the values out to their rows
+    * in place.
+    */
+  private def reserveValues(h: HeldPage): Unit =
+    val needed   = values.size.toLong + h.nonNull
+    val slotted  = maxRep == 0 && maxDef > 0 && !values.isInstanceOf[BinaryBuffer]
+    val capacity =
+      if slotted then
+        math.max(needed, valueBase.toLong + levelEnd - base)
+      else
+        needed
+    if toChunkEnd && capacity > values.capacity && capacity <= ValueBuffer.MaxArrayLength then
+      // Non-null values per level entry so far, over the entries not handed out yet
+      val nonNull = values.size - valueBase + h.nonNull
+      val ahead   = entriesAhead(0)
+      val more    =
+        if ahead == 0 then
+          0L
+        else if slotted then
+          ahead
+        else
+          (ahead.toDouble * nonNull / (levelEnd - base)).toLong + 1
+      values.reserve(grownSize(values.capacity, capacity, more, entriesLeft(0)))
+      values match
+        case b: BinaryBuffer if more > 0 && b.size > valueBase =>
+          val perValue = (b.dataSize - b.offsets(valueBase)).toDouble / (b.size - valueBase)
+          val bytes    = b.dataSize + perValue * (h.nonNull + more)
+          b.reserveData(math.min(bytes, ValueBuffer.MaxArrayLength.toDouble).toInt)
+        case _ =>
 
   /** Decodes the held page's values */
   private def commit(): Unit =
     val h = held
+    reserveValues(h)
+    if (h.encoding == Encoding.RLE_DICTIONARY || h.encoding == Encoding.PLAIN_DICTIONARY) &&
+      (indices == null || indices.length < h.nonNull)
+    then
+      indices =
+        new Array[Int](
+          ValueBuffer.grow(
+            if indices == null then
+              0
+            else
+              indices.length
+            ,
+            h.nonNull
+          )
+        )
     ValueDecoder.decode(
       h.encoding,
       field.physicalType,
@@ -290,7 +395,8 @@ private[parquet] final class ColumnChunkCursor(
       h.end,
       h.nonNull,
       values,
-      dictionary
+      dictionary,
+      indices
     )
     if maxRep > 0 then
       var i = committed
@@ -300,6 +406,8 @@ private[parquet] final class ColumnChunkCursor(
         i += 1
     committed = levelEnd
     held = null
+
+  end commit
 
   /** Reads a page header, reading more bytes when the header is longer than the first guess */
   private def readHeader(): PageHeader =
@@ -322,8 +430,9 @@ private[parquet] final class ColumnChunkCursor(
   private def loadNextPage(): Unit =
     compact()
     while held == null && !exhausted do
-      val header = readHeader()
-      val size   = header.compressedSize
+      val headerStart = pos
+      val header      = readHeader()
+      val size        = header.compressedSize
       if size < 0 then
         throw ParquetException.corrupt(s"negative page size ${size}")
       if size > input.length - pos then
@@ -352,6 +461,7 @@ private[parquet] final class ColumnChunkCursor(
             dict
           )
           dictionary = Some(dict)
+          dictionaryBytes += pos - headerStart
         case PageType.DATA_PAGE =>
           val h = header
             .dataPage
