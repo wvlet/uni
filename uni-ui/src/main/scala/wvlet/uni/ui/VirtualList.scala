@@ -142,7 +142,7 @@ class VirtualList[A, K] private (
     * reads the data rather than the rendered row.
     *
     * {{{
-    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of ${u.name}?"))
+    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of \${u.name}?"))
     * }}}
     */
   def withAgentConfirm(f: A => Option[String]): VirtualList[A, K] = copy(agentConfirm = Some(f))

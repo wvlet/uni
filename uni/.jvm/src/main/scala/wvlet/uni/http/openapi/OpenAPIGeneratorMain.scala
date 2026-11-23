@@ -25,7 +25,8 @@ import java.nio.file.{Files, Path}
   * Arguments: `--router <spec>` (repeatable), `--out <file>`, and optionally `--title`,
   * `--version`, `--schema-package-prefix`, `--error-responses 400,500,503` (empty for none), and
   * `--format yaml|json` (default: yaml). A router spec names a Scala object member that returns a
-  * [[Router]], e.g. `com.example.Api.router`, or an object that is itself a `Router`.
+  * [[wvlet.uni.http.router.Router]], e.g. `com.example.Api.router`, or an object that is itself a
+  * `Router`.
   */
 object OpenAPIGeneratorMain:
 

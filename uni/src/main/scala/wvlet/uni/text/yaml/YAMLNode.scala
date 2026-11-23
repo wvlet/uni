@@ -32,7 +32,7 @@ case class YAMLDocument(root: YAMLNode, source: YAMLSource = YAMLSource.none):
   def toYaml: String = YAMLWriter.write(this)
 
   /**
-    * Resolve the document into a [[JSONValue]], as [[YAML.parse]] does
+    * Resolve the document into a [[wvlet.uni.json.JSON.JSONValue]], as [[YAML.parse]] does
     */
   def toJSON: JSONValue = YAMLResolver.resolve(this)
 

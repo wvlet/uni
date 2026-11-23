@@ -29,12 +29,12 @@ class NativeOptionsTest extends UniTest:
   }
 
   test("the default worker count follows the cores, from 4 to 16, and stays 16 on Windows") {
-    NativeServer.defaultWorkerThreads(1, windows = false) shouldBe 4
-    NativeServer.defaultWorkerThreads(2, windows = false) shouldBe 4
-    NativeServer.defaultWorkerThreads(6, windows = false) shouldBe 6
-    NativeServer.defaultWorkerThreads(18, windows = false) shouldBe 16
-    NativeServer.defaultWorkerThreads(2, windows = true) shouldBe 16
-    NativeServerConfig().workerThreads shouldBe NativeServer.DefaultWorkerThreads
+    NativeServerConfig.defaultWorkerThreads(1, windows = false) shouldBe 4
+    NativeServerConfig.defaultWorkerThreads(2, windows = false) shouldBe 4
+    NativeServerConfig.defaultWorkerThreads(6, windows = false) shouldBe 6
+    NativeServerConfig.defaultWorkerThreads(18, windows = false) shouldBe 16
+    NativeServerConfig.defaultWorkerThreads(2, windows = true) shouldBe 16
+    NativeServerConfig().workerThreads shouldBe NativeServerConfig.DefaultWorkerThreads
   }
 
   test("Native options check their values when set") {

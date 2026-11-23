@@ -52,24 +52,6 @@ object NativeServer:
   def withRxHandler(f: Request => Rx[Response]): NativeServerConfig = NativeServerConfig()
     .withRxHandler(f)
 
-  /**
-    * The default `workerThreads`: about one worker per core, at least 4 and at most 16. More
-    * workers than cores queue on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on a
-    * 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection holds
-    * a worker there while it is open.
-    */
-  private[http] def defaultWorkerThreads(cores: Int, windows: Boolean): Int =
-    if windows then
-      16
-    else
-      math.min(16, math.max(4, cores))
-
-  // availableProcessors follows the process's CPU affinity on Linux (taskset, cpusets)
-  private[http] lazy val DefaultWorkerThreads: Int = defaultWorkerThreads(
-    Runtime.getRuntime.availableProcessors(),
-    scala.scalanative.meta.LinktimeInfo.isWindows
-  )
-
 end NativeServer
 
 /**
@@ -103,8 +85,8 @@ case class NativeServerConfig(
     // Maximum decoded size of a compressed request body; uncompressed requests are not counted
     maxDecompressedRequestSize: Int = 64 * 1024 * 1024,
     // Size of the worker thread pool, which bounds concurrent requests (idle connections hold none).
-    // Default: one per core, from 4 to 16 (16 on Windows); see NativeServer.defaultWorkerThreads
-    workerThreads: Int = NativeServer.DefaultWorkerThreads,
+    // Default: one per core, from 4 to 16 (16 on Windows); see NativeServerConfig.defaultWorkerThreads
+    workerThreads: Int = NativeServerConfig.DefaultWorkerThreads,
     // Max time to wait for a handler's Rx to produce a response before returning 503
     handlerTimeoutMillis: Long = 30000,
     // Max time a kept-alive connection may sit idle (awaiting the next request) before it is closed
@@ -284,5 +266,26 @@ case class NativeServerConfig(
     val server = NativeHttpServer(this)
     server.start()
     server
+
+end NativeServerConfig
+
+object NativeServerConfig:
+  /**
+    * The default `workerThreads`: about one worker per core, at least 4 and at most 16. More
+    * workers than cores queue on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on a
+    * 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection holds
+    * a worker there while it is open.
+    */
+  private[http] def defaultWorkerThreads(cores: Int, windows: Boolean): Int =
+    if windows then
+      16
+    else
+      math.min(16, math.max(4, cores))
+
+  // availableProcessors follows the process's CPU affinity on Linux (taskset, cpusets)
+  private[http] lazy val DefaultWorkerThreads: Int = defaultWorkerThreads(
+    Runtime.getRuntime.availableProcessors(),
+    scala.scalanative.meta.LinktimeInfo.isWindows
+  )
 
 end NativeServerConfig

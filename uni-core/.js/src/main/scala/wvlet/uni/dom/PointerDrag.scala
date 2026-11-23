@@ -236,7 +236,7 @@ enum ResizeDirection:
   *   val width  = Rx.variable(272)
   *   val resize = PaneResize(width, SizeRange(min = 208, default = 272, max = 480), ResizeDirection.Right)
   *   aside(
-  *     styleAttr -> width.map(w => s"width: ${w}px"),
+  *     styleAttr -> width.map(w => s"width: \${w}px"),
   *     div(cls -> "absolute right-0 inset-y-0 w-2 cursor-col-resize touch-none",
   *       ariaLabel -> "Resize sidebar", resize.bind),
   *     content

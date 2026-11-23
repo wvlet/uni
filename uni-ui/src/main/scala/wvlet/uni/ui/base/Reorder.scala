@@ -425,7 +425,7 @@ object Reorder:
     *   ul(tasks.each(_.id)(t => li(tabindex -> "0", reorder.item(t.id), t.title)))
     * }}}
     *
-    * [[onChange]] then sees the new `Seq[A]` as its value.
+    * [[Reorder.onChange]] then sees the new `Seq[A]` as its value.
     */
   def by[A, K](
       items: RxVar[Seq[A]],

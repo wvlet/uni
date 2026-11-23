@@ -9,6 +9,8 @@
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
+// Versions are YYYY.(milestone).patch, as in the uni root build
+ThisBuild / versionScheme := Some("pvp")
 
 // The guides that each plugin's link-only javadoc page (minimizePluginJavadoc) points to
 ThisBuild / javadocSiteUrl := "https://wvlet.org/uni/"

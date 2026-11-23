@@ -46,7 +46,8 @@ object Parquet:
 
   /**
     * Opens an S3 object such as `s3://bucket/data.parquet` (JVM, Scala Native, and Node.js). Pass
-    * [[S3Config.r2]], [[S3Config.gcs]], or [[S3Config.minio]] for S3-compatible stores.
+    * [[wvlet.uni.storage.S3Config.r2]], [[wvlet.uni.storage.S3Config.gcs]], or
+    * [[wvlet.uni.storage.S3Config.minio]] for S3-compatible stores.
     */
   def openS3(uri: String, config: S3Config = S3Config.default): ParquetFile = ParquetFile.open(
     ByteSource.ofS3(uri, config)

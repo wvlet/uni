@@ -319,7 +319,7 @@ class UiHistory private (limit: Int):
     * Opens a stage that the agent's following changes join, until it is accepted or reverted. Only
     * one stage is open at a time.
     *
-    * @throws IllegalStateException
+    * @throws java.lang.IllegalStateException
     *   when another stage is still open, or after [[close]]
     */
   def stage(label: String): UiStage =

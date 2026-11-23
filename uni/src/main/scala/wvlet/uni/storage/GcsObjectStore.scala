@@ -28,8 +28,8 @@ import wvlet.uni.util.URLEncoder
 
 /**
   * An [[ObjectStore]] for Google Cloud Storage through its JSON API, authorized with OAuth 2.0
-  * access tokens from a [[GoogleCredentialsProvider]] (Application Default Credentials by default).
-  * Large streams use resumable uploads; `presign` makes V4 signed URLs.
+  * access tokens from a [[wvlet.uni.cloud.GoogleCredentialsProvider]] (Application Default
+  * Credentials by default). Large streams use resumable uploads; `presign` makes V4 signed URLs.
   *
   * Redirects are never followed, so a bearer token is never sent to another host.
   */

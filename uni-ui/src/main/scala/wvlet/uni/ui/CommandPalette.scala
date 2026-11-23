@@ -28,7 +28,7 @@ import scala.scalajs.js
   *
   * {{{
   *   Command("toggle-dock", "Toggle dock").withGroup("View").withShortcut("⌘⇧B").onRun(() => layout.toggleDock())
-  *   Command(s"chat-${c.id}", c.title).withGroup("Conversations").withHint(ago(c.updatedAt)).onRun(() => store.select(c.id))
+  *   Command(s"chat-\${c.id}", c.title).withGroup("Conversations").withHint(ago(c.updatedAt)).onRun(() => store.select(c.id))
   * }}}
   *
   * @param id
@@ -74,9 +74,10 @@ end Command
 
 /**
   * A search box over a list of commands, in a modal dialog near the top of the window: the ⌘K
-  * palette of desktop apps. Typing filters the list by fuzzy match (see [[Fuzzy]]) and highlights
-  * the matched letters; Up and Down move, Enter or a click runs the command, Escape or a click
-  * outside closes the palette, and focus returns to where it was.
+  * palette of desktop apps. Typing filters the list by fuzzy match (see
+  * [[wvlet.uni.ui.base.Fuzzy]]) and highlights the matched letters; Up and Down move, Enter or a
+  * click runs the command, Escape or a click outside closes the palette, and focus returns to where
+  * it was.
   *
   * {{{
   *   val paletteOpen = Rx.variable(false)

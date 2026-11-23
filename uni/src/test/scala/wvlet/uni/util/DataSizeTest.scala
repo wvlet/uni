@@ -108,7 +108,8 @@ class DataSizeTest extends UniTest:
       val parsed = DataSize(s.toString)
       parsed.unit shouldBe s.unit
       // toString keeps two decimals of the succinct unit
-      withinDisplayPrecision(parsed.valueOf(BYTE), bytes.toDouble, s.unit.factor) shouldBe true
+      withinDisplayPrecision(parsed.valueOf(BYTE), bytes.toDouble, s.unit.factor.toDouble) shouldBe
+        true
     }
   }
 

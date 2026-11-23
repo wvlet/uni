@@ -130,7 +130,7 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
               // call starts only once someone listens and no chunk is lost
               if chunk.isEmpty && !started then
                 started = true
-                val callback: js.Function1[js.Dynamic, Unit] = onMessage
+                val callback: js.Function1[js.Dynamic, Unit] = (msg: js.Dynamic) => onMessage(msg)
                 cancelCall = bridge.applyDynamic("stream")(payload, callback)
             }
             .onCancel {

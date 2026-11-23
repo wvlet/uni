@@ -68,8 +68,8 @@ case class HttpClientConfig(
   /**
     * Trace each call as a client span and send a W3C `traceparent` header to every host this client
     * calls. Retries and redirects are attempts of one span. The current span
-    * ([[Telemetry.currentSpan]]) is the parent, so calls made inside a traced server request join
-    * its trace.
+    * ([[wvlet.uni.telemetry.Telemetry.currentSpan]]) is the parent, so calls made inside a traced
+    * server request join its trace.
     */
   def withTelemetry(telemetry: Telemetry): HttpClientConfig = copy(telemetry = telemetry)
   def noTelemetry: HttpClientConfig                         = copy(telemetry = Telemetry.noop)
