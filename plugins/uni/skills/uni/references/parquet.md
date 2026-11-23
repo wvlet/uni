@@ -450,6 +450,59 @@ def copyColumns(from: String, to: String): Unit =
 - Projection only: `ParquetSchema.select(names*)` and `ColumnBatch.select(names*)`. To filter
   rows, build new arrays.
 
+## Deliver results as Arrow IPC
+
+`wvlet.uni.arrow.Arrow` writes the same `ColumnBatch`es as Apache Arrow IPC, so Python (pyarrow,
+pandas, polars), Arrow JS, and ADBC clients load columns without decoding rows. Pure Scala on every
+platform, no dependencies; writing only (no Arrow reader yet).
+
+```scala
+import wvlet.uni.arrow.{Arrow, ArrowCompression, ArrowWriteOptions}
+import wvlet.uni.http.Response
+
+// An HTTP response with the whole result in memory
+def arrowResponse(path: String): Response =
+  val in = Parquet.open(path)
+  try
+    val bytes = Arrow.toStreamBytes(in.schema, in.readBatches())
+    Response.ok.withBytesContent(bytes).setHeader("Content-Type", Arrow.StreamMediaType)
+  finally in.close()
+
+// Batch by batch to any OutputStream, compressed
+def streamArrow(path: String, out: java.io.OutputStream): Unit =
+  val in = Parquet.open(path)
+  try
+    val w = Arrow.newStreamWriter(
+      out,
+      in.schema,
+      ArrowWriteOptions.default.withCompression(ArrowCompression.ZSTD)
+    )
+    try
+      in.readBatches().foreach(w.write)
+      w.close() // the end-of-stream marker, then closes `out`
+    catch
+      case e: Throwable =>
+        w.abort() // no end marker: the client must not see a complete-looking stream
+        throw e
+  finally in.close()
+```
+
+- `Arrow.newStreamWriter` / `toStreamBytes` write the stream format (`Arrow.StreamMediaType`,
+  read with `pyarrow.ipc.open_stream`, `polars.read_ipc_stream`, Arrow JS `tableFromIPC`);
+  `newFileWriter` / `toFileBytes` write `.arrow` files with a footer (`pyarrow.ipc.open_file`).
+- One `ColumnBatch` becomes one record batch. `ArrowSchema.fromParquet(schema)` shows the
+  mapping: TIMESTAMP to `timestamp(unit, "UTC")` when UTC-adjusted (no zone otherwise), DATE to
+  `date32`, DECIMAL to `decimal128` (`decimal256` above precision 38), UUID to `arrow.uuid`,
+  STRING/ENUM/JSON to `utf8`, LIST/MAP/groups to `list`/`map`/`struct`, INT96 to
+  `timestamp(ns, "UTC")`. Strings are plain `utf8`, never dictionary-encoded.
+- A VARIANT column throws `ArrowException` when the writer is created, before any bytes. A batch
+  that does not fit the schema (or a value over its Arrow type) throws before any of its bytes are
+  written; then call `abort()` and fail the response, since stream readers accept a stream that
+  ends between batches.
+- `ArrowWriteOptions`: `withCompression(ArrowCompression.ZSTD or LZ4_FRAME)` (NONE by default;
+  `withCompression(ArrowCompression.ZSTD, 9)` for a level), `withBinaryAsString(true)` for
+  unannotated strings, `withMetadata(map)` for schema metadata.
+
 ## Writer options
 
 `ParquetWriteOptions.default` writes SNAPPY, data page v1, dictionary encoding (falls back to

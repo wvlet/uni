@@ -178,7 +178,8 @@ const moduleGroups = [
       { text: 'YAML', link: '/text/yaml' },
       { text: 'Markdown', link: '/text/markdown' },
       { text: 'Cron', link: '/text/cron' },
-      { text: 'Parquet', link: '/text/parquet' }
+      { text: 'Parquet', link: '/text/parquet' },
+      { text: 'Arrow IPC', link: '/text/arrow' }
     ]
   },
   {

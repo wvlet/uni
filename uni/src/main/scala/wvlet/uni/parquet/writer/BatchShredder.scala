@@ -18,13 +18,19 @@ import wvlet.uni.parquet.format.*
   * no values behind. Positions under a null parent (or outside every list) are not checked, since
   * they are never written.
   */
-private[parquet] final class BatchShredder(schema: ParquetSchema, parallelism: Int = 1):
+private[uni] final class BatchShredder(
+    schema: ParquetSchema,
+    parallelism: Int = 1,
+    // The Arrow writer only checks batches, and converts INT96 values to timestamps
+    allowInt96: Boolean = false
+):
   import BatchShredder.*
 
-  schema
-    .columns
-    .find(_.physicalType == PhysicalType.INT96)
-    .foreach(c => throw ParquetException.unsupported(s"writing INT96 column ${c.pathString}"))
+  if !allowInt96 then
+    schema
+      .columns
+      .find(_.physicalType == PhysicalType.INT96)
+      .foreach(c => throw ParquetException.unsupported(s"writing INT96 column ${c.pathString}"))
 
   private val fields: Array[Node] = schema.fields.map(build).toArray
 
@@ -470,7 +476,7 @@ private[parquet] final class BatchShredder(schema: ParquetSchema, parallelism: I
 
 end BatchShredder
 
-private[parquet] object BatchShredder:
+private[uni] object BatchShredder:
   /** The rows a slice needs before its fields are written in parallel */
   private val ParallelRows = 1024
 
