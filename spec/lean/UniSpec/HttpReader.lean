@@ -383,10 +383,17 @@ inductive HeadResult where
   | ok (head : Head)
   | fail (outcome : Outcome)
 
-/-- Read the request line and headers. CR and LF before the request line are skipped (RFC 9112
-§2.2). -/
+/-- Whether a CR in `s` is followed by a byte other than LF. -/
+def bareCR : Bytes → Bool
+  | [] => false
+  | c :: t => (c == '\r' && t.head?.any (· != '\n')) || bareCR t
+
+/-- Read the request line and headers. Empty lines (CRLF, or a bare LF) before the request line
+are skipped (RFC 9112 §2.2); a CR there without its LF is no empty line, so it gets 400. The CR and
+LF before the request line and the byte after them show whether one is. -/
 def readHead (lim : Limits) (s0 : Bytes) : HeadResult :=
   let s := s0.dropWhile isNewline
+  if bareCR (s0.takeWhile isNewline ++ s.take 1) then .fail (.bad 400 "Invalid line ending") else
   match scanLine false lim.maxLine s with
   | .incomplete => .fail (if s.all isHttpWhitespace then .closed else .incomplete "Incomplete request")
   | .bad => .fail (.bad 400 "Invalid line ending")
@@ -692,11 +699,29 @@ theorem chunked_with_length_closes {http10 : Bool} {headers : List (Bytes × Byt
     cases h : values headers "content-length" <;> simp_all
   simp [keepAlive, this]
 
+/-- A bare CR stays bare when more bytes follow. -/
+theorem bareCR_append : ∀ {l : Bytes} (m : Bytes), bareCR l = true → bareCR (l ++ m) = true
+  | [], _, h => by simp [bareCR] at h
+  | c :: t, m, h => by
+    rw [List.cons_append]
+    unfold bareCR at h ⊢
+    simp only [Bool.or_eq_true, Bool.and_eq_true] at h ⊢
+    rcases h with ⟨h1, h2⟩ | h
+    · left
+      refine ⟨h1, ?_⟩
+      cases t with
+      | nil => simp at h2
+      | cons d t' => simpa using h2
+    · right
+      exact bareCR_append m h
+
 /-- The head is a prefix of the input, and takes at least one byte. -/
 theorem readHead_split {lim : Limits} {s : Bytes} {hd : Head} (h : readHead lim s = .ok hd) :
     ∃ pre, s = pre ++ hd.after ∧ 0 < pre.length := by
   unfold readHead at h
   simp only at h
+  split at h
+  · simp at h
   cases hl : scanLine false lim.maxLine (s.dropWhile isNewline) with
   | ok line afterLine =>
     rw [hl] at h

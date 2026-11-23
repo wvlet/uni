@@ -15,6 +15,7 @@ package wvlet.uni.http.netty
 
 import io.netty.buffer.ByteBuf
 import io.netty.channel.{ChannelFutureListener, ChannelHandlerContext, ChannelPromise}
+import io.netty.handler.codec.DecoderResult
 import io.netty.handler.codec.http.{
   HttpDecoderConfig,
   HttpHeaderNames,
@@ -31,13 +32,14 @@ import io.netty.util.ReferenceCountUtil
 /**
   * Netty's `HttpServerCodec`, split into its decoder and encoder, with a strict request line.
   *
-  * Netty 4.2 splits the request line on any run of SP, HTAB, VT, FF, or bare CR, and skips
-  * whitespace before the method; `HttpDecoderConfig` has no option to turn that off. A proxy that
-  * reads `GET\r /a HTTP/1.1` differently would see different requests (request smuggling). The
-  * decoder here allows exactly one SP between the words, as RFC 9112 Section 3 does and as the
-  * built-in socket server does. A violation fails the request through Netty's own invalid-message
-  * path, so [[DecodeFailureHandler]] answers 400 and closes the connection after the responses to
-  * earlier pipelined requests.
+  * Netty 4.2 splits the request line on any run of SP, HTAB, VT, FF, or bare CR, and skips any run
+  * of CR and LF before the method, a bare CR included; `HttpDecoderConfig` has no option to turn
+  * that off. A proxy that reads `GET\r /a HTTP/1.1` or `\rGET /a HTTP/1.1` differently would see
+  * different requests (request smuggling). The decoder here allows exactly one SP between the
+  * words, as RFC 9112 Section 3 does, and only empty lines (CRLF, or a bare LF) before the request
+  * line, as RFC 9112 Section 2.2 does, both as the built-in socket server does. A violation fails
+  * the request through Netty's own invalid-message path, so [[DecodeFailureHandler]] answers 400
+  * and closes the connection after the responses to earlier pipelined requests.
   *
   * `HttpServerCodec` is final and its decoder private, so this rebuilds what it adds on top of the
   * plain decoder and encoder: the queue of request methods (no body in a response to `HEAD`, no
@@ -68,9 +70,11 @@ private[netty] class StrictHttpServerCodec(
   val encoder: HttpResponseEncoder = ResponseEncoder()
 
   private class RequestDecoder extends HttpRequestDecoder(config):
-    private var discard   = false
-    private var methodEnd = 0
-    private var targetEnd = 0
+    private var discard = false
+    // Whether the next bytes come before a request line, where Netty would skip a bare CR
+    private var atRequestStart = true
+    private var methodEnd      = 0
+    private var targetEnd      = 0
 
     override protected def decode(
         ctx: ChannelHandlerContext,
@@ -81,9 +85,12 @@ private[netty] class StrictHttpServerCodec(
         buffer.skipBytes(buffer.readableBytes())
       else
         val oldSize = out.size()
-        super.decode(ctx, buffer, out)
+        if !atRequestStart || skipEmptyLines(buffer, out) then
+          super.decode(ctx, buffer, out)
         var i = oldSize
         while i < out.size() do
+          if out.get(i).isInstanceOf[LastHttpContent] then
+            atRequestStart = true
           out.get(i) match
             case r: HttpRequest =>
               if methods.size() >= maxPipelineDepth then
@@ -100,6 +107,50 @@ private[netty] class StrictHttpServerCodec(
               methods.add(r.method())
             case _ =>
           i += 1
+
+    // Netty resets the decoder without a LastHttpContent when the aggregator rejects an Expect
+    // request and keeps the connection open
+    override def reset(): Unit =
+      atRequestStart = true
+      super.reset()
+
+    /**
+      * Skip the empty lines (CRLF, or a bare LF) before a request line, and return whether its
+      * first byte is buffered. A CR followed by another byte fails the request. A CR that is the
+      * last byte buffered stays, until the byte after it shows whether it ends an empty line.
+      */
+    private def skipEmptyLines(buffer: ByteBuf, out: java.util.List[Object]): Boolean =
+      val end   = buffer.writerIndex()
+      var i     = buffer.readerIndex()
+      var found = false
+      var stop  = false
+      while !stop && i < end do
+        val b = buffer.getByte(i)
+        if b == '\n' then
+          i += 1
+        else if b != '\r' then
+          found = true
+          stop = true
+        else if i + 1 == end then
+          stop = true
+        else if buffer.getByte(i + 1) == '\n' then
+          i += 2
+        else
+          // As Netty fails a request: a /bad-request placeholder, and discard the rest
+          val invalid = createInvalidMessage()
+          invalid.setDecoderResult(
+            DecoderResult.failure(IllegalArgumentException("A bare CR before the request line"))
+          )
+          out.add(invalid)
+          discard = true
+          i = end
+          stop = true
+      buffer.readerIndex(i)
+      if found then
+        atRequestStart = false
+      found
+
+    end skipEmptyLines
 
     // The words of the request line, located by Netty's lenient split. `bytes` holds the line
     // from offset 0: Netty copies each line into its unpooled scratch buffer before splitting it.

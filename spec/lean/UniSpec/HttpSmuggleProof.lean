@@ -316,6 +316,8 @@ theorem readHead_lines (lf : Bool) {lim : Limits} {s : Bytes} {hd : Head}
   unfold readHead at h
   generalize hd0 : s.dropWhile isNewline = d at h ⊢
   simp only at h
+  split at h
+  · simp at h
   cases hl : scanLine false lim.maxLine d with
   | incomplete => simp [hl] at h
   | bad => simp [hl] at h

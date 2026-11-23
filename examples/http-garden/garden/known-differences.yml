@@ -26,3 +26,12 @@
 - server: uni_netty
   payload: 'POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3 \r\nabc\r\n0\r\n\r\n'
   reason: Netty 4.2.21, which uni-netty uses, rejects whitespace after the chunk size, which RFC 9112 allows only before ';'; Garden's pinned Netty accepts it. A rejection cannot desynchronize a proxy in front of it
+- server: uni_jvm
+  payload: 'POST /size-line-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n1\r\nl\r\n1\r\no\r\n0\r\nTrailer-Is: This\r\n\r\n'
+  reason: Two Transfer-Encoding lines read as one list (RFC 9110 §5.3), so chunked is applied twice, which RFC 9112 §7.1 forbids; Uni answers 400. The references merge them into one chunked. A rejection cannot desynchronize a proxy in front of it
+- server: uni_native
+  payload: 'POST /size-line-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n1\r\nl\r\n1\r\no\r\n0\r\nTrailer-Is: This\r\n\r\n'
+  reason: Two Transfer-Encoding lines read as one list (RFC 9110 §5.3), so chunked is applied twice, which RFC 9112 §7.1 forbids; Uni answers 400. The references merge them into one chunked. A rejection cannot desynchronize a proxy in front of it
+- server: uni_netty
+  payload: 'POST /size-line-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhel\r\n1\r\nl\r\n1\r\no\r\n0\r\nTrailer-Is: This\r\n\r\n'
+  reason: Two Transfer-Encoding lines read as one list (RFC 9110 §5.3), so chunked is applied twice, which RFC 9112 §7.1 forbids; Uni answers 400. The references merge them into one chunked. A rejection cannot desynchronize a proxy in front of it
