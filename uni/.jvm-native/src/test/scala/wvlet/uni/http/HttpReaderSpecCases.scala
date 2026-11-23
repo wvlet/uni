@@ -4,8 +4,8 @@ package wvlet.uni.http
 object HttpReaderSpecCases:
   // The HttpReaderLimits the outcomes assume
   val maxInitialLineLength: Int = 64
-  val maxHeaderSize: Int = 128
-  val maxRequestSize: Int = 100
+  val maxHeaderSize: Int        = 128
+  val maxRequestSize: Int       = 100
 
   // Each case: the bytes a client sends, ␞, then the reader's outcomes in order, separated by ␟.
   // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,

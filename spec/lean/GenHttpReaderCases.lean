@@ -350,8 +350,9 @@ def scalaSource (smuggling : List String) : String :=
     "object HttpReaderSpecCases:",
     "  // The HttpReaderLimits the outcomes assume",
     s!"  val maxInitialLineLength: Int = {lim.maxLine}",
-    s!"  val maxHeaderSize: Int = {lim.maxHeader}",
-    s!"  val maxRequestSize: Int = {lim.maxBody}",
+    -- Aligned as scalafmt aligns consecutive vals
+    s!"  val maxHeaderSize: Int        = {lim.maxHeader}",
+    s!"  val maxRequestSize: Int       = {lim.maxBody}",
     "",
     "  // Each case: the bytes a client sends, ␞, then the reader's outcomes in order, separated by ␟.",
     "  // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,",
