@@ -971,6 +971,8 @@ private[parquet] object IcebergWrite:
             "map"
           case None =>
             "struct"
+          case Some(LogicalType.Variant) =>
+            throw ParquetException(s"Column ${g.pathString} is a variant, which Uni doesn't write")
           case Some(other) =>
             throw ParquetException(
               s"Column ${g.pathString} is a ${other} group, which Iceberg tables can't hold"
@@ -1034,6 +1036,8 @@ private[parquet] object IcebergWrite:
         s"decimal(${precision}, ${scale})"
       case (PhysicalType.INT96, _) =>
         unsupported("an INT96 timestamp")
+      case (_, Some(LogicalType.Geometry(_) | LogicalType.Geography(_, _))) =>
+        throw ParquetException(s"Column ${name} is a geospatial column, which Uni doesn't write")
       case (t, lt) =>
         unsupported(s"${t}${lt.map(l => s" (${l})").getOrElse("")}")
     end match

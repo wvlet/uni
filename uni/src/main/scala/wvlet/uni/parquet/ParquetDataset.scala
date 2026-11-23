@@ -2065,6 +2065,9 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     )
 
     (a, b) match
+      case (g: ParquetField.Group, h: ParquetField.Group) if isVariant(g) && isVariant(h) =>
+        // Each file shreds a variant its own way; reads decode every layout to the same values
+        g.copy(repetition = rep)
       case (p: ParquetField.Primitive, q: ParquetField.Primitive) =>
         if p.physicalType == q.physicalType && p.typeLength == q.typeLength &&
           p.logicalType == q.logicalType
@@ -2148,6 +2151,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   private def isCollection(g: ParquetField.Group): Boolean = Assembly.isList(g) || Assembly.isMap(g)
 
+  private def isVariant(f: ParquetField): Boolean = f.logicalType.contains(LogicalType.Variant)
+
   private def isThreeLevel(g: ParquetField.Group): Boolean = Assembly.isThreeLevelList(
     g,
     g.children(0)
@@ -2199,6 +2204,20 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   /** [[conformField]] for a value, ignoring the field's own repetition */
   private def conformValue(v: ColumnVector, f: ParquetField): ColumnVector =
     (v, f) match
+      case (s: StructColumn, g: ParquetField.Group) if isVariant(g) =>
+        // Keep the file's (shredded) layout, which decoding reads, under the dataset's field
+        val field =
+          s.field match
+            case fg: ParquetField.Group =>
+              fg.copy(
+                name = g.name,
+                repetition = g.repetition,
+                logicalType = g.logicalType,
+                fieldId = g.fieldId
+              )
+            case other =>
+              other
+        StructColumn(field, s.size, s.children, s.nulls)
       case (l: ListColumn, g: ParquetField.Group) if Assembly.isList(g) =>
         val elements =
           if isThreeLevel(g) then
@@ -2260,6 +2279,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       case (p: ParquetField.Primitive, q: ParquetField.Primitive) =>
         p.physicalType == q.physicalType && p.typeLength == q.typeLength &&
         p.logicalType == q.logicalType
+      case (g: ParquetField.Group, h: ParquetField.Group) if isVariant(g) && isVariant(h) =>
+        true
       case (g: ParquetField.Group, h: ParquetField.Group) =>
         g.logicalType == h.logicalType && g.children.size == h.children.size &&
         g.children

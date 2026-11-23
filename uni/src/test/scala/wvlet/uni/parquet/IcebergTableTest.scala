@@ -6,6 +6,7 @@ import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.parquet.ParquetFilter.*
+import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.rx.Rx
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.test.UniTest
@@ -486,11 +487,52 @@ class IcebergTableTest extends UniTest:
       .getMessage shouldContain "checksum mismatch"
   }
 
+  test("read a shredded variant column of a format version 3 table") {
+    val ds = Parquet.dataset(fixture("v3_variant"))
+    try
+      ds.readRows().map(r => r("id") -> r("v")).toSeq.sortBy(_._1.asInstanceOf[Long]) shouldBe
+        Seq(
+          1L -> Map("n" -> 1, "s" -> "a"),
+          2L -> Map("n" -> 2, "s" -> "b", "tags" -> Seq("x", "y")),
+          3L -> "plain",
+          4L -> null
+        )
+    finally ds.close()
+  }
+
+  test("read a geometry column of a format version 3 table as WKB") {
+    val ds = Parquet.dataset(fixture("v3_geo"))
+    try
+      ds.schema.field("g").flatMap(_.logicalType) shouldMatch {
+        case Some(LogicalType.Geometry(Some(crs))) if crs.contains("CRS84") =>
+      }
+      val g = ds
+        .readRows()
+        .map(r => r("id").asInstanceOf[Long] -> Option(r("g").asInstanceOf[Array[Byte]]))
+        .toSeq
+        .sortBy(_._1)
+      g.map(_._2.map(_.length)) shouldBe Seq(Some(21), None, Some(41))
+      // POINT(1 2) as little-endian WKB
+      g.head._2.get.take(5).toSeq shouldBe Seq[Byte](1, 1, 0, 0, 0)
+    finally
+      ds.close()
+    // geography, with an edge algorithm, reads the same way
+    val newest    = metadataFiles("v3_geo").last
+    val geography =
+      copyOf("v3_geo")((rel, b) =>
+        if rel == newest then
+          Some(utf8(text(b).replace("geometry(OGC:CRS84)", "geography(OGC:CRS84, karney)")))
+        else
+          Some(b)
+      )()
+    val gs = Parquet.dataset(geography)
+    try gs.readRows().count(_("g") != null) shouldBe 2
+    finally gs.close()
+  }
+
   test("refuse what format version 3 tables have that Uni doesn't read") {
     intercept[ParquetException](Parquet.dataset(fixture("equality_deletes")))
       .getMessage shouldContain "equality delete files"
-    intercept[ParquetException](Parquet.dataset(fixture("v3_variant"))).getMessage shouldContain
-      "Iceberg type variant"
     val newest                                   = metadataFiles("v3").last
     def edited(from: String, to: String): String =
       copyOf("v3")((rel, b) =>

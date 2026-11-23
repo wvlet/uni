@@ -159,6 +159,20 @@ private[parquet] object MetadataEncoder:
         w.emptyStructField(14)
       case LogicalType.Float16 =>
         w.emptyStructField(15)
+      case LogicalType.Variant =>
+        w.emptyStructField(16)
+      case LogicalType.Geometry(crs) =>
+        w.structField(17)(crs.foreach(w.string(1, _)))
+      case LogicalType.Geography(crs, algorithm) =>
+        w.structField(18) {
+          crs.foreach(w.string(1, _))
+          // A known name, or the number of an algorithm this reader doesn't know
+          algorithm
+            .flatMap(a =>
+              Some(LogicalType.GeographyAlgorithms.indexOf(a)).filter(_ >= 0).orElse(a.toIntOption)
+            )
+            .foreach(w.i32(2, _))
+        }
       case LogicalType.Interval | LogicalType.MapKeyValue | LogicalType.Other(_) =>
         ()
 

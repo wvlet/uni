@@ -197,6 +197,15 @@ private[parquet] object MetadataDecoder:
         LogicalType.Uuid
       case (15, _) =>
         LogicalType.Float16
+      case (16, _) =>
+        LogicalType.Variant
+      case (17, g: TStruct) =>
+        LogicalType.Geometry(g.stringOpt(1))
+      case (18, g: TStruct) =>
+        LogicalType.Geography(
+          g.stringOpt(1),
+          g.intOpt(2).map(i => LogicalType.GeographyAlgorithms.lift(i).getOrElse(s"${i}"))
+        )
       case (id, _) =>
         LogicalType.Other(id)
     }

@@ -53,11 +53,21 @@ con.execute("INSERT INTO cat.v3.v2_deletes SELECT i, 'n' || i FROM range(10, 20)
 con.execute("DELETE FROM cat.v3.v2_deletes WHERE id % 4 = 1")
 con.execute("DELETE FROM cat.v3.v2_deletes WHERE id = 12")
 
-# v3_variant: a variant column
+# v3_variant: a variant column, shredded (write.parquet.shred-variants) into an object with typed
+# fields, a field kept in the binary value, and rows that aren't objects
 table("v3_variant", "id BIGINT, v VARIANT")
-con.execute("INSERT INTO cat.v3.v3_variant VALUES (1, 1::VARIANT), (2, 'a'::VARIANT)")
+con.execute("ALTER TABLE cat.v3.v3_variant SET ('write.parquet.shred-variants' = 'true')")
+con.execute("""INSERT INTO cat.v3.v3_variant VALUES
+  (1, {'n': 1, 's': 'a'}::VARIANT),
+  (2, {'n': 2, 's': 'b', 'tags': ['x', 'y']}::VARIANT),
+  (3, 'plain'::VARIANT),
+  (4, NULL)""")
 
-for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant"]:
+# v3_geo: a geometry column, which holds WKB. DuckDB has no GEOGRAPHY type to write.
+table("v3_geo", "id BIGINT, g GEOMETRY")
+con.execute("INSERT INTO cat.v3.v3_geo VALUES (1, 'POINT(1 2)'::GEOMETRY), (2, NULL), (3, 'LINESTRING(0 0, 1 1)'::GEOMETRY)")
+
+for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant", "v3_geo"]:
     shutil.copytree(os.path.join(wh, "v3", name), os.path.join(out, name), ignore=shutil.ignore_patterns("*.crc"))
 
 # equality_deletes: a copy of v2_deletes whose delete files are marked as equality deletes on id,

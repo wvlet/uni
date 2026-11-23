@@ -35,6 +35,13 @@ object ParquetType:
 
   case class Struct(columns: Seq[ParquetColumn]) extends ParquetType
 
+  /**
+    * A VARIANT group in its unshredded layout (`metadata` and `value` binaries), for schemas that
+    * describe what a table holds, such as an Iceberg `variant` column. Files may shred it into a
+    * different layout; reads decode either one.
+    */
+  private[parquet] case object VariantGroup extends ParquetType
+
   val BOOLEAN: Primitive = Primitive(PhysicalType.BOOLEAN)
   val INT8: Primitive    = Primitive(PhysicalType.INT32, Some(LogicalType.Integer(8, true)))
   val INT16: Primitive   = Primitive(PhysicalType.INT32, Some(LogicalType.Integer(16, true)))
@@ -211,6 +218,10 @@ private[parquet] object SchemaElements:
         checkNames(name, columns.map(_.name))
         b += group(name, Some(rep), None, columns.size)
         columns.foreach(c => add(b, c.name, c.repetition, c.tpe))
+      case ParquetType.VariantGroup =>
+        b += group(name, Some(rep), Some(LogicalType.Variant), 2)
+        add(b, "metadata", Repetition.REQUIRED, ParquetType.BINARY)
+        add(b, "value", Repetition.REQUIRED, ParquetType.BINARY)
 
   private def repetitionOf(optional: Boolean): Repetition =
     if optional then

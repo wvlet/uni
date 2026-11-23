@@ -107,10 +107,15 @@ private[parquet] object LogicalValues:
         halfToFloat(((data(off + 1) & 0xff) << 8) | (data(off) & 0xff))
       case _ if physical == PhysicalType.INT96 && len == 12 =>
         int96ToInstant(data, off)
+      case Some(LogicalType.Geometry(_) | LogicalType.Geography(_, _)) =>
+        // WKB, never text
+        java.util.Arrays.copyOfRange(data, off, off + len)
       case _ if binaryAsString =>
         String(data, off, len, java.nio.charset.StandardCharsets.UTF_8)
       case _ =>
         java.util.Arrays.copyOfRange(data, off, off + len)
+
+  end fromBinary
 
   /** IEEE 754 half precision (stored little-endian in Parquet) to Float */
   def halfToFloat(h: Int): Float =

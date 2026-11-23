@@ -19,4 +19,4 @@ DuckDB, Spark, Trino, and Snowflake now write Iceberg format version 3 tables, a
 ## Consequences
 
 - v3 tables without deletes read as they do in other engines.
-- Tables with deletion vectors still fail until delete support lands. `variant` and the geospatial types need decoders of their own.
+- Tables with deletion vectors still fail until delete support lands. `variant` and the geospatial types read since [2026-11-22-parquet-variant-geospatial-read.md](2026-11-22-parquet-variant-geospatial-read.md).

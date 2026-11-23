@@ -131,6 +131,30 @@ Parquet.readJson("events.parquet").foreach(json => println(json.toJSON))
 TIMESTAMP, DATE, TIME, and UUID values become ISO-8601 or canonical strings. DECIMAL becomes a
 string so that no digits are lost, binary becomes base64, and map keys become strings.
 
+### Variant and Geospatial Columns
+
+A VARIANT column holds a semi-structured value whose type can differ from row to row, as DuckDB,
+Spark 4, and Iceberg format version 3 write it. Uni decodes each value into a plain Scala value:
+
+- an object becomes a `Map[String, Any]` with its fields in name order, and an array a `Seq[Any]`
+- a string is a `String`, and binary is an `Array[Byte]`, even with `withBinaryAsString(true)`
+- 8-, 16-, and 32-bit integers are `Int`, 64-bit integers `Long`, and FLOAT and DOUBLE `Float`
+  and `Double`
+- DECIMAL is a `BigDecimal`, DATE a `LocalDate`, TIME a `LocalTime`, TIMESTAMP (with or without a
+  zone, in microseconds or nanoseconds) an `Instant`, and UUID a `java.util.UUID`
+- a variant null and a null column value are both `null`
+
+Shredded variants, which store common fields and element types in typed Parquet columns
+(`typed_value`), read the same as unshredded ones. A field kept in the binary `value` of a
+partially shredded object is merged back in. Files of a dataset can shred the same column in
+different ways. `readAs` reads a variant into a field of type `Any`, or of a type every row's value
+fits, and `readJson` writes it as JSON.
+
+GEOMETRY and GEOGRAPHY columns read as their WKB bytes (`Array[Byte]`), never as strings. The
+schema's logical type keeps the coordinate reference system, and for GEOGRAPHY the edge
+algorithm, so a geospatial library can decode the bytes. Uni doesn't write variant or geospatial
+columns.
+
 ## Opening a File
 
 `Parquet.open` reads the footer, which holds the schema and row group metadata. Column data is
@@ -503,16 +527,17 @@ val catalogVersion = Parquet.dataset(
   are read under the root you pass, so a copied or moved table reads too. Other paths must be in
   the same bucket, or on the local file system for a local table.
 - **Format versions** 1, 2, and 3 are read. Version 3's `timestamp_ns` and `timestamptz_ns`
-  columns read as nanosecond timestamps, and an `unknown` column reads as nulls. Row lineage
+  columns read as nanosecond timestamps, and an `unknown` column reads as nulls. `variant`
+  columns, shredded or not, read as Scala values, and `geometry` and `geography` columns as WKB
+  bytes (see [Variant and Geospatial Columns](#variant-and-geospatial-columns)). Row lineage
   fields are kept in the metadata but not read as columns.
 - **Row deletes.** Merge-on-read deletes are applied: position-delete files (format version 2)
   and deletion vectors (format version 3, Puffin files) remove rows by their position in a data
   file, for the data files they are newer than. They are read when the dataset opens, and a row
   filter sees only the rows that remain.
 - **What fails** when the dataset opens, with the reason: equality delete files (compact the
-  table to rewrite them), the `variant`, `geometry`, and
-  `geography` types, an `initial-default` on a field inside a struct, encrypted tables, and data
-  files that aren't Parquet. The
+  table to rewrite them), an `initial-default` on a field inside a struct, encrypted tables,
+  and data files that aren't Parquet. The
   manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
 - **Properties.** `ds.tableProperties` holds the table's properties.
 - **Format.** `ParquetTableFormat.Iceberg` fails when the root has no metadata and lists only
@@ -1124,7 +1149,8 @@ For browser pages that only read files and need a small bundle,
   and BROTLI. The decoders are written in Scala, so every codec works on every platform. On the
   JVM, Scala Native, and Node.js, GZIP uses the platform's zlib.
 - **Types**: all physical types and the logical types listed above, nested lists, maps, and
-  structs, and the legacy list and map layouts that older writers produce.
+  structs, VARIANT (shredded or not), GEOMETRY and GEOGRAPHY (as WKB), and the legacy list and
+  map layouts that older writers produce.
 
 Not supported: modular encryption, the LZO codec, the new ALP encoding, and a single row with
 more than 2 GiB of values in one column. The writer does not produce data page v2, the DELTA encodings, page

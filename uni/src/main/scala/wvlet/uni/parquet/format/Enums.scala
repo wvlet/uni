@@ -106,10 +106,37 @@ enum LogicalType:
   case Interval
   case MapKeyValue
 
-  /** A logical type this reader does not interpret (for example VARIANT or GEOMETRY) */
+  /**
+    * A VARIANT group: a `metadata` and a `value` binary, as the Parquet Variant encoding spec
+    * defines, and an optional `typed_value` when the variant is shredded
+    */
+  case Variant
+
+  /** WKB geometry in a binary column, with its coordinate reference system if the file names one */
+  case Geometry(crs: Option[String])
+
+  /**
+    * WKB geography in a binary column, with its coordinate reference system and the edge
+    * interpolation algorithm (`spherical`, `vincenty`, `thomas`, `andoyer`, or `karney`, or the
+    * enum number of one this reader doesn't know) if the file names them
+    */
+  case Geography(crs: Option[String], algorithm: Option[String])
+
+  /** A logical type this reader does not interpret */
   case Other(id: Int)
 
+end LogicalType
+
 object LogicalType:
+  /** Edge interpolation algorithms of GEOGRAPHY, by their Thrift enum value */
+  private[parquet] val GeographyAlgorithms: IndexedSeq[String] = IndexedSeq(
+    "spherical",
+    "vincenty",
+    "thomas",
+    "andoyer",
+    "karney"
+  )
+
   private[parquet] def fromConvertedType(id: Int, scale: Int, precision: Int): Option[LogicalType] =
     id match
       case 0 =>

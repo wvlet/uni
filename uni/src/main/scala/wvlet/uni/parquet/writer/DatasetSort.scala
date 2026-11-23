@@ -163,7 +163,10 @@ private[parquet] object DatasetSort:
 
   private def orderOf(p: ParquetField.Primitive): Option[Order] =
     p.logicalType match
-      case Some(LogicalType.Float16 | LogicalType.Interval | LogicalType.Other(_)) =>
+      case Some(
+            LogicalType.Float16 | LogicalType.Interval | LogicalType.Geometry(_) | LogicalType
+              .Geography(_, _) | LogicalType.Other(_)
+          ) =>
         None
       case Some(LogicalType.Integer(_, false)) =>
         p.physicalType match
