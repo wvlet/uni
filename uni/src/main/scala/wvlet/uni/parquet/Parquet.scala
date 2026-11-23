@@ -1359,7 +1359,7 @@ object Parquet:
             )
             val ids =
               if lineage then
-                Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
+                Seq(ParquetDataset.RowIdFieldId, ParquetDataset.LastUpdatedFieldId)
               else
                 Seq.empty
             ds.foreachLiveBatch(file, ids) { (b, positions, stored) =>
@@ -1425,8 +1425,8 @@ object Parquet:
         r += 1
       ColumnVector.LongColumn(schema.field(name).get, values, nulls)
     IndexedSeq(
-      column(IcebergWrite.RowIdName, 0, p => f.firstRowId.map(_ + p)),
-      column(IcebergWrite.LastUpdatedName, 1, _ => Some(f.sequence))
+      column(DatasetWriterCore.RowIdColumn, 0, p => f.firstRowId.map(_ + p)),
+      column(DatasetWriterCore.LastUpdatedColumn, 1, _ => Some(f.sequence))
     )
 
   /** The rows a compaction writes between checks of the file size */

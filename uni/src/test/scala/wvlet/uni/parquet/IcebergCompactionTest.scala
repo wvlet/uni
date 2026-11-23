@@ -123,7 +123,7 @@ class IcebergCompactionTest extends UniTest:
           val out = Seq.newBuilder[(Long, (Long, Long))]
           ds.foreachLiveBatch(
             file,
-            Seq(IcebergWrite.RowIdFieldId, IcebergWrite.LastUpdatedFieldId)
+            Seq(ParquetDataset.RowIdFieldId, ParquetDataset.LastUpdatedFieldId)
           ) { (b, positions, stored) =>
             def value(k: Int, r: Int, inherited: => Long): Long = stored(k)
               .filter((_, nulls) => !nulls(r))

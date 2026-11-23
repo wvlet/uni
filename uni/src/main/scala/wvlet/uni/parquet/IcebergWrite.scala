@@ -2883,15 +2883,6 @@ private[parquet] object IcebergWrite:
 
   // ---- Compaction ----
 
-  /** The field ID of the `_row_id` row-lineage column (format version 3) */
-  val RowIdFieldId = 2147483540
-
-  /** The field ID of the `_last_updated_sequence_number` row-lineage column (format version 3) */
-  val LastUpdatedFieldId = 2147483539
-
-  val RowIdName       = "_row_id"
-  val LastUpdatedName = "_last_updated_sequence_number"
-
   /** A live data file of a snapshot, as a compaction sees it */
   case class LiveData(
       /** The path as [[ParquetDataset.files]] lists it */
@@ -3274,8 +3265,10 @@ private[parquet] object IcebergWrite:
     val leaves  = schema.columns.size
     val lineage =
       if formatVersionOf(t) >= 3 then
-        IndexedSeq(RowIdName -> RowIdFieldId, LastUpdatedName -> LastUpdatedFieldId)
-          .zipWithIndex
+        IndexedSeq(
+          DatasetWriterCore.RowIdColumn       -> ParquetDataset.RowIdFieldId,
+          DatasetWriterCore.LastUpdatedColumn -> ParquetDataset.LastUpdatedFieldId
+        ).zipWithIndex
           .map { case ((name, id), k) =>
             ParquetField.Primitive(
               name,
