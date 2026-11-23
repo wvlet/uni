@@ -132,7 +132,7 @@ private[parquet] object IcebergDeletes:
       val columns: IndexedSeq[String],
       keys: scala.collection.Set[Any],
       /** The equality-delete file the keys come from */
-      val source: String = ""
+      val source: String
   ):
     def size: Int = keys.size
 

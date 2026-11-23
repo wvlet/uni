@@ -1222,27 +1222,21 @@ object Parquet:
       .getOrElse(throw ParquetException(s"${target.rootName} is not an Iceberg table"))
     def commit(change: RowChange, n: Int): Long =
       val c = change.commit
-      // The data files stay until the change is known to need them no longer
-      val committed =
-        try
-          runTableCommit(target, layout, n, done)(
-            c.run(),
-            c.mayHaveCommitted,
-            c.verify(),
-            c.writtenFiles
-          )
-        catch
-          case e: Throwable =>
-            cleanUpFiles(target, change.files)
-            throw e
-      committed match
+      // A lost race keeps the data files until the change is known to need them no longer
+      runTableCommit(target, layout, n, done)(
+        c.run(),
+        c.mayHaveCommitted,
+        c.verify(),
+        c.writtenFiles,
+        keptOnRace = change.files
+      ) match
         case Some(_) =>
           change.rows
         case None =>
-          val newer   = load()
-          val rebased =
+          val (newer, rebased) =
             try
-              change.rebase(newer)
+              val t = load()
+              (t, change.rebase(t))
             catch
               case e: Throwable =>
                 cleanUpFiles(target, change.files)
@@ -1280,7 +1274,9 @@ object Parquet:
       run: => IcebergWrite.Step[IcebergWrite.Committed],
       mayHaveCommitted: => Boolean,
       verify: => IcebergWrite.Step[Option[IcebergWrite.Committed]],
-      written: => Seq[String]
+      written: => Seq[String],
+      /** Files that a lost race keeps, for the caller to reuse or delete; deleted on any failure */
+      keptOnRace: Seq[String] = Seq.empty
   ): Option[IcebergWrite.Committed] =
     val committed =
       try
@@ -1291,6 +1287,7 @@ object Parquet:
           if n < IcebergWrite.MaxAttempts then
             None
           else
+            cleanUpFiles(target, keptOnRace)
             throw ParquetException(
               s"Another writer kept committing to ${target
                   .rootName} first; gave up after ${n} attempts",
@@ -1307,7 +1304,7 @@ object Parquet:
             else
               None
           if verified.isEmpty then
-            cleanUpFiles(target, written)
+            cleanUpFiles(target, written ++ keptOnRace)
             throw e
           verified
     committed.foreach { done =>
