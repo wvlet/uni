@@ -117,7 +117,9 @@ class ParquetDataset private[parquet] (
       * Values for top-level columns a file lacks, in place of null: an Iceberg column's
       * `initial-default` (see [[IcebergTable.Resolved.defaults]])
       */
-    columnDefaults: Map[String, Any] = Map.empty
+    columnDefaults: Map[String, Any] = Map.empty,
+    /** Deleted row positions of each file (sorted), from an Iceberg table's delete files */
+    rowDeletes: Map[String, Array[Long]] = Map.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -159,7 +161,8 @@ class ParquetDataset private[parquet] (
       requiredInFiles,
       fieldIds,
       tableProperties,
-      columnDefaults
+      columnDefaults,
+      rowDeletes
     )
 
   override def close(): Unit =
@@ -290,6 +293,7 @@ class ParquetDataset private[parquet] (
             else
               file.rowGroupBatchesAsync(i, opts).map(_.toSeq)
           read
+            .map(bs => withoutDeleted(s.file, file, i, bs.iterator).toSeq)
             .map(bs => Some(bs.map(b => finish(b, s, plan)).filter(_.numRows > 0)))
             .recoverWith { case e: Throwable =>
               close()
@@ -739,7 +743,7 @@ class ParquetDataset private[parquet] (
           val opts = fileOptions(s, plan, file.schema)
           it = wrapIterator(
             s.file,
-            batchesOf(file, opts).map(b => finish(b, s, plan)).filter(_.numRows > 0)
+            batchesOf(s.file, file, opts).map(b => finish(b, s, plan)).filter(_.numRows > 0)
           )
 
       override def hasNext: Boolean =
@@ -765,10 +769,12 @@ class ParquetDataset private[parquet] (
       val rowGroups: Seq[Rx[Seq[ColumnBatch]]] = file
         .selectRowGroups(opts)
         .map { i =>
-          if opts.columns.exists(_.isEmpty) then
-            Rx.single(emptyBatches(file.rowGroups(i).numRows, opts).toSeq)
-          else
-            file.rowGroupBatchesAsync(i, opts).map(_.toSeq)
+          val read =
+            if opts.columns.exists(_.isEmpty) then
+              Rx.single(emptyBatches(file.rowGroups(i).numRows, opts).toSeq)
+            else
+              file.rowGroupBatchesAsync(i, opts).map(_.toSeq)
+          read.map(bs => withoutDeleted(s.file, file, i, bs.iterator).toSeq)
         }
       val closing: Rx[Seq[ColumnBatch]] = Rx.single {
         release(file)
@@ -782,15 +788,54 @@ class ParquetDataset private[parquet] (
         }
     }
 
-  /** The file's batches; when only partition columns are selected, batches with no columns */
-  private def batchesOf(file: ParquetFile, opts: ParquetReadOptions): Iterator[ColumnBatch] =
+  /**
+    * The file's batches, without its deleted rows; when only partition columns are selected,
+    * batches with no columns
+    */
+  private def batchesOf(
+      df: DatasetFile,
+      file: ParquetFile,
+      opts: ParquetReadOptions
+  ): Iterator[ColumnBatch] =
     if opts.columns.exists(_.isEmpty) then
       file
         .selectRowGroups(opts)
         .iterator
-        .flatMap(i => emptyBatches(file.rowGroups(i).numRows, opts))
+        .flatMap(i => withoutDeleted(df, file, i, emptyBatches(file.rowGroups(i).numRows, opts)))
+    else if rowDeletes.contains(df.path) then
+      file
+        .selectRowGroups(opts)
+        .iterator
+        .flatMap(i => withoutDeleted(df, file, i, file.rowGroupBatches(i, opts)))
     else
       file.readBatches(opts)
+
+  /**
+    * Row group `i`'s batches (all its rows, in order) without the rows the table deleted. Deletes
+    * name rows by their position in the file, so this runs before any row filter.
+    */
+  private def withoutDeleted(
+      df: DatasetFile,
+      file: ParquetFile,
+      i: Int,
+      batches: Iterator[ColumnBatch]
+  ): Iterator[ColumnBatch] =
+    rowDeletes.get(df.path) match
+      case None =>
+        batches
+      case Some(deleted) =>
+        var first = 0L
+        var g     = 0
+        while g < i do
+          first += file.rowGroups(g).numRows
+          g += 1
+        batches.map { b =>
+          val start = first
+          first += b.numRows
+          dropRows(b, deleted, start)
+        }
+
+  end withoutDeleted
 
   private def emptyBatches(numRows: Long, opts: ParquetReadOptions): Iterator[ColumnBatch] =
     val size = opts.batchSize.getOrElse(ValueBuffer.MaxArrayLength).toLong
@@ -1519,7 +1564,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       requiredInFiles = table.requiredInFiles,
       fieldIds = table.fieldIds,
       tableProperties = table.properties,
-      columnDefaults = table.defaults
+      columnDefaults = table.defaults,
+      rowDeletes = table.deletes
     )
 
   end icebergDataset
@@ -2242,6 +2288,28 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   // ---- Vectors ----
 
   /** A vector of n copies of a partition value */
+  /** The batch without the rows whose positions, `start` for its first row, are in `deleted` */
+  private def dropRows(b: ColumnBatch, deleted: Array[Long], start: Long): ColumnBatch =
+    val end = start + b.numRows
+    var lo  = java.util.Arrays.binarySearch(deleted, start)
+    if lo < 0 then
+      lo = -lo - 1
+    if lo >= deleted.length || deleted(lo) >= end then
+      b
+    else
+      val keep = scala.collection.mutable.ArrayBuilder.ofInt()
+      var d    = lo
+      var r    = 0
+      while r < b.numRows do
+        val pos = start + r
+        while d < deleted.length && deleted(d) < pos do
+          d += 1
+        if d >= deleted.length || deleted(d) != pos then
+          keep += r
+        r += 1
+      val rows = keep.result()
+      ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
+
   private[parquet] def constantVector(f: ParquetField.Primitive, v: Any, n: Int): ColumnVector =
     if v == null then
       nullVector(f, n)

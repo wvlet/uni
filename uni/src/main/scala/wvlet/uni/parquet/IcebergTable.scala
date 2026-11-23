@@ -58,7 +58,9 @@ private[parquet] object IcebergTable:
         * files written before the column was added: a Boolean, Int, Long, Float, Double, BigInt
         * (the unscaled value of a decimal), or Array[Byte] (strings, binary, fixed, and UUIDs)
         */
-      defaults: Map[String, Any] = Map.empty
+      defaults: Map[String, Any] = Map.empty,
+      /** The deleted row positions of each data file, sorted, from delete files and vectors */
+      deletes: IcebergDeletes.Positions = Map.empty
   )
 
   /**
@@ -308,23 +310,27 @@ private[parquet] object IcebergTable:
         def readManifests(manifests: IndexedSeq[Manifest]): Step = Step.Fetch(
           manifests.map(mf => paths.resolve(mf.path)),
           bytes =>
-            val files = mutable.ArrayBuffer.empty[(DataFile, Int)]
+            val files     = mutable.ArrayBuffer.empty[(DataFile, Int)]
+            val sequences = mutable.HashMap.empty[String, Long]
+            val deletes   = mutable.ArrayBuffer.empty[IcebergDeletes.DeleteFile]
             manifests
               .zip(bytes)
               .foreach { (mf, b) =>
                 val c      = Avro.read(b, mf.path)
                 val specId = c.meta("partition-spec-id").flatMap(_.toIntOption).getOrElse(mf.specId)
-                val content = c.meta("content").getOrElse("data")
-                if content == "deletes" then
-                  // A v1 inline manifest list has no content field to tell this earlier
-                  if c.records.exists(r => status(r) != Deleted) then
-                    unsupportedDeletes(paths.root)
-                else
-                  c.records
-                    .foreach { r =>
-                      if status(r) != Deleted then
-                        files += (dataFile(r, mf.path, paths, specs.get(specId), fields) -> specId)
-                    }
+                // A v1 manifest list has no content field, so the manifest's own metadata counts too
+                val isDeletes = mf.deletes || c.meta("content").contains("deletes")
+                c.records
+                  .foreach { r =>
+                    if status(r) != Deleted then
+                      val seq = sequenceNumber(r, mf)
+                      if isDeletes then
+                        deletes += deleteFile(r, mf.path, paths, seq)
+                      else
+                        val f = dataFile(r, mf.path, paths, specs.get(specId), fields)
+                        sequences(f.path) = seq
+                        files += (f -> specId)
+                  }
               }
             val usedSpecs = files
               .map(_._2)
@@ -336,16 +342,32 @@ private[parquet] object IcebergTable:
                   throw ParquetException(s"${source} has no partition spec ${id}")
                 )
               )
-            Step.Done(
-              resolved(
-                paths.root,
-                fields,
-                usedSpecs,
-                files.map(_._1).toIndexedSeq,
-                source,
-                idsOf(fields)
-              ).copy(properties = properties)
-            )
+            val table = resolved(
+              paths.root,
+              fields,
+              usedSpecs,
+              files.map(_._1).toIndexedSeq,
+              source,
+              idsOf(fields)
+            ).copy(properties = properties)
+            if deletes.isEmpty then
+              Step.Done(table)
+            else
+              val deletePaths = deletes.map(_.path).distinct.toIndexedSeq
+              Step.Fetch(
+                deletePaths,
+                bytes =>
+                  Step.Done(
+                    table.copy(deletes =
+                      IcebergDeletes.positions(
+                        deletes.toIndexedSeq,
+                        deletePaths.zip(bytes).toMap,
+                        sequences.toMap,
+                        paths.resolve
+                      )
+                    )
+                  )
+              )
         )
         (snapshot.get("manifest-list"), snapshot.get("manifests")) match
           case (Some(JSONString(list)), _) =>
@@ -357,7 +379,7 @@ private[parquet] object IcebergTable:
             // Format v1 may list the manifests in the snapshot
             readManifests(
               vs.collect { case JSONString(p) =>
-                Manifest(p, 0)
+                Manifest(p, 0, 0L)
               }
             )
           case _ =>
@@ -368,7 +390,31 @@ private[parquet] object IcebergTable:
 
   // ---- Manifests ----
 
-  private case class Manifest(path: String, specId: Int)
+  /** A manifest of a snapshot, with its sequence number (0 in format version 1) */
+  private case class Manifest(
+      path: String,
+      specId: Int,
+      sequenceNumber: Long,
+      /** Whether the manifest list says it lists delete files */
+      deletes: Boolean = false
+  )
+
+  private val Added = 1
+
+  /**
+    * An entry's data sequence number: its own, or for a file added by the manifest's snapshot,
+    * which may leave it null, the manifest's
+    */
+  private def sequenceNumber(entry: Any, mf: Manifest): Long =
+    entry.asInstanceOf[Map[String, Any]].get("sequence_number") match
+      case Some(l: Long) =>
+        l
+      case Some(i: Int) =>
+        i.toLong
+      case _ if status(entry) == Added =>
+        mf.sequenceNumber
+      case _ =>
+        0L
 
   private val Deleted = 2
 
@@ -382,11 +428,6 @@ private[parquet] object IcebergTable:
             0
       case _ =>
         0
-
-  private def unsupportedDeletes(root: String): Nothing =
-    throw ParquetException(
-      s"The snapshot of ${root} has delete files (merge-on-read deletes), which Uni doesn't apply yet. Compact the table to rewrite them into data files"
-    )
 
   private def manifestList(c: Avro.Container, root: String): IndexedSeq[Manifest] = c
     .records
@@ -407,34 +448,70 @@ private[parquet] object IcebergTable:
             i
           }
           .getOrElse(0)
-        val content = m
+        val deletes = m
           .get("content")
           .collect { case i: Int =>
             i
           }
-          .getOrElse(0)
-        if content == 1 then
-          def count(names: String*): Option[Long] = names
-            .flatMap(m.get)
-            .collectFirst {
-              case i: Int =>
-                i.toLong
-              case l: Long =>
-                l
-            }
-          val live =
-            for
-              added    <- count("added_files_count", "added_data_files_count")
-              existing <- count("existing_files_count", "existing_data_files_count")
-            yield added + existing
-          if live.forall(_ > 0) then
-            unsupportedDeletes(root)
-          None
-        else
-          Some(Manifest(path, specId))
+          .contains(1)
+        val seq = m
+          .get("sequence_number")
+          .collect {
+            case l: Long =>
+              l
+            case i: Int =>
+              i.toLong
+          }
+          .getOrElse(0L)
+        Some(Manifest(path, specId, seq, deletes))
       case _ =>
         None
     }
+
+  /** A live entry of a delete manifest */
+  private def deleteFile(
+      entry: Any,
+      manifest: String,
+      paths: Paths,
+      sequenceNumber: Long
+  ): IcebergDeletes.DeleteFile =
+    val d =
+      entry.asInstanceOf[Map[String, Any]].get("data_file") match
+        case Some(r: Map[?, ?]) =>
+          r.asInstanceOf[Map[String, Any]]
+        case _ =>
+          throw ParquetException(s"An entry of ${manifest} has no data_file")
+    def str(key: String): Option[String] = d
+      .get(key)
+      .collect { case s: String =>
+        s
+      }
+    def num(key: String): Option[Long] = d
+      .get(key)
+      .collect {
+        case l: Long =>
+          l
+        case i: Int =>
+          i.toLong
+      }
+    val path = str("file_path").getOrElse(
+      throw ParquetException(s"An entry of ${manifest} has no file_path")
+    )
+    if num("content").contains(2L) then
+      throw ParquetException(
+        s"The snapshot of ${paths
+            .root} has equality delete files (${path}), which Uni doesn't apply yet. Compact the table to rewrite them into data files"
+      )
+    IcebergDeletes.DeleteFile(
+      paths.resolve(path),
+      str("file_format").getOrElse("PARQUET"),
+      sequenceNumber,
+      str("referenced_data_file").map(paths.resolve),
+      num("content_offset"),
+      num("content_size_in_bytes")
+    )
+
+  end deleteFile
 
   private def dataFile(
       entry: Any,
@@ -457,7 +534,7 @@ private[parquet] object IcebergTable:
       }
       .getOrElse(0)
     if content != 0 then
-      unsupportedDeletes(paths.root)
+      throw ParquetException(s"Data manifest ${manifest} lists a delete file")
     val path = d
       .get("file_path")
       .collect { case s: String =>
