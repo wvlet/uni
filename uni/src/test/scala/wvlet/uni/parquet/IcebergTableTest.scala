@@ -405,6 +405,63 @@ class IcebergTableTest extends UniTest:
     finally ds.close()
   }
 
+  test("apply equality delete files") {
+    // A partitioned delete on name ('a' and null in JP), and an unpartitioned delete on (id, name)
+    // whose sequence number reaches only the first commit; DuckDB's position delete removes id 7
+    val ds = Parquet.dataset(fixture("equality_deletes"))
+    try
+      ds.readRows()
+        .map(r => (r("id"), r("name"), r("country")))
+        .toSeq
+        .sortBy(_._1.toString) shouldBe
+        Seq((2L, "b", "JP"), (4L, "d", "US"), (5L, "e", "US"), (6L, null, "US"))
+      // Key columns are read when the caller doesn't select them, and stay out of the rows
+      val opts = ParquetReadOptions.default.withColumns("id")
+      ds.readRows(opts).toSeq.map(_.keySet).distinct shouldBe Seq(Set("id"))
+      ids(ds, opts) shouldBe Seq(2L, 4L, 5L, 6L)
+      ds.readRows(ParquetReadOptions.default.withColumns("country"))
+        .map(_("country").toString)
+        .toSeq
+        .sorted shouldBe Seq("JP", "US", "US", "US")
+      // Deletes apply before row filters
+      ids(ds, opts.withFilter(col("name") === "a")) shouldBe Seq.empty
+      ids(ds, opts.withFilter(col("id") === 4L)) shouldBe Seq(4L)
+      ids(ds, opts.withFilter(col("country") === "JP")) shouldBe Seq(2L)
+    finally
+      ds.close()
+    // The snapshot before the equality deletes has only the position delete
+    val before = Parquet.dataset(
+      fixture("equality_deletes"),
+      ParquetDatasetOptions.default.withSnapshotId(snapshotIds("equality_deletes").init.last)
+    )
+    try ids(before) shouldBe Seq(1L, 2L, 3L, 4L, 4L, 5L, 6L, 8L)
+    finally before.close()
+  }
+
+  test("apply equality deletes when reading asynchronously") {
+    val expected = Seq(2L, 4L, 5L, 6L)
+    storeWith("equality_deletes").flatMap { store =>
+      Parquet
+        .datasetAsync(store, bucketRoot)
+        .flatMap { ds =>
+          ds.readAllRowsAsync(ParquetReadOptions.default.withColumns("id"))
+            .map(_.map(_("id").asInstanceOf[Long]).sorted shouldBe expected)
+            .flatMap(_ => ds.batchReaderAsync(ParquetReadOptions.default.withColumns("id")))
+            .flatMap { reader =>
+              def pull(acc: Seq[Long]): Rx[Seq[Long]] = reader
+                .nextRowGroup()
+                .flatMap {
+                  case Some(bs) =>
+                    pull(acc ++ bs.flatMap(_.rows).map(_("id").asInstanceOf[Long]))
+                  case None =>
+                    Rx.single(acc)
+                }
+              pull(Seq.empty).map(_.sorted shouldBe expected)
+            }
+        }
+    }
+  }
+
   test("apply deletes when reading asynchronously") {
     val expected = Seq(1L, 2L, 4L, 5L, 7L, 8L)
     storeWith("v3_deletes").flatMap { store =>
@@ -531,8 +588,6 @@ class IcebergTableTest extends UniTest:
   }
 
   test("refuse what format version 3 tables have that Uni doesn't read") {
-    intercept[ParquetException](Parquet.dataset(fixture("equality_deletes")))
-      .getMessage shouldContain "equality delete files"
     val newest                                   = metadataFiles("v3").last
     def edited(from: String, to: String): String =
       copyOf("v3")((rel, b) =>

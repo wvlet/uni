@@ -67,20 +67,97 @@ con.execute("""INSERT INTO cat.v3.v3_variant VALUES
 table("v3_geo", "id BIGINT, g GEOMETRY")
 con.execute("INSERT INTO cat.v3.v3_geo VALUES (1, 'POINT(1 2)'::GEOMETRY), (2, NULL), (3, 'LINESTRING(0 0, 1 1)'::GEOMETRY)")
 
-for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant", "v3_geo"]:
+# equality_deletes: a v2 table partitioned by country (spec 1; spec 0 is unpartitioned), with two
+# data commits and a position delete from DuckDB. DuckDB never writes equality deletes, so a
+# snapshot with them is added below
+table("equality_deletes", "id BIGINT, name VARCHAR, country VARCHAR", version=2)
+con.execute("ALTER TABLE cat.v3.equality_deletes SET PARTITIONED BY (country)")
+con.execute("INSERT INTO cat.v3.equality_deletes VALUES (1, 'a', 'JP'), (2, 'b', 'JP'), (3, NULL, 'JP'), (4, 'd', 'US'), (5, 'e', 'US'), (6, NULL, 'US'), (7, 'g', 'US')")
+con.execute("INSERT INTO cat.v3.equality_deletes VALUES (4, 'd', 'US'), (8, 'a', 'JP')")
+con.execute("DELETE FROM cat.v3.equality_deletes WHERE id = 7")
+
+for name in ["v3", "v3_deletes", "v3_dv_large", "v2_deletes", "v3_variant", "v3_geo", "equality_deletes"]:
     shutil.copytree(os.path.join(wh, "v3", name), os.path.join(out, name), ignore=shutil.ignore_patterns("*.crc"))
 
-# equality_deletes: a copy of v2_deletes whose delete files are marked as equality deletes on id,
-# which DuckDB doesn't write
-shutil.copytree(os.path.join(out, "v2_deletes"), os.path.join(out, "equality_deletes"))
-for p in glob.glob(os.path.join(out, "equality_deletes", "metadata", "*-m*.avro")):
-    with open(p, "rb") as f:
-        r = fastavro.reader(f)
-        schema, meta, entries = r.writer_schema, r.metadata, list(r)
-    if meta.get("content") != "deletes":
-        continue
-    for e in entries:
-        e["data_file"]["content"] = 2
-        e["data_file"]["equality_ids"] = [1]
+# equality_deletes, continued: a snapshot (sequence number 4) with two equality delete files, written
+# with pyarrow (Parquet columns carry the Iceberg field IDs) and listed by new delete manifests
+import json, uuid
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+t = os.path.join(out, "equality_deletes")
+loc = "file:///tmp/uni-iceberg-v3/v3/equality_deletes"
+metas = sorted(glob.glob(os.path.join(t, "metadata", "*.metadata.json")))
+meta = json.load(open(metas[-1]))
+parent = meta["current-snapshot-id"]
+snap = next(s for s in meta["snapshots"] if s["snapshot-id"] == parent)
+seq = meta["last-sequence-number"] + 1
+snapshot_id = 4000000000000000004
+
+def field(name, type, id):
+    return pa.field(name, type, metadata={b"PARQUET:field_id": str(id).encode()})
+
+def delete_file(rel, columns, rows):
+    path = os.path.join(t, rel)
+    pq.write_table(pa.Table.from_pylist(rows, schema=pa.schema(columns)), path, compression="snappy")
+    return f"{loc}/{rel}", len(rows), os.path.getsize(path)
+
+# Partitioned (spec 1, country = JP) on name: deletes 'a' and null names in JP, not the null in US
+d1 = delete_file("data/country=JP/eq-name-deletes.parquet", [field("name", pa.string(), 2)], [{"name": "a"}, {"name": None}])
+# Unpartitioned (spec 0) on (id, name), with data sequence number 2: deletes (4, 'd') of the first
+# commit (sequence number 1) but not the second commit's copy (2, not below 2); (5, 'x') and
+# (2, null) match no row
+d2 = delete_file("data/eq-id-name-deletes.parquet", [field("id", pa.int64(), 1), field("name", pa.string(), 2)], [{"id": 4, "name": "d"}, {"id": 5, "name": "x"}, {"id": 2, "name": None}])
+
+template = next(p for p in glob.glob(os.path.join(t, "metadata", "*-m0.avro")) if fastavro.reader(open(p, "rb")).metadata.get("content") == "deletes")
+r = fastavro.reader(open(template, "rb"))
+schema, tmeta = r.writer_schema, {k: v for k, v in r.metadata.items() if not k.startswith("avro.")}
+
+def unpartitioned(schema):
+    s = json.loads(json.dumps(schema))
+    data_file = next(f for f in s["fields"] if f["name"] == "data_file")
+    part = next(f for f in data_file["type"]["fields"] if f["name"] == "partition")
+    part["type"]["fields"] = []
+    return s
+
+def delete_manifest(name, spec_id, partition, file, equality_ids, data_seq, schema, partitions):
+    path, count, size = file
+    entry = {
+        "status": 1, "snapshot_id": snapshot_id, "sequence_number": data_seq, "file_sequence_number": data_seq,
+        "data_file": {
+            "content": 2, "file_path": path, "file_format": "parquet", "partition": partition,
+            "record_count": count, "file_size_in_bytes": size, "column_sizes": [], "value_counts": [],
+            "null_value_counts": [], "nan_value_counts": [], "lower_bounds": [], "upper_bounds": [],
+            "split_offsets": None, "equality_ids": equality_ids, "sort_order_id": None, "referenced_data_file": None,
+        },
+    }
+    m = dict(tmeta, **{"partition-spec-id": str(spec_id), "partition-spec": json.dumps(next(s["fields"] for s in meta["partition-specs"] if s["spec-id"] == spec_id))})
+    p = os.path.join(t, "metadata", name)
     with open(p, "wb") as f:
-        fastavro.writer(f, schema, entries, codec="deflate", metadata={k: v for k, v in meta.items() if not k.startswith("avro.")})
+        fastavro.writer(f, schema, [entry], codec="deflate", metadata=m)
+    return {
+        "manifest_path": f"{loc}/metadata/{name}", "manifest_length": os.path.getsize(p), "partition_spec_id": spec_id,
+        "added_snapshot_id": snapshot_id, "added_files_count": 1, "existing_files_count": 0, "deleted_files_count": 0,
+        "added_rows_count": count, "existing_rows_count": 0, "deleted_rows_count": 0, "partitions": partitions,
+        "content": 1, "sequence_number": seq, "min_sequence_number": data_seq or seq,
+    }
+
+m1 = delete_manifest("eq-name-m0.avro", 1, {"country": "JP"}, d1, [2], None, schema, [{"contains_null": False, "contains_nan": False, "lower_bound": b"JP", "upper_bound": b"JP"}])
+m2 = delete_manifest("eq-id-name-m0.avro", 0, {}, d2, [1, 2], 2, unpartitioned(schema), [])
+
+r = fastavro.reader(open(os.path.join(t, "metadata", snap["manifest-list"].split("/")[-1]), "rb"))
+list_name = f"snap-{snapshot_id}-eq.avro"
+with open(os.path.join(t, "metadata", list_name), "wb") as f:
+    fastavro.writer(f, r.writer_schema, list(r) + [m1, m2], codec="deflate")
+
+ts = snap["timestamp-ms"] + 1
+meta["snapshots"].append({
+    "sequence-number": seq, "snapshot-id": snapshot_id, "parent-snapshot-id": parent, "timestamp-ms": ts,
+    "summary": {"operation": "overwrite", "added-equality-delete-files": "2", "added-equality-deletes": "5"},
+    "manifest-list": f"{loc}/metadata/{list_name}", "schema-id": meta["current-schema-id"],
+})
+meta["metadata-log"] = meta.get("metadata-log", []) + [{"timestamp-ms": meta["last-updated-ms"], "metadata-file": f"{loc}/metadata/{os.path.basename(metas[-1])}"}]
+meta.update({"last-sequence-number": seq, "last-updated-ms": ts, "current-snapshot-id": snapshot_id, "refs": {"main": {"snapshot-id": snapshot_id, "type": "branch"}}})
+meta["snapshot-log"].append({"timestamp-ms": ts, "snapshot-id": snapshot_id})
+with open(os.path.join(t, "metadata", f"{len(metas):05d}-{uuid.uuid4()}.metadata.json"), "w") as f:
+    json.dump(meta, f, indent=2)
