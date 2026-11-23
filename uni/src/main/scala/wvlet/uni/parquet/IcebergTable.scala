@@ -159,7 +159,8 @@ private[parquet] object IcebergTable:
                       case _ =>
                         None
                   }
-                  .maxByOption(_._1)
+                  // On a tie, the plain name wins, as in IcebergWrite.load
+                  .maxByOption((n, l) => (n, -l.segments.last.length))
                   .map(_._2)
               }
             val file =
