@@ -1357,17 +1357,13 @@ object Parquet:
               f.key,
               throw ParquetException(s"${f.key} is not a data file of ${target.rootName}")
             )
-            val ids =
-              if lineage then
-                Seq(ParquetDataset.RowIdFieldId, ParquetDataset.LastUpdatedFieldId)
-              else
-                Seq.empty
-            ds.foreachLiveBatch(file, ids) { (b, positions, stored) =>
-              val batch =
-                if lineage then
-                  b.copy(columns = b.columns ++ lineageColumns(schema, f, stored, positions))
-                else
-                  b
+            // Rows keep their lineage: stored values, or the source file's inherited ones
+            val inherited =
+              Option.when(lineage)(ParquetDataset.Inherited(f.firstRowId, Some(f.sequence)))
+            ds.foreachLiveBatch(file, inherited) { (b, rowLineage) =>
+              val batch = rowLineage
+                .map(l => b.copy(columns = b.columns ++ lineageColumns(schema, l)))
+                .getOrElse(b)
               val vectors = shredder.check(batch)
               try
                 // In slices, so a file is cut near the target size within a large batch
@@ -1396,38 +1392,22 @@ object Parquet:
 
   end rewriteGroups
 
-  /**
-    * The `_row_id` and `_last_updated_sequence_number` of the rows at these positions of a source
-    * file: the stored value (`stored`, aligned with the rows), or the inherited one (the file's
-    * first row ID plus the position, and its data sequence number)
-    */
+  /** The `_row_id` and `_last_updated_sequence_number` columns of a batch's rows */
   private def lineageColumns(
       schema: ParquetSchema,
-      f: IcebergWrite.LiveData,
-      stored: Seq[Option[(Array[Long], Array[Boolean])]],
-      positions: Array[Long]
-  ): IndexedSeq[ColumnVector] =
-    def column(name: String, k: Int, inherited: Long => Option[Long]): ColumnVector =
-      val n      = positions.length
-      val values = Array.ofDim[Long](n)
-      val nulls  = Array.ofDim[Boolean](n)
-      var r      = 0
-      while r < n do
-        stored.lift(k).flatten match
-          case Some((vs, ns)) if !ns(r) =>
-            values(r) = vs(r)
-          case _ =>
-            inherited(positions(r)) match
-              case Some(v) =>
-                values(r) = v
-              case None =>
-                nulls(r) = true
-        r += 1
-      ColumnVector.LongColumn(schema.field(name).get, values, nulls)
-    IndexedSeq(
-      column(DatasetWriterCore.RowIdColumn, 0, p => f.firstRowId.map(_ + p)),
-      column(DatasetWriterCore.LastUpdatedColumn, 1, _ => Some(f.sequence))
+      l: ParquetDataset.Lineage
+  ): IndexedSeq[ColumnVector] = IndexedSeq(
+    ColumnVector.LongColumn(
+      schema.field(DatasetWriterCore.RowIdColumn).get,
+      l.rowIds,
+      l.rowIdNulls
+    ),
+    ColumnVector.LongColumn(
+      schema.field(DatasetWriterCore.LastUpdatedColumn).get,
+      l.lastUpdated,
+      l.lastUpdatedNulls
     )
+  )
 
   /** The rows a compaction writes between checks of the file size */
   private val SizeCheckRows = 1024

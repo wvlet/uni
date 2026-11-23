@@ -123,17 +123,13 @@ class IcebergCompactionTest extends UniTest:
           val out = Seq.newBuilder[(Long, (Long, Long))]
           ds.foreachLiveBatch(
             file,
-            Seq(ParquetDataset.RowIdFieldId, ParquetDataset.LastUpdatedFieldId)
-          ) { (b, positions, stored) =>
-            def value(k: Int, r: Int, inherited: => Long): Long = stored(k)
-              .filter((_, nulls) => !nulls(r))
-              .map((vs, _) => vs(r))
-              .getOrElse(inherited)
+            Some(ParquetDataset.Inherited(f.firstRowId, Some(f.sequence)))
+          ) { (b, lineage) =>
+            val l        = lineage.get
             val idColumn = b.column("id")
             (0 until b.numRows).foreach { r =>
-              val p = positions(r)
-              out += idColumn.getValue(r).asInstanceOf[Long] ->
-                (value(0, r, f.firstRowId.get + p), value(1, r, f.sequence))
+              l.rowIdNulls(r) shouldBe false
+              out += idColumn.getValue(r).asInstanceOf[Long] -> (l.rowIds(r), l.lastUpdated(r))
             }
           }
           out.result()
