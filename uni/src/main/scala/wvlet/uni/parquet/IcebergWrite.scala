@@ -172,11 +172,70 @@ private[parquet] object IcebergWrite:
         */
       addsSpec: Boolean = false,
       /** Table properties the commit sets */
-      properties: Map[String, String] = Map.empty
+      properties: Map[String, String] = Map.empty,
+      /** The table's format version after the commit: 2, or 3 with row lineage */
+      formatVersion: Int = 2
   ):
-    def withProperties(ps: Map[String, String]): Plan = copy(properties = properties ++ ps)
+    /**
+      * Sets table properties. `format-version` isn't kept as a property: it picks the version of a
+      * new table, or upgrades a version 2 table to 3, as Iceberg's Java library does
+      */
+    def withProperties(ps: Map[String, String]): Plan =
+      val version =
+        ps.get(FormatVersionProperty) match
+          case None =>
+            formatVersion
+          case Some(v) =>
+            val n = v
+              .trim
+              .toIntOption
+              .getOrElse(
+                throw IllegalArgumentException(s"${FormatVersionProperty} must be 2 or 3: ${v}")
+              )
+            if n != 2 && n != 3 then
+              throw IllegalArgumentException(s"${FormatVersionProperty} must be 2 or 3: ${v}")
+            if n < formatVersion then
+              throw ParquetException(
+                s"${layout
+                    .root} is an Iceberg format version ${formatVersion} table; its version can't go down to ${n}"
+              )
+            n
+      val p = copy(properties = properties ++ (ps - FormatVersionProperty), formatVersion = version)
+      p.checkTypes()
+      p
+
+    /** Fails when the schema has a type that needs a higher format version than the table's */
+    def checkTypes(): Unit =
+      if formatVersion < 3 then
+        v3Types(schema)
+          .headOption
+          .foreach { (name, tpe) =>
+            throw ParquetException(
+              s"Column ${name} is ${tpe}, which Iceberg format version ${formatVersion} can't hold. Create the table with withTableProperties(Map(\"format-version\" -> \"3\"))"
+            )
+          }
 
   end Plan
+
+  /** The table property that sets the format version */
+  val FormatVersionProperty = "format-version"
+
+  /** Columns of a schema's JSON whose types need format version 3, with their types */
+  private def v3Types(schema: JSONObject): Seq[(String, String)] =
+    def visit(name: String, t: Option[JSONValue]): Seq[(String, String)] =
+      t match
+        case Some(JSONString(tpe)) if tpe == "timestamp_ns" || tpe == "timestamptz_ns" =>
+          Seq(name -> tpe)
+        case Some(o: JSONObject) =>
+          structFields(o).flatMap(f =>
+            visit(s"${name}.${string(f, "name").getOrElse("")}", f.get("type"))
+          ) ++
+            Seq("element", "key", "value").flatMap(k =>
+              o.get(k).toSeq.flatMap(v => visit(name, Some(v)))
+            )
+        case _ =>
+          Seq.empty
+    structFields(schema).flatMap(f => visit(string(f, "name").getOrElse(""), f.get("type")))
 
   /**
     * Binds the write to the table: field IDs from the table schema (or new ones for a new table),
@@ -262,9 +321,9 @@ private[parquet] object IcebergWrite:
   private def currentSchema(t: Table): (Int, JSONObject) =
     val m       = t.metadata
     val version = long(m, "format-version").getOrElse(1L)
-    if version != 2 then
+    if version != 2 && version != 3 then
       throw ParquetException(
-        s"${t.path} is an Iceberg format version ${version} table; Uni writes only to version 2 tables"
+        s"${t.path} is an Iceberg format version ${version} table; Uni writes only to version 2 and 3 tables"
       )
     val schemaId = long(m, "current-schema-id").map(_.toInt).getOrElse(0)
     val current  = array(m, "schemas")
@@ -356,10 +415,14 @@ private[parquet] object IcebergWrite:
       specId,
       spec,
       long(m, "last-column-id").map(_.toInt).getOrElse(0),
-      removal
+      removal,
+      formatVersion = formatVersionOf(t)
     )
 
   end planAppend
+
+  private def formatVersionOf(t: Table): Int =
+    long(t.metadata, "format-version").getOrElse(1L).toInt
 
   /**
     * Replaces every row. Rows that fit the table schema keep it (and the partition spec, unless
@@ -471,7 +534,8 @@ private[parquet] object IcebergWrite:
         next,
         Removal.All,
         addsSchema = !fits,
-        addsSpec = reused.isEmpty
+        addsSpec = reused.isEmpty,
+        formatVersion = formatVersionOf(t)
       )
     end if
 
@@ -893,9 +957,7 @@ private[parquet] object IcebergWrite:
   /** The Iceberg type of a leaf column */
   def primitiveType(p: ParquetField.Primitive, name: String): String =
     def unsupported(what: String): Nothing =
-      throw ParquetException(
-        s"Column ${name} is ${what}, which Iceberg format version 2 can't hold"
-      )
+      throw ParquetException(s"Column ${name} is ${what}, which Iceberg can't hold")
     (p.physicalType, p.logicalType) match
       case (PhysicalType.BOOLEAN, None) =>
         "boolean"
@@ -918,8 +980,14 @@ private[parquet] object IcebergWrite:
           "timestamptz"
         else
           "timestamp"
+      case (PhysicalType.INT64, Some(LogicalType.Timestamp(utc, TimeUnit.NANOS))) =>
+        // Format version 3 only; Plan.checkTypes refuses it for older tables
+        if utc then
+          "timestamptz_ns"
+        else
+          "timestamp_ns"
       case (PhysicalType.INT64, Some(LogicalType.Timestamp(_, unit))) =>
-        unsupported(s"a ${unit} timestamp (Iceberg stores microseconds)")
+        unsupported(s"a ${unit} timestamp (Iceberg stores microseconds or nanoseconds)")
       case (PhysicalType.INT64, Some(LogicalType.Time(_, TimeUnit.MICROS))) =>
         "time"
       case (_, Some(LogicalType.Time(_, unit))) =>
@@ -1133,27 +1201,39 @@ private[parquet] object IcebergWrite:
   private def mapType(keyId: Int, valueId: Int, value: String): String =
     s"""["null",{"type":"array","items":{"type":"record","name":"k${keyId}_v${valueId}","fields":[{"name":"key","type":"int","field-id":${keyId}},{"name":"value","type":"${value}","field-id":${valueId}}]},"logicalType":"map"}]"""
 
-  private def manifestSchema(spec: IndexedSeq[PartitionField]): String =
+  private def manifestSchema(spec: IndexedSeq[PartitionField], formatVersion: Int): String =
     val partition                                     = spec.map(partitionAvroType).mkString(",")
     def opt(name: String, id: Int, t: String): String =
       s"""{"name":"${name}","type":${t},"default":null,"field-id":${id}}"""
-    val dataFile = Seq(
-      """{"name":"content","type":"int","field-id":134}""",
-      """{"name":"file_path","type":"string","field-id":100}""",
-      """{"name":"file_format","type":"string","field-id":101}""",
-      s"""{"name":"partition","type":{"type":"record","name":"r102","fields":[${partition}]},"field-id":102}""",
-      """{"name":"record_count","type":"long","field-id":103}""",
-      """{"name":"file_size_in_bytes","type":"long","field-id":104}""",
-      opt("column_sizes", 108, mapType(117, 118, "long")),
-      opt("value_counts", 109, mapType(119, 120, "long")),
-      opt("null_value_counts", 110, mapType(121, 122, "long")),
-      opt("nan_value_counts", 137, mapType(138, 139, "long")),
-      opt("lower_bounds", 125, mapType(126, 127, "bytes")),
-      opt("upper_bounds", 128, mapType(129, 130, "bytes")),
-      opt("key_metadata", 131, """["null","bytes"]"""),
-      opt("split_offsets", 132, """["null",{"type":"array","items":"long","element-id":133}]"""),
-      opt("equality_ids", 135, """["null",{"type":"array","items":"int","element-id":136}]"""),
-      opt("sort_order_id", 140, """["null","int"]""")
+    val dataFile = (
+      Seq(
+        """{"name":"content","type":"int","field-id":134}""",
+        """{"name":"file_path","type":"string","field-id":100}""",
+        """{"name":"file_format","type":"string","field-id":101}""",
+        s"""{"name":"partition","type":{"type":"record","name":"r102","fields":[${partition}]},"field-id":102}""",
+        """{"name":"record_count","type":"long","field-id":103}""",
+        """{"name":"file_size_in_bytes","type":"long","field-id":104}""",
+        opt("column_sizes", 108, mapType(117, 118, "long")),
+        opt("value_counts", 109, mapType(119, 120, "long")),
+        opt("null_value_counts", 110, mapType(121, 122, "long")),
+        opt("nan_value_counts", 137, mapType(138, 139, "long")),
+        opt("lower_bounds", 125, mapType(126, 127, "bytes")),
+        opt("upper_bounds", 128, mapType(129, 130, "bytes")),
+        opt("key_metadata", 131, """["null","bytes"]"""),
+        opt("split_offsets", 132, """["null",{"type":"array","items":"long","element-id":133}]"""),
+        opt("equality_ids", 135, """["null",{"type":"array","items":"int","element-id":136}]"""),
+        opt("sort_order_id", 140, """["null","int"]""")
+      ) ++ (
+        if formatVersion >= 3 then
+          Seq(
+            opt("first_row_id", 142, """["null","long"]"""),
+            opt("referenced_data_file", 143, """["null","string"]"""),
+            opt("content_offset", 144, """["null","long"]"""),
+            opt("content_size_in_bytes", 145, """["null","long"]""")
+          )
+        else
+          Seq.empty
+      )
     ).mkString(",")
     s"""{"type":"record","name":"manifest_entry","fields":[{"name":"status","type":"int","field-id":0},${opt(
         "snapshot_id",
@@ -1167,8 +1247,8 @@ private[parquet] object IcebergWrite:
 
   end manifestSchema
 
-  private val ManifestListSchema: String =
-    """{"type":"record","name":"manifest_file","fields":[""" +
+  private def manifestListSchema(formatVersion: Int): String =
+    """{"type":"record","name":"manifest_file","fields":[""" + (
       Seq(
         """{"name":"manifest_path","type":"string","field-id":500}""",
         """{"name":"manifest_length","type":"long","field-id":501}""",
@@ -1185,7 +1265,13 @@ private[parquet] object IcebergWrite:
         """{"name":"deleted_rows_count","type":"long","field-id":514}""",
         """{"name":"partitions","type":["null",{"type":"array","items":{"type":"record","name":"r508","fields":[{"name":"contains_null","type":"boolean","field-id":509},{"name":"contains_nan","type":["null","boolean"],"default":null,"field-id":518},{"name":"lower_bound","type":["null","bytes"],"default":null,"field-id":510},{"name":"upper_bound","type":["null","bytes"],"default":null,"field-id":511}]},"element-id":508}],"default":null,"field-id":507}""",
         """{"name":"key_metadata","type":["null","bytes"],"default":null,"field-id":519}"""
-      ).mkString(",") + "]}"
+      ) ++ (
+        if formatVersion >= 3 then
+          Seq("""{"name":"first_row_id","type":["null","long"],"default":null,"field-id":520}""")
+        else
+          Seq.empty
+      )
+    ).mkString(",") + "]}"
 
   // ---- Values ----
 
@@ -1326,13 +1412,13 @@ private[parquet] object IcebergWrite:
       }
       val specJson = JSONArray(spec.map(specFieldJson))
       Avro.write(
-        manifestSchema(spec),
+        manifestSchema(spec, plan.formatVersion),
         Seq(
           "schema"            -> plan.schema.toJSON,
           "schema-id"         -> plan.schemaId.toString,
           "partition-spec"    -> specJson.toJSON,
           "partition-spec-id" -> plan.specId.toString,
-          "format-version"    -> "2",
+          "format-version"    -> plan.formatVersion.toString,
           "content"           -> "data"
         ),
         entries
@@ -1397,6 +1483,32 @@ private[parquet] object IcebergWrite:
           i.toLong
         case _ =>
           0L
+
+    /**
+      * Live entries of a v3 manifest, with the first row IDs they inherited from the manifest
+      * written out (as Iceberg's Java library assigns them, in entry order), so a rewritten
+      * manifest keeps its rows' IDs
+      */
+    private def withRowIds(
+        c: Avro.Container,
+        listEntry: Map[String, Any],
+        live: IndexedSeq[Map[String, Any]]
+    ): IndexedSeq[Map[String, Any]] =
+      val hasField = c.meta("avro.schema").exists(_.contains("\"first_row_id\""))
+      listEntry.get("first_row_id") match
+        case Some(first: Long) if hasField =>
+          var next = first
+          live.map { e =>
+            val d = dataFileOf(e)
+            if d.get("first_row_id").forall(_ == null) then
+              val id = next
+              next += num(d, "record_count")
+              e.updated("data_file", d.updated("first_row_id", id))
+            else
+              e
+          }
+        case _ =>
+          live
 
     /** A path as [[ParquetDataset.files]] lists it, for matching the files to remove */
     private def pathKey(p: String): String =
@@ -1479,10 +1591,13 @@ private[parquet] object IcebergWrite:
               bytes =>
                 val c           = Avro.read(bytes, listed)
                 val manifestSeq = num(r, "sequence_number")
-                val live        = c
-                  .records
-                  .map(_.asInstanceOf[Map[String, Any]])
-                  .filter(e => num(e, "status") != Deleted)
+                val live        = withRowIds(
+                  c,
+                  r,
+                  c.records
+                    .map(_.asInstanceOf[Map[String, Any]])
+                    .filter(e => num(e, "status") != Deleted)
+                )
                 def keyOf(e: Map[String, Any]): String = pathKey(
                   resolve(
                     base,
@@ -1631,26 +1746,51 @@ private[parquet] object IcebergWrite:
             "partitions"           -> partitionSummaries
           )
           // A commit that only removes files lists no manifest of its own
-          val entries =
+          val listed =
             if files.isEmpty && plan.removal != Removal.Keep then
               parentEntries
             else
               newEntry +: parentEntries
-          val list = Avro.write(
-            ManifestListSchema,
+          // Row lineage (format version 3): a data manifest without a first row ID gets the next
+          // IDs, one per added or existing row, as Iceberg's Java library assigns them
+          val firstRowId        = m.flatMap(long(_, "next-row-id")).getOrElse(0L)
+          var nextRowId         = firstRowId
+          val entries: Seq[Any] =
+            if plan.formatVersion < 3 then
+              listed
+            else
+              listed.map { e =>
+                val r = e.asInstanceOf[Map[String, Any]]
+                if num(r, "content") == 0 && r.get("first_row_id").forall(_ == null) then
+                  val id = nextRowId
+                  nextRowId += num(r, "added_rows_count") + num(r, "existing_rows_count")
+                  r.updated("first_row_id", id)
+                else
+                  r
+              }
+          val lineage = Option.when(plan.formatVersion >= 3)(firstRowId -> (nextRowId - firstRowId))
+          val list    = Avro.write(
+            manifestListSchema(plan.formatVersion),
             Seq(
               "snapshot-id"        -> snapshotId.toString,
               "parent-snapshot-id" -> parent.map(_.toString).getOrElse("null"),
               "sequence-number"    -> seq.toString,
-              "format-version"     -> "2"
-            ),
+              "format-version"     -> plan.formatVersion.toString
+            ) ++ lineage.map((first, _) => "first-row-id" -> first.toString),
             entries
           )
           val listPath = layout.metadata(s"snap-${snapshotId}-${n}-${commitId}.avro")
           put(listPath, list) {
             val version = base.map(_.version).getOrElse(0) + 1
             val path    = layout.metadata(s"v${version}.metadata.json")
-            val json    = metadataJson(base, parentSnapshot, seq, layout.uriOf(listPath), removed)
+            val json    = metadataJson(
+              base,
+              parentSnapshot,
+              seq,
+              layout.uriOf(listPath),
+              removed,
+              lineage
+            )
             createAttempted = true
             Step.Create(
               path,
@@ -1741,7 +1881,8 @@ private[parquet] object IcebergWrite:
         "existing_rows_count"  -> num("existing_rows_count"),
         "deleted_rows_count"   -> num("deleted_rows_count"),
         "partitions"           -> m.getOrElse("partitions", null),
-        "key_metadata"         -> m.getOrElse("key_metadata", null)
+        "key_metadata"         -> m.getOrElse("key_metadata", null),
+        "first_row_id"         -> m.getOrElse("first_row_id", null)
       )
 
     private def metadataJson(
@@ -1749,7 +1890,9 @@ private[parquet] object IcebergWrite:
         parentSnapshot: Option[JSONObject],
         seq: Long,
         manifestList: String,
-        removed: Removed
+        removed: Removed,
+        /** The snapshot's first row ID and the number of row IDs it assigned (format version 3) */
+        lineage: Option[(Long, Long)]
     ): JSONObject =
       val now           = System.currentTimeMillis()
       val added         = files.size.toLong
@@ -1818,8 +1961,16 @@ private[parquet] object IcebergWrite:
             "manifest-list"   -> JSONString(manifestList),
             "summary"         -> summary,
             "schema-id"       -> JSONLong(plan.schemaId.toLong)
-          )
+          ) ++
+          lineage
+            .toSeq
+            .flatMap((first, added) =>
+              Seq("first-row-id" -> JSONLong(first), "added-rows" -> JSONLong(added))
+            )
       )
+      val lineageUpdate = lineage
+        .toSeq
+        .map((first, added) => "next-row-id" -> JSONLong(first + added))
       val ref = JSONObject(
         Seq(
           "main" ->
@@ -1833,7 +1984,7 @@ private[parquet] object IcebergWrite:
         case None =>
           JSONObject(
             Seq(
-              "format-version"       -> JSONLong(2),
+              "format-version"       -> JSONLong(plan.formatVersion.toLong),
               "table-uuid"           -> JSONString(newUuid()),
               "location"             -> JSONString(layout.location),
               "last-sequence-number" -> JSONLong(seq),
@@ -1868,7 +2019,7 @@ private[parquet] object IcebergWrite:
               "statistics"          -> JSONArray(IndexedSeq.empty),
               "snapshot-log"        -> JSONArray(IndexedSeq(logEntry)),
               "metadata-log"        -> JSONArray(IndexedSeq.empty)
-            )
+            ) ++ lineageUpdate
           )
         case Some(t) =>
           val old         = t.metadata
@@ -1941,8 +2092,9 @@ private[parquet] object IcebergWrite:
               "refs"                 -> refs,
               "snapshots"            -> JSONArray(array(old, "snapshots") :+ snapshot),
               "snapshot-log"         -> JSONArray(array(old, "snapshot-log") :+ logEntry),
-              "metadata-log"         -> JSONArray(array(old, "metadata-log") :+ metadataLog)
-            ) ++ schemaUpdate ++ specUpdate ++ propertyUpdate
+              "metadata-log"         -> JSONArray(array(old, "metadata-log") :+ metadataLog),
+              "format-version"       -> JSONLong(plan.formatVersion.toLong)
+            ) ++ schemaUpdate ++ specUpdate ++ propertyUpdate ++ lineageUpdate
           val kept = old.v.filterNot((k, _) => replaced.contains(k))
           JSONObject(kept ++ replaced.toSeq)
       end match
@@ -2258,13 +2410,7 @@ private[parquet] object IcebergWrite:
         case None =>
           throw ParquetException(s"${layout.root} is not an Iceberg table")
         case Some(t) =>
-          val m = t.metadata
-          if long(m, "format-version").exists(_ > 2) then
-            // Rewritten manifests would lose the version 3 fields (row lineage, deletion vectors)
-            throw ParquetException(
-              s"${layout.root} is an Iceberg format version ${long(m, "format-version")
-                  .get} table; Uni relocates only version 1 and 2 tables"
-            )
+          val m         = t.metadata
           val snapshots = objects(m, "snapshots")
           val current   = long(m, "current-snapshot-id")
             .filter(_ >= 0)
@@ -2375,14 +2521,38 @@ private[parquet] object IcebergWrite:
                     val entry = r.asInstanceOf[Map[String, Any]]
                     entry.get("data_file") match
                       case Some(d: Map[?, ?]) =>
-                        val df = d.asInstanceOf[Map[String, Any]]
-                        df.get("file_path") match
-                          case Some(p: String) =>
-                            entry.updated("data_file", df.updated("file_path", moved(p)))
-                          case _ =>
-                            entry
+                        val df       = d.asInstanceOf[Map[String, Any]]
+                        val isDelete = df.get("content").exists(_ != 0)
+                        if isDelete && entry.get("status").exists(_ != Deleted) &&
+                          !df
+                            .get("file_format")
+                            .exists(f => String.valueOf(f).equalsIgnoreCase("puffin"))
+                        then
+                          // Their rows name data files by the old paths
+                          throw ParquetException(
+                            s"${layout
+                                .root} has position delete files, whose rows name data files by their old paths; compact the table before renaming it"
+                          )
+                        val withPath =
+                          df.get("file_path") match
+                            case Some(p: String) =>
+                              df.updated("file_path", moved(p))
+                            case _ =>
+                              df
+                        val withTarget =
+                          withPath.get("referenced_data_file") match
+                            case Some(p: String) =>
+                              // A deletion vector's data file; the path bounds name it too
+                              withPath
+                                .updated("referenced_data_file", moved(p))
+                                .updated("lower_bounds", null)
+                                .updated("upper_bounds", null)
+                            case _ =>
+                              withPath
+                        entry.updated("data_file", withTarget)
                       case _ =>
                         entry
+                    end match
                   }
                 val out2 = Avro.write(schema, meta, records)
                 val path = layout.metadata(s"${commitId}-m${i}.avro")
