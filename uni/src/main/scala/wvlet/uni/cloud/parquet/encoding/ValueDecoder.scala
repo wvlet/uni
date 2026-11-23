@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet.encoding
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.ParquetException
 import wvlet.uni.cloud.parquet.column.*
 import wvlet.uni.cloud.parquet.format.Encoding
@@ -116,7 +117,7 @@ private[parquet] object ValueDecoder:
         b.ensure(n)
         var i = 0
         while i < n do
-          b.values(b.size + i) = ByteReader.intLE(buf, start + i * 4)
+          b.values(b.size + i) = Bytes.intLE(buf, start + i * 4)
           i += 1
         b.size += n
       case PhysicalType.INT64 =>
@@ -125,7 +126,7 @@ private[parquet] object ValueDecoder:
         b.ensure(n)
         var i = 0
         while i < n do
-          b.values(b.size + i) = ByteReader.longLE(buf, start + i * 8)
+          b.values(b.size + i) = Bytes.longLE(buf, start + i * 8)
           i += 1
         b.size += n
       case PhysicalType.FLOAT =>
@@ -134,10 +135,7 @@ private[parquet] object ValueDecoder:
         b.ensure(n)
         var i = 0
         while i < n do
-          b.values(b.size + i) = java
-            .lang
-            .Float
-            .intBitsToFloat(ByteReader.intLE(buf, start + i * 4))
+          b.values(b.size + i) = java.lang.Float.intBitsToFloat(Bytes.intLE(buf, start + i * 4))
           i += 1
         b.size += n
       case PhysicalType.DOUBLE =>
@@ -146,10 +144,7 @@ private[parquet] object ValueDecoder:
         b.ensure(n)
         var i = 0
         while i < n do
-          b.values(b.size + i) = java
-            .lang
-            .Double
-            .longBitsToDouble(ByteReader.longLE(buf, start + i * 8))
+          b.values(b.size + i) = java.lang.Double.longBitsToDouble(Bytes.longLE(buf, start + i * 8))
           i += 1
         b.size += n
       case PhysicalType.BYTE_ARRAY =>

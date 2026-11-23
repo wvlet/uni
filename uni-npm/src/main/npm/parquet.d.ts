@@ -1,4 +1,4 @@
-// Types for @wvlet/uni/cloud/parquet. Kept by hand next to the Scala.js facade
+// Types for @wvlet/uni/parquet. Kept by hand next to the Scala.js facade
 // (uni-npm/src/main/scala/wvlet/uni/cloud/parquet/npm/), and checked by tsc in CI.
 
 /** A Parquet file to open: bytes, a browser Blob/File, a local path (Node.js), or an http(s) URL read with Range requests */

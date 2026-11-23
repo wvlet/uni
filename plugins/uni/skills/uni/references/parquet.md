@@ -258,6 +258,7 @@ def typedDataset(root: String) = Parquet.dataset(
   snapshot atomically (`ObjectStore.putIfAbsent` on `metadata/vN.metadata.json`, retrying a lost
   race). Data goes under `data/` with the partition columns and field IDs kept; manifests carry
   column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.
+  Table operations are on `wvlet.uni.cloud.iceberg.Iceberg`:
   `Iceberg.renameTable(from, to)` moves a local table and writes its manifests and
   position-delete files again with the moved paths (current snapshot only).
   `Iceberg.deleteRows(root, filter)` deletes the matching rows merge-on-read and returns
@@ -517,7 +518,7 @@ The same code is on npm as `@wvlet/uni` (Scala.js, with type declarations). Poin
 instead of writing a Scala.js facade:
 
 ```ts
-import { openParquet, writeParquet } from "@wvlet/uni/cloud/parquet";
+import { openParquet, writeParquet } from "@wvlet/uni/parquet";
 const file = await openParquet(bytes); // Uint8Array, ArrayBuffer, Blob, path (Node), or URL
 const rows = await file.readRows({ columns: ["id"], timestamps: "bigint" });
 const out = writeParquet(rows, [{ name: "id", type: "int64", optional: false }]);
@@ -528,7 +529,7 @@ INT64 is `bigint`, decimals are strings, timestamps are `Date` unless `timestamp
 Datasets (root, glob, or file list; local in Node, or `s3://`/`gs://`/`az://`; async I/O, so browsers work):
 
 ```ts
-import { openDataset, writeDataset, newDatasetWriter } from "@wvlet/uni/cloud/parquet";
+import { openDataset, writeDataset, newDatasetWriter } from "@wvlet/uni/parquet";
 const storage = { s3: { region: "us-east-1", credentials: { accessKeyId, secretAccessKey, sessionToken } } };
 await writeDataset("s3://bucket/events/", rows, schema, { partitionBy: ["dt"], mode: "overwrite-partitions", storage });
 const ds = await openDataset("s3://bucket/events/dt=2026-11-*", { storage });

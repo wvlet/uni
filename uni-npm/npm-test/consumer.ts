@@ -12,7 +12,7 @@ import {
   type WrittenFile,
   type ParquetFile,
   type ParquetRow,
-} from "@wvlet/uni/cloud/parquet";
+} from "@wvlet/uni/parquet";
 
 const schema: ColumnSpec[] = [
   { name: "id", type: "int64", optional: false },

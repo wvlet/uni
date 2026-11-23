@@ -611,10 +611,7 @@ class IcebergTableOpsTest extends UniTest:
       Iceberg.renameTable(root, "s3://bucket/sales")
     }
     // Checked before the folder moves: a write path would still name the old folder
-    Iceberg.alterTable(
-      root,
-      IcebergTableChange.SetProperty("write.data.path", s"${root}/data")
-    )
+    Iceberg.alterTable(root, IcebergTableChange.SetProperty("write.data.path", s"${root}/data"))
     val e = intercept[ParquetException] {
       Iceberg.renameTable(root, s"${root}-y")
     }

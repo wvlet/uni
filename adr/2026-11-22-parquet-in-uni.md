@@ -24,3 +24,7 @@
 - Snappy, LZ4 (block), Inflate, ZSTD, and Brotli, their compressors, `WideCopy`/`Word8`, and `ByteBuf` move from `wvlet.uni.parquet.codec` to `wvlet.uni.io.codec`, next to `wvlet.uni.io.Gzip`. They stay internal (`private[uni]`); a public API (for example HTTP `Content-Encoding: zstd`/`br`) is a separate decision.
 - They throw `CodecException` (internal) instead of `ParquetException`. Parquet's call sites (`Codecs.decompress`, `Compressors.compress`, and Avro blocks) wrap it back into a `ParquetException` with the same message, so Parquet users still catch `ParquetException`; the messages now say "Corrupt compressed data" or "Unsupported compression feature".
 - The Parquet-specific parts stay in `wvlet.uni.parquet.codec`: the `CompressionCodec` dispatch (`Codecs`, `Compressors`) and Hadoop's LZ4 framing (`Lz4Hadoop`).
+
+## Addendum: `wvlet.uni.cloud.parquet`
+
+The package is now `wvlet.uni.cloud.parquet`, and Iceberg and Delta are the sibling packages `cloud.iceberg` and `cloud.delta`; see the "data formats under `wvlet.uni.cloud`" addendum of `2026-11-21-package-layout.md`.

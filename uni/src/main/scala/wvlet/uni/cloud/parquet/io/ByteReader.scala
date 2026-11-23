@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet.io
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.ParquetException
 
 /**
@@ -35,13 +36,13 @@ private[parquet] final class ByteReader(val buf: Array[Byte], start: Int, val li
 
   def readIntLE(): Int =
     ensure(4)
-    val v = ByteReader.intLE(buf, pos)
+    val v = Bytes.intLE(buf, pos)
     pos += 4
     v
 
   def readLongLE(): Long =
     ensure(8)
-    val v = ByteReader.longLE(buf, pos)
+    val v = Bytes.longLE(buf, pos)
     pos += 8
     v
 
@@ -99,18 +100,3 @@ private[parquet] final class ByteReader(val buf: Array[Byte], start: Int, val li
     (n >>> 1) ^ -(n & 1L)
 
 end ByteReader
-
-private[uni] object ByteReader:
-  inline def intLE(b: Array[Byte], i: Int): Int =
-    (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
-
-  inline def longLE(b: Array[Byte], i: Int): Long =
-    (intLE(b, i).toLong & 0xffffffffL) | (intLE(b, i + 4).toLong << 32)
-
-  inline def longBE(b: Array[Byte], i: Int): Long =
-    var v = 0L
-    var k = 0
-    while k < 8 do
-      v = (v << 8) | (b(i + k) & 0xffL)
-      k += 1
-    v

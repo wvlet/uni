@@ -24,7 +24,7 @@ import scala.scalajs.js.typedarray.Int8Array
 import scala.scalajs.js.typedarray.Uint8Array
 
 /**
-  * The npm entry point `@wvlet/uni/cloud/parquet`. Its JS shape is documented in parquet.d.ts, which must
+  * The npm entry point `@wvlet/uni/parquet`. Its JS shape is documented in parquet.d.ts, which must
   * change together with this file.
   */
 object ParquetNpm:

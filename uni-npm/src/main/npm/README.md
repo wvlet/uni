@@ -1,7 +1,7 @@
 # @wvlet/uni
 
 [Uni](https://wvlet.org/uni/) libraries for TypeScript and JavaScript, compiled from Scala with
-Scala.js. The first module is `@wvlet/uni/cloud/parquet`: a pure-JS Apache Parquet reader and writer
+Scala.js. The first module is `@wvlet/uni/parquet`: a pure-JS Apache Parquet reader and writer
 built from the same code as Uni on the JVM and Scala Native, so files read and write the
 same on every platform. No WebAssembly or native add-on is needed.
 
@@ -10,7 +10,7 @@ npm install @wvlet/uni
 ```
 
 ```ts
-import { openParquet, writeParquet } from "@wvlet/uni/cloud/parquet";
+import { openParquet, writeParquet } from "@wvlet/uni/parquet";
 
 const bytes = writeParquet(
   [{ id: 1n, name: "apple", price: 1.5 }],

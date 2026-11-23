@@ -3,10 +3,9 @@ package wvlet.uni.cloud.iceberg
 import wvlet.uni.cloud.parquet.*
 
 /**
-  * What [[Iceberg.compactTable]] rewrites. Data files are grouped by partition spec and
-  * partition value. In a group, every file that deletes apply to is rewritten with them applied,
-  * and small files are merged when the group has enough of them. The new files are cut at the
-  * target size.
+  * What [[Iceberg.compactTable]] rewrites. Data files are grouped by partition spec and partition
+  * value. In a group, every file that deletes apply to is rewritten with them applied, and small
+  * files are merged when the group has enough of them. The new files are cut at the target size.
   *
   * @param targetFileSize
   *   the size of the files to write; when unset, the table's `write.target-file-size-bytes`, or 512

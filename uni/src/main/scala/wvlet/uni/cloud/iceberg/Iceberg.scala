@@ -52,11 +52,10 @@ object Iceberg:
     withTarget(datasetTarget(root))(alterAt(_, changes))
 
   /** Commits schema changes to the Iceberg table at `root` in the store */
-  def alterTable(store: ObjectStore, root: String, changes: IcebergTableChange*): Unit =
-    alterAt(
-      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
-      changes
-    )
+  def alterTable(store: ObjectStore, root: String, changes: IcebergTableChange*): Unit = alterAt(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    changes
+  )
 
   /**
     * Expires every snapshot of the Apache Iceberg table at `root` but the newest `retainLast`, the
@@ -72,11 +71,10 @@ object Iceberg:
     withTarget(datasetTarget(root))(expireAt(_, retainLast))
 
   /** Expires snapshots of the Iceberg table at `root` in the store */
-  def expireSnapshots(store: ObjectStore, root: String, retainLast: Int): Int =
-    expireAt(
-      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
-      retainLast
-    )
+  def expireSnapshots(store: ObjectStore, root: String, retainLast: Int): Int = expireAt(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    retainLast
+  )
 
   private def expireAt(target: DatasetTarget, retainLast: Int): Int =
     val layout = DatasetWriterCore.icebergLayout(target)
@@ -151,11 +149,11 @@ object Iceberg:
   )
 
   /**
-    * Updates the rows that `filter` matches as `A`, as [[updateRows]] does with maps: each
-    * matching row is read into `A` as [[ParquetDataset.readAs]] reads it (columns matched to fields
-    * by name), and `update`'s result is written with the table's current schema, as
-    * [[writeDataset]] writes `A`. `A`'s fields must cover the table's required columns; columns `A`
-    * leaves out are written as null.
+    * Updates the rows that `filter` matches as `A`, as [[updateRows]] does with maps: each matching
+    * row is read into `A` as [[ParquetDataset.readAs]] reads it (columns matched to fields by
+    * name), and `update`'s result is written with the table's current schema, as [[writeDataset]]
+    * writes `A`. `A`'s fields must cover the table's required columns; columns `A` leaves out are
+    * written as null.
     *
     * @return
     *   the number of rows updated; 0, with nothing committed, when no row matches
@@ -526,8 +524,11 @@ object Iceberg:
   )
 
   /** Compacts the Iceberg table at `root` in the store with the default options */
-  def compactTable(store: ObjectStore, root: String): IcebergCompaction =
-    compactTable(store, root, IcebergCompactionOptions.default)
+  def compactTable(store: ObjectStore, root: String): IcebergCompaction = compactTable(
+    store,
+    root,
+    IcebergCompactionOptions.default
+  )
 
   /** Deletes files a failed commit wrote; one that fails to delete stays unreferenced */
   private def cleanUpFiles(target: DatasetTarget, paths: Seq[String]): Unit = paths.foreach { p =>
@@ -892,3 +893,4 @@ object Iceberg:
       case DatasetTarget.Objects(store, root, _) =>
         store.list(root, recursive = true).foreach(o => store.delete(o.uri))
 
+end Iceberg

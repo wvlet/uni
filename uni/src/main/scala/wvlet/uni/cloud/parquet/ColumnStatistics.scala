@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.format.PhysicalType
 import wvlet.uni.cloud.parquet.format.RowGroupMeta
 import wvlet.uni.cloud.parquet.format.Statistics
@@ -100,13 +101,13 @@ object ColumnStatistics:
   private def value(p: ParquetField.Primitive, b: Array[Byte]): Any =
     p.physicalType match
       case PhysicalType.INT32 =>
-        LogicalValues.fromInt(ByteReader.intLE(b, 0), p.logicalType)
+        LogicalValues.fromInt(Bytes.intLE(b, 0), p.logicalType)
       case PhysicalType.INT64 =>
-        LogicalValues.fromLong(ByteReader.longLE(b, 0), p.logicalType)
+        LogicalValues.fromLong(Bytes.longLE(b, 0), p.logicalType)
       case PhysicalType.FLOAT =>
-        java.lang.Float.intBitsToFloat(ByteReader.intLE(b, 0))
+        java.lang.Float.intBitsToFloat(Bytes.intLE(b, 0))
       case PhysicalType.DOUBLE =>
-        java.lang.Double.longBitsToDouble(ByteReader.longLE(b, 0))
+        java.lang.Double.longBitsToDouble(Bytes.longLE(b, 0))
       case PhysicalType.BOOLEAN =>
         (b(0) & 1) == 1
       case _ =>

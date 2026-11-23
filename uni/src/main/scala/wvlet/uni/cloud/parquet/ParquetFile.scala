@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.cloud.parquet.column.ChunkInput
@@ -541,7 +542,7 @@ object ParquetFile:
     if size < 12 || tail.length < 8 then
       throw ParquetException(s"${name} is too small to be a Parquet file (${size} bytes)")
     checkMagic(tail, tail.length - 4, name)
-    val len = ByteReader.intLE(tail, tail.length - 8)
+    val len = Bytes.intLE(tail, tail.length - 8)
     if len <= 0 || len.toLong > size - 12 then
       throw ParquetException.corrupt(s"footer length ${len} does not fit in ${name}")
     (size - 8 - len, len)

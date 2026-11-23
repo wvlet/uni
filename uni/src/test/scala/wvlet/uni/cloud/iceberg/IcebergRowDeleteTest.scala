@@ -124,8 +124,8 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
   test("refuse a root that isn't an Iceberg table") {
     val root = newRoot()
     Parquet.writeDataset(root, sales, ParquetDatasetWriteOptions.default)
-    intercept[ParquetException](Iceberg.deleteRows(root, col("id") === 1L))
-      .getMessage shouldContain "is not an Iceberg table"
+    intercept[ParquetException](Iceberg.deleteRows(root, col("id") === 1L)).getMessage shouldContain
+      "is not an Iceberg table"
   }
 
   // ---- Tables other engines wrote ----
@@ -230,8 +230,7 @@ class IcebergRowDeleteTest extends UniTest with IcebergTableFixtures:
     val root   = hadoopCopy("respec")
     val before = ids(root)
     before.size > 1 shouldBe true
-    Iceberg.deleteRows(root, col("id") === before.head || col("id") === before.last) shouldBe
-      2L
+    Iceberg.deleteRows(root, col("id") === before.head || col("id") === before.last) shouldBe 2L
     ids(root) shouldBe before.drop(1).dropRight(1)
   }
 

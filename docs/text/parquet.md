@@ -486,9 +486,11 @@ val rawFiles = Parquet.dataset(
 An Apache Iceberg table keeps its metadata under `metadata/`. Each commit writes a new
 `.metadata.json` file that lists the table's snapshots, and each snapshot lists its data files
 through Avro manifests. Like Delta, deletes and overwrites leave old files on disk until the
-snapshots expire. `Parquet.dataset` notices a `metadata/` folder with `.metadata.json` files at the
-root and reads only the files of the current snapshot, as Spark's `format("iceberg")` and DuckDB's
-`iceberg_scan` do:
+snapshots expire. Reads and appends go through `Parquet`; row deletes and updates, compaction,
+schema changes, rename, and drop are on `Iceberg` in `wvlet.uni.cloud.iceberg`.
+`Parquet.dataset` notices a `metadata/` folder with `.metadata.json` files at the root and reads
+only the files of the current snapshot, as Spark's `format("iceberg")` and DuckDB's `iceberg_scan`
+do:
 
 ```scala
 val icebergTable = Parquet.dataset("s3://my-bucket/warehouse/db/visits/")
@@ -765,6 +767,7 @@ Parquet.writeDataset(
 Trino do.
 
 ```scala
+import wvlet.uni.cloud.iceberg.Iceberg
 import wvlet.uni.cloud.parquet.ParquetFilter
 
 val deleted = Iceberg.deleteRows(
@@ -1186,7 +1189,7 @@ npm install @wvlet/uni
 ```
 
 ```ts
-import { openParquet, writeParquet } from "@wvlet/uni/cloud/parquet";
+import { openParquet, writeParquet } from "@wvlet/uni/parquet";
 
 const bytes: Uint8Array = writeParquet(
   [{ id: 1n, name: "apple", at: new Date() }],
@@ -1230,7 +1233,7 @@ directory in Node.js, or an `s3://`, `gs://`, or `az://` prefix. `writeDataset` 
 only async calls, so they work in browsers as well as in Node.js.
 
 ```ts
-import { openDataset, writeDataset } from "@wvlet/uni/cloud/parquet";
+import { openDataset, writeDataset } from "@wvlet/uni/parquet";
 
 const storage = { s3: { region: "us-east-1" } }; // Node.js: the default credential chain
 

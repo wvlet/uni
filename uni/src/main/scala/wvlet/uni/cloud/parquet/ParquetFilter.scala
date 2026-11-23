@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.ColumnVector.*
 import wvlet.uni.cloud.parquet.format.*
 import wvlet.uni.cloud.parquet.io.ByteReader
@@ -339,9 +340,9 @@ object ParquetFilter:
         case PhysicalType.BOOLEAN if b.length == 1 =>
           Some((b(0) & 1).toLong)
         case PhysicalType.INT32 if b.length == 4 =>
-          Some(ofInt(ByteReader.intLE(b, 0)))
+          Some(ofInt(Bytes.intLE(b, 0)))
         case PhysicalType.INT64 if b.length == 8 =>
-          Some(ByteReader.longLE(b, 0))
+          Some(Bytes.longLE(b, 0))
         case _ =>
           None
 
@@ -400,7 +401,7 @@ object ParquetFilter:
 
     def decode(b: Array[Byte]): Option[Any] =
       if b.length == 8 then
-        Some(ByteReader.longLE(b, 0))
+        Some(Bytes.longLE(b, 0))
       else
         None
 
@@ -470,9 +471,9 @@ object ParquetFilter:
     def decode(b: Array[Byte]): Option[Any] =
       val d =
         if isFloat && b.length == 4 then
-          Some(java.lang.Float.intBitsToFloat(ByteReader.intLE(b, 0)).toDouble)
+          Some(java.lang.Float.intBitsToFloat(Bytes.intLE(b, 0)).toDouble)
         else if !isFloat && b.length == 8 then
-          Some(java.lang.Double.longBitsToDouble(ByteReader.longLE(b, 0)))
+          Some(java.lang.Double.longBitsToDouble(Bytes.longLE(b, 0)))
         else
           None
       // NaN statistics say nothing about the order; + 0.0 turns -0.0 into 0.0, since the two

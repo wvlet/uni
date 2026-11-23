@@ -210,10 +210,8 @@ class IcebergCompactionTest extends UniTest:
     val root = create()
     Iceberg.deleteRows(root, col("id") === 3L) shouldBe 1L
     // One of the three rows of its file: below a ratio of 0.5
-    Iceberg.compactTable(
-      root,
-      IcebergCompactionOptions.default.withMinDeleteRatio(0.5)
-    ) shouldBe IcebergCompaction.empty
+    Iceberg.compactTable(root, IcebergCompactionOptions.default.withMinDeleteRatio(0.5)) shouldBe
+      IcebergCompaction.empty
     Iceberg
       .compactTable(root, IcebergCompactionOptions.default.withMinDeleteRatio(0.3))
       .removedDataFiles shouldBe 1

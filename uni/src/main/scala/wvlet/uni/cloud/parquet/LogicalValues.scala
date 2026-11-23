@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.format.LogicalType
 import wvlet.uni.cloud.parquet.format.PhysicalType
 import wvlet.uni.cloud.parquet.format.TimeUnit
@@ -13,7 +14,7 @@ private[cloud] object LogicalValues:
   // Julian day number of 1970-01-01
   /** The Julian day of 1970-01-01, which INT96 timestamps count from */
   private[cloud] final val JulianEpochDay = 2440588L
-  private final val NanosPerDay         = 86400L * 1000000000L
+  private final val NanosPerDay           = 86400L * 1000000000L
 
   def fromInt(v: Int, lt: Option[LogicalType]): Any =
     lt match
@@ -69,8 +70,8 @@ private[cloud] object LogicalValues:
 
   /** INT96 timestamps: 8 bytes of nanoseconds in the day, then 4 bytes of Julian day */
   def int96ToInstant(b: Array[Byte], off: Int): Instant =
-    val nanos  = io.ByteReader.longLE(b, off)
-    val julian = io.ByteReader.intLE(b, off + 8).toLong
+    val nanos  = Bytes.longLE(b, off)
+    val julian = Bytes.intLE(b, off + 8).toLong
     val total  = (julian - JulianEpochDay) * 86400L
     Instant.ofEpochSecond(
       total + Math.floorDiv(nanos, 1000000000L),
@@ -103,7 +104,7 @@ private[cloud] object LogicalValues:
       case Some(LogicalType.Decimal(scale, _)) =>
         BigDecimal(bigEndianInt(data, off, len), scale)
       case Some(LogicalType.Uuid) if len == 16 =>
-        java.util.UUID(io.ByteReader.longBE(data, off), io.ByteReader.longBE(data, off + 8))
+        java.util.UUID(Bytes.longBE(data, off), Bytes.longBE(data, off + 8))
       case Some(LogicalType.Float16) if len == 2 =>
         halfToFloat(((data(off + 1) & 0xff) << 8) | (data(off) & 0xff))
       case _ if physical == PhysicalType.INT96 && len == 12 =>

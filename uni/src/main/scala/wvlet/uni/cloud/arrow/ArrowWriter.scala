@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.arrow
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.arrow.ArrowPlan.*
 import wvlet.uni.cloud.arrow.format.ArrowMessages
 import wvlet.uni.cloud.arrow.format.Block
@@ -411,8 +412,8 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
               fail(p, s"row ${i} has ${c.length(i)} bytes, but INT96 values have 12")
             if c.length(i) == 12 then
               val off = c.offsets(i)
-              val nod = ByteReader.longLE(c.data, off)
-              val day = ByteReader.intLE(c.data, off + 8).toLong
+              val nod = Bytes.longLE(c.data, off)
+              val day = Bytes.intLE(c.data, off + 8).toLong
               try
                 nanos(i) = Math.addExact(
                   Math.multiplyExact(day - LogicalValues.JulianEpochDay, 86400L * 1000000000L),
@@ -436,9 +437,9 @@ private[arrow] final class BatchEncoder(options: ArrowWriteOptions):
             while i < n do
               if c.length(i) == 12 then
                 val off = c.offsets(i)
-                b.writeIntLE(ByteReader.intLE(c.data, off))
-                b.writeIntLE(ByteReader.intLE(c.data, off + 4))
-                b.writeLongLE((ByteReader.intLE(c.data, off + 8) & 0xffffffffL) * 1000000L)
+                b.writeIntLE(Bytes.intLE(c.data, off))
+                b.writeIntLE(Bytes.intLE(c.data, off + 4))
+                b.writeLongLE((Bytes.intLE(c.data, off + 8) & 0xffffffffL) * 1000000L)
               else
                 b.writeLongLE(0L)
                 b.writeLongLE(0L)

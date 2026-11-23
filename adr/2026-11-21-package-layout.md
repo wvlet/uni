@@ -35,3 +35,17 @@
 - `UiAgentApi` moves to `wvlet.uni.ui.agent`, the package of uni-ui's `UiAgent`, `AgentRegistry`, and `UiHistory`. One import brings in the trait and its implementation.
 - It stays in the `uni` module (`2026-11-13-ui-agent.md`: an Electron main process or a JVM client uses it without uni-ui), so `wvlet.uni.ui.agent` is split across `uni` and `uni-ui`. Neither JVM nor Scala.js checks split packages here, since Uni doesn't use JPMS modules.
 - `wvlet.uni.ai.agent` is free for agent code built on `Llm`.
+
+## Addendum: data formats under `wvlet.uni.cloud`
+
+`wvlet.uni.cloud` is the home for cloud-native utilities, not only credentials. Parquet and Arrow were top-level packages, and the Iceberg and Delta code lived inside `parquet`.
+
+- `cloud.parquet` holds the Parquet format, the file reader and writer, `ColumnVector`/`ColumnBatch`, the schema model, filters, and datasets. `Parquet.dataset(root)` still detects Delta and Iceberg tables, and `Parquet.writeDataset` still writes Iceberg tables.
+- `cloud.iceberg` holds the Iceberg code (`IcebergTable`, `IcebergWrite`, `IcebergDeletes`, and `Avro`, which only the manifests use). Its public types are `IcebergTableChange`, `IcebergCompactionOptions`, and `IcebergCompaction`. The table operations moved off `Parquet` to a new `Iceberg` object: `Parquet.alterIcebergTable` became `Iceberg.alterTable`, and likewise `expireSnapshots`, `deleteRows`, `updateRows`, `compactTable`, `renameTable`, and `dropTable`.
+- `cloud.delta` holds `DeltaLog`. It has no public API yet; `ParquetTableFormat.Delta` stays in `parquet`, and Delta writes will add one.
+- `cloud.arrow` holds the Arrow IPC writer.
+- Datasets and table formats call each other (datasets plan Iceberg commits; Iceberg lists dataset files), so the internals they share are `private[cloud]`. Cyclic references between packages in one module are fine in Scala. Internals used only inside Parquet stay `private[parquet]`.
+- `ColumnVector` is typed by `ParquetField` and the `format` enums, so a shared `columnar` package would take the whole schema model with it. That waits until a second consumer, such as an Arrow reader, needs it.
+- The fixed-width reads that the Parquet reader and the Arrow writer share (`intLE`, `longLE`, `longBE`) are `wvlet.uni.io.codec.Bytes`. The `ByteReader` cursor stays in `parquet.io`, because it throws `ParquetException`.
+- The npm entry point stays `@wvlet/uni/parquet`; it never named Scala packages.
+- Next: the object stores move to `cloud.storage`, and `SettingStore` with its backends moves to `wvlet.uni.util.settings`. Once both have moved, `wvlet.uni.storage` is gone.

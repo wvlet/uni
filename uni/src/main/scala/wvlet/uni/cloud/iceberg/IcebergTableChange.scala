@@ -3,9 +3,9 @@ package wvlet.uni.cloud.iceberg
 import wvlet.uni.cloud.parquet.*
 
 /**
-  * A change to an Apache Iceberg table, for [[Iceberg.alterTable]]. Each is a metadata-only
-  * change: no data file is rewritten. Schema changes add a new current schema, and readers match
-  * columns by field ID, so existing files read with the new schema.
+  * A change to an Apache Iceberg table, for [[Iceberg.alterTable]]. Each is a metadata-only change:
+  * no data file is rewritten. Schema changes add a new current schema, and readers match columns by
+  * field ID, so existing files read with the new schema.
   */
 enum IcebergTableChange:
   /**

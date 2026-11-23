@@ -286,9 +286,8 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
     // DuckDB stored the IDs of its updated rows; the others inherit theirs
     val all = rowIds(root, col("id") >= 0L)
     all shouldBe (0L until 10L).map(i => i -> i).toMap
-    Iceberg.updateRows(root, col("id") === 3L || col("id") === 4L)(
-      _.updated("name", "u")
-    ) shouldBe 2L
+    Iceberg.updateRows(root, col("id") === 3L || col("id") === 4L)(_.updated("name", "u")) shouldBe
+      2L
     names(root).filter(_._2 == "u").map(_._1) shouldBe Seq(3L, 4L)
     rowIds(root, col("id") >= 0L) shouldBe all
   }
@@ -296,9 +295,8 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
   test("update on top of DuckDB's update of a version 2 table") {
     val root = hadoopCopy("v2_update")
     names(root) shouldBe duckdbUpdated
-    Iceberg.updateRows(root, col("id") === 3L || col("id") === 4L)(
-      _.updated("name", "u")
-    ) shouldBe 2L
+    Iceberg.updateRows(root, col("id") === 3L || col("id") === 4L)(_.updated("name", "u")) shouldBe
+      2L
     names(root).filter(_._2 == "u").map(_._1) shouldBe Seq(3L, 4L)
     rows(root).size shouldBe 10
   }
@@ -306,9 +304,7 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
   test("update on top of DuckDB's deletion vectors") {
     val root = hadoopCopy("v3_deletes")
     ids(root) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
-    Iceberg.updateRows(root, col("id") === 4L || col("id") === 8L)(
-      _.updated("id", 40L)
-    ) shouldBe 2L
+    Iceberg.updateRows(root, col("id") === 4L || col("id") === 8L)(_.updated("id", 40L)) shouldBe 2L
     ids(root) shouldBe Seq(1L, 2L, 5L, 7L, 40L, 40L)
     val refs = liveDeletes(root)
       .filter(_("file_format").toString.equalsIgnoreCase("puffin"))

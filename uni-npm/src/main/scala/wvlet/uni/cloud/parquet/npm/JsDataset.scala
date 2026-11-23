@@ -12,7 +12,7 @@ import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 /**
-  * The dataset half of `@wvlet/uni/cloud/parquet`: `openDataset`, `writeDataset`, and `newDatasetWriter`.
+  * The dataset half of `@wvlet/uni/parquet`: `openDataset`, `writeDataset`, and `newDatasetWriter`.
   * Their JS shape is documented in parquet.d.ts, which must change together with this file.
   */
 object JsDataset:

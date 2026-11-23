@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.parquet
 
+import wvlet.uni.io.codec.Bytes
 import wvlet.uni.cloud.parquet.ColumnVector.*
 import wvlet.uni.cloud.parquet.io.ByteReader
 
@@ -226,15 +227,15 @@ private[parquet] object Variant:
       case 4 =>
         ((b(p) & 0xff) | (b(p + 1) << 8)).toShort.toInt
       case 5 =>
-        ByteReader.intLE(b, p)
+        Bytes.intLE(b, p)
       case 6 =>
-        ByteReader.longLE(b, p)
+        Bytes.longLE(b, p)
       case 7 =>
-        java.lang.Double.longBitsToDouble(ByteReader.longLE(b, p))
+        java.lang.Double.longBitsToDouble(Bytes.longLE(b, p))
       case 8 =>
-        BigDecimal(BigInt(ByteReader.intLE(b, p + 1)), b(p) & 0xff)
+        BigDecimal(BigInt(Bytes.intLE(b, p + 1)), b(p) & 0xff)
       case 9 =>
-        BigDecimal(BigInt(ByteReader.longLE(b, p + 1)), b(p) & 0xff)
+        BigDecimal(BigInt(Bytes.longLE(b, p + 1)), b(p) & 0xff)
       case 10 =>
         // 16 bytes of little-endian two's complement
         val be = new Array[Byte](16)
@@ -244,22 +245,22 @@ private[parquet] object Variant:
           k += 1
         BigDecimal(BigInt(be), b(p) & 0xff)
       case 11 =>
-        LocalDate.ofEpochDay(ByteReader.intLE(b, p).toLong)
+        LocalDate.ofEpochDay(Bytes.intLE(b, p).toLong)
       case 12 | 13 =>
-        LogicalValues.timestamp(ByteReader.longLE(b, p), format.TimeUnit.MICROS)
+        LogicalValues.timestamp(Bytes.longLE(b, p), format.TimeUnit.MICROS)
       case 14 =>
-        java.lang.Float.intBitsToFloat(ByteReader.intLE(b, p))
+        java.lang.Float.intBitsToFloat(Bytes.intLE(b, p))
       case 15 =>
-        val n = ByteReader.intLE(b, p)
+        val n = Bytes.intLE(b, p)
         java.util.Arrays.copyOfRange(b, p + 4, p + 4 + n)
       case 16 =>
-        String(b, p + 4, ByteReader.intLE(b, p), UTF_8)
+        String(b, p + 4, Bytes.intLE(b, p), UTF_8)
       case 17 =>
-        LogicalValues.localTime(ByteReader.longLE(b, p) * 1000L)
+        LogicalValues.localTime(Bytes.longLE(b, p) * 1000L)
       case 18 | 19 =>
-        LogicalValues.timestamp(ByteReader.longLE(b, p), format.TimeUnit.NANOS)
+        LogicalValues.timestamp(Bytes.longLE(b, p), format.TimeUnit.NANOS)
       case 20 =>
-        java.util.UUID(ByteReader.longBE(b, p), ByteReader.longBE(b, p + 8))
+        java.util.UUID(Bytes.longBE(b, p), Bytes.longBE(b, p + 8))
       case other =>
         throw ParquetException.unsupported(s"VARIANT primitive type ${other}")
 
