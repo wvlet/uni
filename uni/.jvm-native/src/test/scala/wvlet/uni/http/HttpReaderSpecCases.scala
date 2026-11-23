@@ -2,8 +2,10 @@
 package wvlet.uni.http
 
 object HttpReaderSpecCases:
-  // The Content-Length limit the outcomes assume
-  val maxRequestSize: Int = 100
+  // The HttpReaderLimits the outcomes assume
+  val maxInitialLineLength: Int = 64
+  val maxHeaderSize: Int        = 128
+  val maxRequestSize: Int       = 100
 
   // Each case: the bytes a client sends, ␞, then the reader's outcomes in order, separated by ␟.
   // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,
@@ -135,7 +137,28 @@ object HttpReaderSpecCases:
     "GET \r\n\r\n␞bad 400 Malformed request line",
     "GET    \r\n\r\n␞bad 400 Malformed request line",
     " GET / HTTP/1.1\r\n\r\n␞bad 400 Malformed request line",
-    "GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\nBAD\r\n\r\nGET /never-read HTTP/1.1\r\nHost: localhost\r\n\r\n␞req GET /1 keep-alive ␟bad 400 Malformed request line"
+    "GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\nBAD\r\n\r\nGET /never-read HTTP/1.1\r\nHost: localhost\r\n\r\n␞req GET /1 keep-alive ␟bad 400 Malformed request line",
+    "GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\n\r\n␞req GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa keep-alive ␟closed",
+    "GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\n\r\n␞bad 414 Request line too long",
+    "GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\nHost: x\r\n\r\n␞bad 414 Request line too long",
+    "GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa␞bad 414 Request line too long",
+    "                                                                      ␞bad 414 Request line too long",
+    "GET / HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞req GET / keep-alive ␟closed",
+    "GET / HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞bad 431 Request header too large",
+    "GET / HTTP/1.1\r\nHost: localhost\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞req GET / keep-alive ␟closed",
+    "GET / HTTP/1.1\r\nHost: localhost\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞bad 431 Request header too large",
+    "GET / HTTP/1.1\r\nX A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞bad 431 Request header too large",
+    "GET / HTTP/1.1\r\nX A: b\r\nX-B: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞bad 400 Invalid header name",
+    "GET /1 HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\nGET /2 HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞req GET /1 keep-alive ␟req GET /2 keep-alive ␟closed",
+    "POST /trailers-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-T: ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\r\n\r\n␞req POST /trailers-at-limit keep-alive ␟closed",
+    "POST /trailers-over-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-T: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\r\n\r\n␞bad 431 Request trailers too large",
+    "POST /size-line-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0000000000000000000000000000000000000000000000000000000000000005\r\nhello\r\n0\r\n\r\n␞req POST /size-line-at-limit keep-alive hello␟closed",
+    "POST /size-line-over-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n00000000000000000000000000000000000000000000000000000000000000005\r\nhello\r\n0\r\n\r\n␞bad 400 Chunk size line too long",
+    "POST /ext-at-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\r\nhello\r\n0\r\n\r\n␞req POST /ext-at-limit keep-alive hello␟closed",
+    "POST /ext-over-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\r\nhello\r\n0\r\n\r\n␞bad 400 Chunk size line too long",
+    "POST /semicolon-past-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0000000000000000000000000000000000000000000000000000000000000005;\r\nhello\r\n0\r\n\r\n␞req POST /semicolon-past-limit keep-alive hello␟closed",
+    "POST /ext-nul-past-limit HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\u0000\r\nhello\r\n0\r\n\r\n␞bad 400 Invalid chunk extension",
+    "POST /size-too-large-and-long HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n00000000000000000000000000000000000000000000000000000000000000065\r\n␞bad 400 Chunk size line too long"
   )
 
   // Inputs a lenient front proxy could frame differently (UniSpec/HttpSmuggle.lean): one-edit
@@ -148,7 +171,8 @@ object HttpReaderSpecCases:
     "POST /tabs HTTP/1.1\r\nContent-Length :\t2\t\r\n\r\nok␞bad 400 Invalid header name",
     "POST /same-twice HTTP/1.1\r\nContent-Length: 2\n\r\nContent-Length: 2\r\n\r\nok␞bad 400 Invalid line ending",
     "POST /no-size HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n \n\r\nhello\r\n0\r\n\r\n␞bad 400 Invalid line ending",
-    "POST /identity HTTP/1.\n\r\nTransfer-Encoding: identity\r\nContent-Length: 1\r\n\r\nx␞bad 400 Invalid line ending"
+    "POST /identity HTTP/1.\n\r\nTransfer-Encoding: identity\r\nContent-Length: 1\r\n\r\nx␞bad 400 Invalid line ending",
+    "GET /1 HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \n\r\nGET /2 HTTP/1.1\r\nX-A: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\r\n\r\n␞bad 431 Request header too large"
   )
 
 end HttpReaderSpecCases

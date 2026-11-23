@@ -7,9 +7,8 @@ This file models it as a function from everything a client sends to the outcomes
 reports: a request (and whether the connection stays open after it), a rejection with its status
 code and message, or a clean close.
 
-Bytes are `Char`s, read as Latin-1. The model leaves out three things:
-- The size limits on the request line, headers, trailers, and chunk-size lines. The cases keep them
-  far below the limits; `maxSize`, the body limit, is modeled.
+Bytes are `Char`s, read as Latin-1. The size limits of `HttpReaderLimits` are modeled as `Limits`.
+The model leaves out two things:
 - Timeouts and `100 Continue`, which depend on when bytes arrive rather than on which bytes.
 - Request-target decoding. The cases use ASCII targets, which decode to themselves.
 
@@ -64,24 +63,42 @@ def isTokenChar (c : Char) : Bool := c.isAlphanum || "!#$%&'*+-.^_`|~".toList.co
 
 def lower (s : Bytes) : Bytes := s.map Char.toLower
 
+/-! ## Limits -/
+
+/-- The reader's size limits (`HttpReaderLimits`). A limit counts bytes from the start of what it
+limits, CR and LF included, and rejects the first other byte at or past it, so a line's CR LF and
+the empty line that ends a header block may lie past the limit. -/
+structure Limits where
+  /-- The request line (414), and a chunk-size line (400). -/
+  maxLine : Nat
+  /-- The header block after the request line, and the trailers of a chunked body (431). -/
+  maxHeader : Nat
+  /-- The body, as sent or after chunked decoding (413). -/
+  maxBody : Nat
+  deriving Repr, DecidableEq
+
 /-! ## Lines -/
 
 /-- One line: its bytes without the CRLF and the bytes after it. -/
 inductive Line where
   | ok (line : Bytes) (rest : Bytes)
   | bad
+  | tooLong
   | incomplete
   deriving Repr, DecidableEq
 
-/-- Scan to the next CRLF. `cr` is whether the previous byte was a CR. A bare CR or LF is `bad`. -/
-def scanLine : Bool → Bytes → Line
-  | _, [] => .incomplete
-  | cr, c :: t =>
+/-- Scan to the next CRLF. `cr` is whether the previous byte was a CR. A bare CR or LF is `bad`.
+`left` is how many bytes may come before the limit; a byte other than CR or LF past it is
+`tooLong`. -/
+def scanLine : Bool → Nat → Bytes → Line
+  | _, _, [] => .incomplete
+  | cr, left, c :: t =>
     if c == '\n' then (if cr then .ok [] t else .bad)
     else if cr then .bad
-    else if c == '\r' then scanLine true t
+    else if c == '\r' then scanLine true (left - 1) t
+    else if left == 0 then .tooLong
     else
-      match scanLine false t with
+      match scanLine false (left - 1) t with
       | .ok l r => .ok (c :: l) r
       | o => o
 
@@ -106,23 +123,25 @@ def parseField (line : Bytes) : Except String (Bytes × Bytes) :=
 inductive Fields where
   | ok (fields : List (Bytes × Bytes)) (rest : Bytes)
   | bad (message : String)
+  | tooLong
   | incomplete
   deriving Repr, DecidableEq
 
-/-- Read fields until the empty line. Each line takes at least its CRLF, so `s.length + 1` fuel is
-enough. -/
-def readFields : Nat → Bytes → Fields
-  | 0, _ => .incomplete
-  | fuel + 1, s =>
-    match scanLine false s with
+/-- Read fields until the empty line, with `left` bytes before the limit. Each line takes at least
+its CRLF, so `s.length + 1` fuel is enough. -/
+def readFields : Nat → Nat → Bytes → Fields
+  | 0, _, _ => .incomplete
+  | fuel + 1, left, s =>
+    match scanLine false left s with
     | .incomplete => .incomplete
     | .bad => .bad "Invalid line ending"
+    | .tooLong => .tooLong
     | .ok [] rest => .ok [] rest
     | .ok line rest =>
       match parseField line with
       | .error e => .bad e
       | .ok f =>
-        match readFields fuel rest with
+        match readFields fuel (left - (line.length + 2)) rest with
         | .ok fs r => .ok (f :: fs) r
         | o => o
 
@@ -239,49 +258,58 @@ inductive Size where
   | ok (size digits : Nat) (rest : Bytes)
   | tooLarge (rest : Bytes)
   | overflow
+  | tooLong
   | incomplete
   deriving Repr, DecidableEq
 
-/-- The rest of a chunk size past `maxLeft`: a size that doesn't fit in an Int is not a size
-(Netty's chunk-size parser), so it is told apart from one that is only too large. -/
-def restOfSize : Nat → Bytes → Size
-  | _, [] => .incomplete
-  | size, c :: t =>
+/-- The rest of a chunk size past `maxLeft`, with `left` bytes before the line limit: a size that
+doesn't fit in an Int is not a size (Netty's chunk-size parser), so it is told apart from one that
+is only too large. -/
+def restOfSize : Nat → Nat → Bytes → Size
+  | _, _, [] => .incomplete
+  | left, size, c :: t =>
     match hexValue c with
     | none => if size > intMax then .overflow else .tooLarge (c :: t)
-    | some v => restOfSize (size * 16 + v) t
+    | some v => if left == 0 then .tooLong else restOfSize (left - 1) (size * 16 + v) t
 
-/-- Hex digits of a chunk size. The size may not exceed `maxLeft`, the body bytes still allowed. -/
-def readSize (maxLeft : Nat) : Nat → Nat → Bytes → Size
-  | _, _, [] => .incomplete
-  | size, digits, c :: t =>
+/-- Hex digits of a chunk size, with `left` bytes before the line limit. The size may not exceed
+`maxLeft`, the body bytes still allowed. -/
+def readSize (maxLeft : Nat) : Nat → Nat → Nat → Bytes → Size
+  | _, _, _, [] => .incomplete
+  | left, size, digits, c :: t =>
     match hexValue c with
     | none => .ok size digits (c :: t)
     | some v =>
-      if size * 16 + v > maxLeft then restOfSize (size * 16 + v) t else readSize maxLeft (size * 16 + v) (digits + 1) t
+      if left == 0 then .tooLong
+      else if size * 16 + v > maxLeft then restOfSize (left - 1) (size * 16 + v) t
+      else readSize maxLeft (left - 1) (size * 16 + v) (digits + 1) t
 
 inductive Ext where
   | ok (rest : Bytes)
   | bad
+  | tooLong
   | incomplete
   deriving Repr, DecidableEq
 
-/-- A chunk extension, skipped up to the CR or LF that ends it. -/
-def skipExt : Bytes → Ext
-  | [] => .incomplete
-  | c :: t =>
+/-- A chunk extension, skipped up to the CR or LF that ends it, with `left` bytes before the line
+limit. An invalid byte is rejected before the limit is checked, as the reader does. -/
+def skipExt : Nat → Bytes → Ext
+  | _, [] => .incomplete
+  | left, c :: t =>
     if c == '\r' || c == '\n' then .ok (c :: t)
     else if isInvalidValueChar c then .bad
-    else skipExt t
+    else if left == 0 then .tooLong
+    else skipExt (left - 1) t
 
 /-- A CR LF at the front of `r`, and the bytes after it. -/
 def crlf : Bytes → Ext
   | a :: b :: r => if a = '\r' ∧ b = '\n' then .ok r else .bad
   | _ => .incomplete
 
-/-- After the size digits: an optional extension, up to the line's end. -/
-def skipChunkExt : Bytes → Ext
-  | ';' :: t => skipExt t
+/-- After the size digits: an optional extension, up to the line's end. The `;` itself is not
+checked against the limit, as in the reader. -/
+def skipChunkExt (left : Nat) : Bytes → Ext
+  | ';' :: t => skipExt (left - 1) t
   | r => .ok r
 
 inductive Body where
@@ -292,45 +320,52 @@ inductive Body where
 
 /-- A chunk size over the limit: 413, but only once its line is well formed, so a malformed line
 still gets 400 whatever its size. -/
-def chunkTooLarge (r : Bytes) : Body :=
-  match skipChunkExt r with
+def chunkTooLarge (left : Nat) (r : Bytes) : Body :=
+  match skipChunkExt left r with
   | .incomplete => .incomplete
   | .bad => .bad 400 "Invalid chunk extension"
+  | .tooLong => .bad 400 "Chunk size line too long"
   | .ok r2 =>
     match crlf r2 with
     | .ok _ => .bad 413 "Request body too large"
     | .bad => .bad 400 "Invalid chunk size"
-    | .incomplete => .incomplete
+    | _ => .incomplete
 
 /-- Decode chunks after `total` body bytes `acc`: the body and the bytes after the trailers. Every
-chunk takes at least 3 bytes, so `s.length + 1` fuel is enough. -/
-def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
+chunk takes at least 3 bytes, so `s.length + 1` fuel is enough. A chunk-size line has
+`lim.maxLine` bytes before its limit, counted from its first byte. -/
+def readChunks (lim : Limits) : Nat → Nat → Bytes → Bytes → Body
   | 0, _, _, _ => .incomplete
   | fuel + 1, total, acc, s =>
-    match readSize (maxSize - total) 0 0 s with
+    -- The bytes before the line limit at `r`, a suffix of the size line `s` starts
+    let left (r : Bytes) : Nat := lim.maxLine - (s.length - r.length)
+    match readSize (lim.maxBody - total) lim.maxLine 0 0 s with
     | .incomplete => .incomplete
-    | .tooLarge r => chunkTooLarge r
+    | .tooLong => .bad 400 "Chunk size line too long"
+    | .tooLarge r => chunkTooLarge (left r) r
     | .overflow => .bad 400 "Invalid chunk size"
     | .ok size digits r =>
       if digits == 0 then .bad 400 "Invalid chunk size"
       else
-        match skipChunkExt r with
+        match skipChunkExt (left r) r with
         | .incomplete => .incomplete
         | .bad => .bad 400 "Invalid chunk extension"
+        | .tooLong => .bad 400 "Chunk size line too long"
         | .ok r2 =>
           match crlf r2 with
           | .ok r3 =>
             if size == 0 then
-              match readFields (r3.length + 1) r3 with
+              match readFields (r3.length + 1) lim.maxHeader r3 with
               | .ok _ rest => .ok acc rest
               | .bad m => .bad 400 m
+              | .tooLong => .bad 431 "Request trailers too large"
               | .incomplete => .incomplete
             else if r3.length < size + 2 then .incomplete
             else if (r3.drop size).take 2 == ['\r', '\n'] then
-              readChunks maxSize fuel (total + size) (acc ++ r3.take size) (r3.drop (size + 2))
+              readChunks lim fuel (total + size) (acc ++ r3.take size) (r3.drop (size + 2))
             else .bad 400 "Invalid chunk data"
           | .bad => .bad 400 "Invalid chunk size"
-          | .incomplete => .incomplete
+          | _ => .incomplete
 
 /-! ## Requests -/
 
@@ -350,25 +385,27 @@ inductive HeadResult where
 
 /-- Read the request line and headers. CR and LF before the request line are skipped (RFC 9112
 §2.2). -/
-def readHead (s0 : Bytes) : HeadResult :=
+def readHead (lim : Limits) (s0 : Bytes) : HeadResult :=
   let s := s0.dropWhile isNewline
-  match scanLine false s with
+  match scanLine false lim.maxLine s with
   | .incomplete => .fail (if s.all isHttpWhitespace then .closed else .incomplete "Incomplete request")
   | .bad => .fail (.bad 400 "Invalid line ending")
+  | .tooLong => .fail (.bad 414 "Request line too long")
   | .ok line afterLine =>
     match parseRequestLine line with
     | .error (c, m) => .fail (.bad c m)
     | .ok (method, target, http10) =>
-      match readFields (afterLine.length + 1) afterLine with
+      match readFields (afterLine.length + 1) lim.maxHeader afterLine with
       | .incomplete => .fail (.incomplete "Incomplete request")
       | .bad m => .fail (.bad 400 m)
+      | .tooLong => .fail (.bad 431 "Request header too large")
       | .ok headers after => .ok ⟨method, target, http10, headers, after⟩
 
 /-- Check the head and read the body: the outcome and the bytes left for the next request. -/
-def readBody (maxSize : Nat) (hd : Head) : Outcome × Bytes :=
+def readBody (lim : Limits) (hd : Head) : Outcome × Bytes :=
   if (values hd.headers "host").length > 1 then (.bad 400 "Multiple Host headers", [])
   else
-    match frame maxSize hd.http10 hd.headers with
+    match frame lim.maxBody hd.http10 hd.headers with
     | .error (c, msg) => (.bad c msg, [])
     | .ok fr =>
       -- After the framing headers, so a request with broken ones gets 400, as in uni-netty
@@ -384,110 +421,135 @@ def readBody (maxSize : Nat) (hd : Head) : Outcome × Bytes :=
             if hd.after.length < n then (.incomplete "Incomplete request body", [])
             else (.req m (String.ofList hd.target) keep (hd.after.take n), hd.after.drop n)
           | .chunked =>
-            match readChunks maxSize (hd.after.length + 1) 0 [] hd.after with
+            match readChunks lim (hd.after.length + 1) 0 [] hd.after with
             | .ok body rest => (.req m (String.ofList hd.target) keep body, rest)
             | .bad c msg => (.bad c msg, [])
             | .incomplete => (.incomplete "Incomplete request body", [])
 
 /-- Read one request from the front of `s`: its outcome and the bytes left for the next one. -/
-def readOne (maxSize : Nat) (s : Bytes) : Outcome × Bytes :=
-  match readHead s with
+def readOne (lim : Limits) (s : Bytes) : Outcome × Bytes :=
+  match readHead lim s with
   | .fail o => (o, [])
-  | .ok hd => readBody maxSize hd
+  | .ok hd => readBody lim hd
 
 /-- Read requests until one isn't, or one closes the connection. -/
-def readAllAux (maxSize : Nat) : Nat → Bytes → List Outcome
+def readAllAux (lim : Limits) : Nat → Bytes → List Outcome
   | 0, _ => []
   | fuel + 1, s =>
-    match readOne maxSize s with
-    | (.req m t true b, rest) => .req m t true b :: readAllAux maxSize fuel rest
+    match readOne lim s with
+    | (.req m t true b, rest) => .req m t true b :: readAllAux lim fuel rest
     | (o, _) => [o]
 
 /-- Every request takes at least one byte, so `s.length + 1` reads are enough. -/
-def readAll (maxSize : Nat) (s : Bytes) : List Outcome := readAllAux maxSize (s.length + 1) s
+def readAll (lim : Limits) (s : Bytes) : List Outcome := readAllAux lim (s.length + 1) s
 
 /-! ## Theorems -/
 
 /-- A line and the bytes after it are a split of the input, minus the line's CRLF. -/
-theorem scanLine_split : ∀ {cr : Bool} {s line rest : Bytes},
-    scanLine cr s = .ok line rest → ∃ pre, s = pre ++ rest ∧ line.length < pre.length + (if cr then 1 else 0)
-  | _, [], _, _, h => by simp [scanLine] at h
-  | cr, c :: t, line, rest, h => by
+theorem scanLine_split : ∀ {cr : Bool} {left : Nat} {s line rest : Bytes},
+    scanLine cr left s = .ok line rest →
+      ∃ pre, s = pre ++ rest ∧ line.length < pre.length + (if cr then 1 else 0)
+  | _, _, [], _, _, h => by simp [scanLine] at h
+  | cr, left, c :: t, line, rest, h => by
     unfold scanLine at h
-    split at h
-    · split at h
-      · simp only [Line.ok.injEq] at h
+    by_cases h1 : (c == '\n') = true
+    · simp only [h1, ite_true] at h
+      cases cr
+      · simp at h
+      · simp only [ite_true, Line.ok.injEq] at h
         obtain ⟨rfl, rfl⟩ := h
-        exact ⟨[c], by simp, by simp_all⟩
-      · simp at h
-    · split at h
-      · simp at h
-      · split at h
-        · obtain ⟨pre, hs, hl⟩ := scanLine_split h
+        exact ⟨[c], by simp, by simp⟩
+    · simp only [h1, Bool.false_eq_true, ite_false] at h
+      cases cr
+      · simp only [Bool.false_eq_true, ite_false] at h
+        by_cases h3 : (c == '\r') = true
+        · simp only [h3, ite_true] at h
+          obtain ⟨pre, hs, hl⟩ := scanLine_split h
           exact ⟨c :: pre, by simp [hs], by simp at hl ⊢; omega⟩
-        · split at h
-          · rename_i l r hr
-            simp only [Line.ok.injEq] at h
-            obtain ⟨rfl, rfl⟩ := h
-            obtain ⟨pre, hs, hl⟩ := scanLine_split hr
-            exact ⟨c :: pre, by simp [hs], by simp at hl ⊢; split <;> omega⟩
-          · rename_i o ho
-            cases o <;> simp_all
+        · simp only [h3, Bool.false_eq_true, ite_false] at h
+          by_cases h4 : (left == 0) = true
+          · simp [h4] at h
+          · simp only [h4, Bool.false_eq_true, ite_false] at h
+            cases hr : scanLine false (left - 1) t with
+            | ok l r =>
+              rw [hr] at h
+              simp only [Line.ok.injEq] at h
+              obtain ⟨rfl, rfl⟩ := h
+              obtain ⟨pre, hs, hl⟩ := scanLine_split hr
+              exact ⟨c :: pre, by simp [hs], by simp at hl ⊢; omega⟩
+            | _ => rw [hr] at h; simp at h
+      · simp at h
 
 /-- Fields end with an empty line, so they always consume at least its CRLF. -/
-theorem readFields_split : ∀ {fuel : Nat} {s : Bytes} {fs : List (Bytes × Bytes)} {rest : Bytes},
-    readFields fuel s = .ok fs rest → ∃ pre, s = pre ++ rest ∧ 0 < pre.length
-  | 0, _, _, _, h => by simp [readFields] at h
-  | fuel + 1, s, fs, rest, h => by
+theorem readFields_split : ∀ {fuel left : Nat} {s : Bytes} {fs : List (Bytes × Bytes)} {rest : Bytes},
+    readFields fuel left s = .ok fs rest → ∃ pre, s = pre ++ rest ∧ 0 < pre.length
+  | 0, _, _, _, _, h => by simp [readFields] at h
+  | fuel + 1, left, s, fs, rest, h => by
     unfold readFields at h
-    split at h
-    · simp at h
-    · simp at h
-    · rename_i r hl
-      simp only [Fields.ok.injEq] at h
-      obtain ⟨-, rfl⟩ := h
+    cases hl : scanLine false left s with
+    | ok line r =>
+      rw [hl] at h
       obtain ⟨pre, hs, hlen⟩ := scanLine_split hl
-      exact ⟨pre, hs, by simp at hlen; omega⟩
-    · rename_i line r hne hl
+      cases line with
+      | nil =>
+        simp only [Fields.ok.injEq] at h
+        obtain ⟨-, rfl⟩ := h
+        exact ⟨pre, hs, by simp at hlen; omega⟩
+      | cons c l =>
+        simp only at h
+        cases hp : parseField (c :: l) with
+        | error e => rw [hp] at h; simp at h
+        | ok f =>
+          rw [hp] at h
+          simp only at h
+          cases hr : readFields fuel (left - ((c :: l).length + 2)) r with
+          | ok fs' r' =>
+            rw [hr] at h
+            simp only [Fields.ok.injEq] at h
+            obtain ⟨-, rfl⟩ := h
+            obtain ⟨pre', hs', hlen'⟩ := readFields_split hr
+            exact ⟨pre ++ pre', by simp [hs, hs'], by simp; omega⟩
+          | _ => rw [hr] at h; simp at h
+    | _ => rw [hl] at h; simp at h
+
+theorem restOfSize_not_ok : ∀ {left size : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
+    restOfSize left size s ≠ .ok sz d r
+  | _, _, [], _, _, _ => by simp [restOfSize]
+  | left, size, c :: t, sz, d, r => by
+    unfold restOfSize
+    cases hexValue c with
+    | none => simp only; split <;> simp
+    | some v =>
+      simp only
+      split
+      · simp
+      · exact restOfSize_not_ok
+
+theorem readSize_spec : ∀ {maxLeft left size digits : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
+    readSize maxLeft left size digits s = .ok sz d r → size ≤ maxLeft →
+      sz ≤ maxLeft ∧ r.length ≤ s.length
+  | _, _, _, _, [], _, _, _, h, _ => by simp [readSize] at h
+  | maxLeft, left, size, digits, c :: t, sz, d, r, h, hle => by
+    unfold readSize at h
+    cases hv : hexValue c with
+    | none =>
+      rw [hv] at h
+      simp only [Size.ok.injEq] at h
+      obtain ⟨rfl, -, rfl⟩ := h
+      exact ⟨hle, by simp⟩
+    | some v =>
+      rw [hv] at h
+      simp only at h
       split at h
       · simp at h
       · split at h
-        · rename_i fs' r' hr
-          simp only [Fields.ok.injEq] at h
-          obtain ⟨-, rfl⟩ := h
-          obtain ⟨pre, hs, hlen⟩ := scanLine_split hl
-          obtain ⟨pre', hs', hlen'⟩ := readFields_split hr
-          exact ⟨pre ++ pre', by simp [hs, hs'], by simp; omega⟩
-        · rename_i o ho
-          cases o <;> simp_all
+        · exact absurd h restOfSize_not_ok
+        · have ⟨h1, h2⟩ := readSize_spec h (by omega)
+          exact ⟨h1, by simp; omega⟩
 
-theorem restOfSize_not_ok : ∀ {size : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
-    restOfSize size s ≠ .ok sz d r
-  | _, [], _, _, _ => by simp [restOfSize]
-  | size, c :: t, sz, d, r => by
-    unfold restOfSize
-    split
-    · split <;> simp
-    · exact restOfSize_not_ok
-
-theorem readSize_spec : ∀ {maxLeft size digits : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
-    readSize maxLeft size digits s = .ok sz d r → size ≤ maxLeft → sz ≤ maxLeft ∧ r.length ≤ s.length
-  | _, _, _, [], _, _, _, h, _ => by simp [readSize] at h
-  | maxLeft, size, digits, c :: t, sz, d, r, h, hle => by
-    unfold readSize at h
-    split at h
-    · simp only [Size.ok.injEq] at h
-      obtain ⟨rfl, -, rfl⟩ := h
-      exact ⟨hle, by simp⟩
-    · split at h
-      · exact absurd h restOfSize_not_ok
-      · rename_i hgt
-        have ⟨h1, h2⟩ := readSize_spec h (by omega)
-        exact ⟨h1, by simp; omega⟩
-
-theorem skipExt_spec : ∀ {s r : Bytes}, skipExt s = .ok r → r.length ≤ s.length
-  | [], _, h => by simp [skipExt] at h
-  | c :: t, r, h => by
+theorem skipExt_spec : ∀ {left : Nat} {s r : Bytes}, skipExt left s = .ok r → r.length ≤ s.length
+  | _, [], _, h => by simp [skipExt] at h
+  | left, c :: t, r, h => by
     unfold skipExt at h
     split at h
     · simp only [Ext.ok.injEq] at h
@@ -495,10 +557,13 @@ theorem skipExt_spec : ∀ {s r : Bytes}, skipExt s = .ok r → r.length ≤ s.l
       simp
     · split at h
       · simp at h
-      · have := skipExt_spec h
-        simp; omega
+      · split at h
+        · simp at h
+        · have := skipExt_spec h
+          simp; omega
 
-theorem skipChunkExt_spec {s r : Bytes} (h : skipChunkExt s = .ok r) : r.length ≤ s.length := by
+theorem skipChunkExt_spec {left : Nat} {s r : Bytes} (h : skipChunkExt left s = .ok r) :
+    r.length ≤ s.length := by
   unfold skipChunkExt at h
   split at h
   · have := skipExt_spec h
@@ -508,7 +573,8 @@ theorem skipChunkExt_spec {s r : Bytes} (h : skipChunkExt s = .ok r) : r.length 
     exact Nat.le_refl _
 
 /-- A chunk size over the limit never yields a body. -/
-theorem chunkTooLarge_not_ok {r body rest : Bytes} : chunkTooLarge r ≠ .ok body rest := by
+theorem chunkTooLarge_not_ok {left : Nat} {r body rest : Bytes} :
+    chunkTooLarge left r ≠ .ok body rest := by
   unfold chunkTooLarge
   repeat' split
   all_goals simp
@@ -525,51 +591,54 @@ theorem crlf_ok {r r3 : Bytes} (h : crlf r = .ok r3) : r.length = r3.length + 2 
   | [], h => simp [crlf] at h
 
 /-- A chunked body never exceeds the limit, and decoding consumes at least one byte. -/
-theorem readChunks_spec {maxSize : Nat} :
+theorem readChunks_spec {lim : Limits} :
     ∀ {fuel total : Nat} {acc s body rest : Bytes},
-      readChunks maxSize fuel total acc s = .ok body rest → acc.length ≤ total → total ≤ maxSize →
-      body.length ≤ maxSize ∧ rest.length < s.length
+      readChunks lim fuel total acc s = .ok body rest → acc.length ≤ total → total ≤ lim.maxBody →
+      body.length ≤ lim.maxBody ∧ rest.length < s.length
   | 0, _, _, _, _, _, h, _, _ => by simp [readChunks] at h
   | fuel + 1, total, acc, s, body, rest, h, hacc, htot => by
     unfold readChunks at h
-    split at h
-    · simp at h
-    · exact absurd h chunkTooLarge_not_ok
-    · simp at h
-    · rename_i size digits r hsize
+    simp only at h
+    cases hsize : readSize (lim.maxBody - total) lim.maxLine 0 0 s with
+    | tooLarge r => rw [hsize] at h; exact absurd h chunkTooLarge_not_ok
+    | ok size digits r =>
+      rw [hsize] at h
       have ⟨hsz, hr⟩ := readSize_spec hsize (Nat.zero_le _)
+      simp only at h
       split at h
       · simp at h
-      · split at h
-        · simp at h
-        · simp at h
-        · rename_i r2 he
+      · cases he : skipChunkExt (lim.maxLine - (s.length - r.length)) r with
+        | ok r2 =>
+          rw [he] at h
           have hr2 := skipChunkExt_spec he
-          split at h
-          · rename_i r3 hc
+          simp only at h
+          cases hc : crlf r2 with
+          | ok r3 =>
+            rw [hc] at h
             have hr3 := crlf_ok hc
+            simp only at h
             split at h
-            · split at h
-              · rename_i fs rest' hf
+            · cases hf : readFields (r3.length + 1) lim.maxHeader r3 with
+              | ok fs rest' =>
+                rw [hf] at h
                 simp only [Body.ok.injEq] at h
                 obtain ⟨rfl, rfl⟩ := h
                 obtain ⟨pre, hs, -⟩ := readFields_split hf
                 refine ⟨by omega, ?_⟩
                 have : r3.length = pre.length + rest'.length := by simp [hs]
                 omega
-              · simp at h
-              · simp at h
+              | _ => rw [hf] at h; simp at h
             · split at h
               · simp at h
               · split at h
-                · rename_i hlen _ hcrlf
-                  have ⟨h1, h2⟩ := readChunks_spec h (by simp; omega) (by omega)
+                · have ⟨h1, h2⟩ := readChunks_spec h (by simp; omega) (by omega)
                   refine ⟨h1, ?_⟩
                   simp at h2
                   omega
                 · simp at h
-          · simp at h
-          · simp at h
+          | _ => rw [hc] at h; simp at h
+        | _ => rw [he] at h; simp at h
+    | _ => rw [hsize] at h; simp at h
 
 /-- A body framed by `Content-Length` is never larger than the limit. -/
 theorem frame_le {maxSize n : Nat} {http10 : Bool} {headers : List (Bytes × Bytes)}
@@ -624,21 +693,24 @@ theorem chunked_with_length_closes {http10 : Bool} {headers : List (Bytes × Byt
   simp [keepAlive, this]
 
 /-- The head is a prefix of the input, and takes at least one byte. -/
-theorem readHead_split {s : Bytes} {hd : Head} (h : readHead s = .ok hd) :
+theorem readHead_split {lim : Limits} {s : Bytes} {hd : Head} (h : readHead lim s = .ok hd) :
     ∃ pre, s = pre ++ hd.after ∧ 0 < pre.length := by
   unfold readHead at h
-  dsimp only at h
-  split at h
-  · simp at h
-  · simp at h
-  · rename_i line afterLine hl
+  simp only at h
+  cases hl : scanLine false lim.maxLine (s.dropWhile isNewline) with
+  | ok line afterLine =>
+    rw [hl] at h
     obtain ⟨pre0, hs0, hlen0⟩ := scanLine_split hl
-    split at h
-    · simp at h
-    · split at h
-      · simp at h
-      · simp at h
-      · rename_i headers after hf
+    simp only at h
+    cases hp : parseRequestLine line with
+    | error e => obtain ⟨_, _⟩ := e; rw [hp] at h; simp at h
+    | ok v =>
+      obtain ⟨method, target, http10⟩ := v
+      rw [hp] at h
+      simp only at h
+      cases hf : readFields (afterLine.length + 1) lim.maxHeader afterLine with
+      | ok headers after =>
+        rw [hf] at h
         simp only [HeadResult.ok.injEq] at h
         subst h
         obtain ⟨pre1, hs1, hlen1⟩ := readFields_split hf
@@ -647,18 +719,21 @@ theorem readHead_split {s : Bytes} {hd : Head} (h : readHead s = .ok hd) :
         conv => lhs; rw [← this]
         rw [hs0, hs1]
         simp
+      | _ => rw [hf] at h; simp at h
+  | _ => rw [hl] at h; simp at h
 
 /-- A failed head is never a request. -/
-theorem readHead_fail {s : Bytes} {o : Outcome} (h : readHead s = .fail o) : o.isReq = false := by
+theorem readHead_fail {lim : Limits} {s : Bytes} {o : Outcome} (h : readHead lim s = .fail o) :
+    o.isReq = false := by
   unfold readHead at h
-  dsimp only at h
+  simp only at h
   repeat' split at h
   all_goals simp only [HeadResult.fail.injEq, reduceCtorEq] at h
   all_goals (subst h; rfl)
 
 /-- A request consumes at least one byte, so the next request starts later in the stream. -/
-theorem readOne_req_shorter {maxSize : Nat} {s rest body : Bytes} {m t : String} {k : Bool}
-    (h : readOne maxSize s = (.req m t k body, rest)) : rest.length < s.length := by
+theorem readOne_req_shorter {lim : Limits} {s rest body : Bytes} {m t : String} {k : Bool}
+    (h : readOne lim s = (.req m t k body, rest)) : rest.length < s.length := by
   unfold readOne at h
   split at h
   · rename_i o ho
@@ -682,11 +757,11 @@ theorem readOne_req_shorter {maxSize : Nat} {s rest body : Bytes} {m t : String}
 
 /-- A body framed by `Content-Length` is exactly the next `n` bytes after the head, and the next
 request starts right after them. -/
-theorem readBody_length {maxSize n : Nat} {hd : Head} {m : String}
+theorem readBody_length {lim : Limits} {n : Nat} {hd : Head} {m : String}
     (hm : methodOf hd.method = some m) (hhost : (values hd.headers "host").length ≤ 1)
-    (hf : frame maxSize hd.http10 hd.headers = .ok (.length n))
+    (hf : frame lim.maxBody hd.http10 hd.headers = .ok (.length n))
     (he : checkExpect hd.http10 hd.headers = .ok ()) (hn : n ≤ hd.after.length) :
-    readBody maxSize hd =
+    readBody lim hd =
       (.req m (String.ofList hd.target) (keepAlive hd.http10 false hd.headers) (hd.after.take n),
         hd.after.drop n) := by
   have hhost' : ¬ (values hd.headers "host").length > 1 := by omega
@@ -696,9 +771,9 @@ theorem readBody_length {maxSize n : Nat} {hd : Head} {m : String}
 
 /-- Only the last outcome can be other than a kept-alive request: a rejection, a close, or a
 request that closes the connection ends it. -/
-theorem readAllAux_only_last {maxSize : Nat} :
+theorem readAllAux_only_last {lim : Limits} :
     ∀ {fuel : Nat} {s : Bytes} {pre : List Outcome} {o : Outcome} {post : List Outcome},
-      readAllAux maxSize fuel s = pre ++ o :: post → post ≠ [] → o.isReq = true
+      readAllAux lim fuel s = pre ++ o :: post → post ≠ [] → o.isReq = true
   | 0, _, pre, o, post, h, _ => by simp [readAllAux] at h
   | fuel + 1, s, pre, o, post, h, hp => by
     unfold readAllAux at h

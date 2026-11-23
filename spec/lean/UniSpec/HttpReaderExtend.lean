@@ -48,10 +48,10 @@ def HeadResult.extend (t : Bytes) : HeadResult → HeadResult
 
 /-! ## Lines and fields -/
 
-theorem scanLine_extend : ∀ (cr : Bool) (s t : Bytes), scanLine cr s ≠ .incomplete →
-    scanLine cr (s ++ t) = (scanLine cr s).extend t
-  | _, [], _, h => by simp [scanLine] at h
-  | cr, c :: s, t, h => by
+theorem scanLine_extend : ∀ (cr : Bool) (left : Nat) (s t : Bytes),
+    scanLine cr left s ≠ .incomplete → scanLine cr left (s ++ t) = (scanLine cr left s).extend t
+  | _, _, [], _, h => by simp [scanLine] at h
+  | cr, left, c :: s, t, h => by
     rw [List.cons_append]
     unfold scanLine at h ⊢
     by_cases h1 : (c == '\n') = true
@@ -63,24 +63,28 @@ theorem scanLine_extend : ∀ (cr : Bool) (s t : Bytes), scanLine cr s ≠ .inco
       · simp only [h2, Bool.false_eq_true, ite_false] at h ⊢
         by_cases h3 : (c == '\r') = true
         · simp only [h3, ite_true] at h ⊢
-          exact scanLine_extend true s t h
+          exact scanLine_extend true _ s t h
         · simp only [h3, Bool.false_eq_true, ite_false] at h ⊢
-          cases hs : scanLine false s with
-          | ok l r => rw [scanLine_extend false s t (by simp [hs]), hs]; rfl
-          | bad => rw [scanLine_extend false s t (by simp [hs]), hs]; rfl
-          | incomplete => simp [hs] at h
+          by_cases h4 : (left == 0) = true
+          · simp only [h4, ite_true]; rfl
+          · simp only [h4, Bool.false_eq_true, ite_false] at h ⊢
+            cases hs : scanLine false (left - 1) s with
+            | incomplete => simp [hs] at h
+            | _ => rw [scanLine_extend false _ s t (by simp [hs]), hs]; rfl
 
-theorem readFields_extend : ∀ (fuel fuel' : Nat) (s t : Bytes), fuel ≤ fuel' →
-    readFields fuel s ≠ .incomplete → readFields fuel' (s ++ t) = (readFields fuel s).extend t
-  | 0, _, _, _, _, h => by simp [readFields] at h
-  | _ + 1, 0, _, _, hle, _ => by omega
-  | fuel + 1, fuel' + 1, s, t, hle, h => by
+theorem readFields_extend : ∀ (fuel fuel' left : Nat) (s t : Bytes), fuel ≤ fuel' →
+    readFields fuel left s ≠ .incomplete →
+    readFields fuel' left (s ++ t) = (readFields fuel left s).extend t
+  | 0, _, _, _, _, _, h => by simp [readFields] at h
+  | _ + 1, 0, _, _, _, hle, _ => by omega
+  | fuel + 1, fuel' + 1, left, s, t, hle, h => by
     unfold readFields at h ⊢
-    cases hl : scanLine false s with
+    cases hl : scanLine false left s with
     | incomplete => simp [hl] at h
-    | bad => rw [scanLine_extend false s t (by simp [hl]), hl]; rfl
+    | bad => rw [scanLine_extend false left s t (by simp [hl]), hl]; rfl
+    | tooLong => rw [scanLine_extend false left s t (by simp [hl]), hl]; rfl
     | ok line rest =>
-      rw [scanLine_extend false s t (by simp [hl]), hl]
+      rw [scanLine_extend false left s t (by simp [hl]), hl]
       simp only [hl] at h
       cases line with
       | nil => rfl
@@ -90,27 +94,34 @@ theorem readFields_extend : ∀ (fuel fuel' : Nat) (s t : Bytes), fuel ≤ fuel'
         | error e => simp only; rfl
         | ok f =>
           simp only [hp] at h ⊢
-          cases hr : readFields fuel rest with
-          | incomplete => simp [hr] at h
-          | bad m => rw [readFields_extend fuel fuel' rest t (by omega) (by simp [hr]), hr]; rfl
-          | ok fs r => rw [readFields_extend fuel fuel' rest t (by omega) (by simp [hr]), hr]; rfl
+          generalize left - ((c :: l).length + 2) = left' at h ⊢
+          cases hr : readFields fuel left' rest with
+          | incomplete => rw [hr] at h; simp at h
+          | _ =>
+            rw [readFields_extend fuel fuel' _ rest t (by omega) (by rw [hr]; simp), hr]; rfl
 
 /-! ## Chunk sizes and extensions -/
 
-theorem restOfSize_extend : ∀ (size : Nat) (s t : Bytes), restOfSize size s ≠ .incomplete →
-    restOfSize size (s ++ t) = (restOfSize size s).extend t
-  | _, [], _, h => by simp [restOfSize] at h
-  | size, c :: s, t, h => by
+theorem restOfSize_extend : ∀ (left size : Nat) (s t : Bytes), restOfSize left size s ≠ .incomplete →
+    restOfSize left size (s ++ t) = (restOfSize left size s).extend t
+  | _, _, [], _, h => by simp [restOfSize] at h
+  | left, size, c :: s, t, h => by
     rw [List.cons_append]
     unfold restOfSize at h ⊢
     cases hv : hexValue c with
     | none => simp only [hv] at h ⊢; split <;> rfl
-    | some v => simp only [hv] at h ⊢; exact restOfSize_extend _ s t h
+    | some v =>
+      simp only [hv] at h ⊢
+      split
+      · rfl
+      · rename_i h0
+        simp only [h0, Bool.false_eq_true, ite_false] at h
+        exact restOfSize_extend _ _ s t h
 
-theorem restOfSize_tooLarge_ne_nil : ∀ {size : Nat} {s r : Bytes},
-    restOfSize size s = .tooLarge r → r ≠ []
-  | _, [], _, h => by simp [restOfSize] at h
-  | size, c :: s, r, h => by
+theorem restOfSize_tooLarge_ne_nil : ∀ {left size : Nat} {s r : Bytes},
+    restOfSize left size s = .tooLarge r → r ≠ []
+  | _, _, [], _, h => by simp [restOfSize] at h
+  | left, size, c :: s, r, h => by
     unfold restOfSize at h
     cases hv : hexValue c with
     | none =>
@@ -118,13 +129,17 @@ theorem restOfSize_tooLarge_ne_nil : ∀ {size : Nat} {s r : Bytes},
       split at h
       · simp at h
       · simp only [Size.tooLarge.injEq] at h; subst h; simp
-    | some v => simp only [hv] at h; exact restOfSize_tooLarge_ne_nil h
+    | some v =>
+      simp only [hv] at h
+      split at h
+      · simp at h
+      · exact restOfSize_tooLarge_ne_nil h
 
-theorem readSize_extend : ∀ (maxLeft size digits : Nat) (s t : Bytes),
-    readSize maxLeft size digits s ≠ .incomplete →
-    readSize maxLeft size digits (s ++ t) = (readSize maxLeft size digits s).extend t
-  | _, _, _, [], _, h => by simp [readSize] at h
-  | maxLeft, size, digits, c :: s, t, h => by
+theorem readSize_extend : ∀ (maxLeft left size digits : Nat) (s t : Bytes),
+    readSize maxLeft left size digits s ≠ .incomplete →
+    readSize maxLeft left size digits (s ++ t) = (readSize maxLeft left size digits s).extend t
+  | _, _, _, _, [], _, h => by simp [readSize] at h
+  | maxLeft, left, size, digits, c :: s, t, h => by
     rw [List.cons_append]
     unfold readSize at h ⊢
     cases hv : hexValue c with
@@ -132,32 +147,38 @@ theorem readSize_extend : ∀ (maxLeft size digits : Nat) (s t : Bytes),
     | some v =>
       simp only [hv] at h ⊢
       split
-      · rename_i hgt
-        simp only [hgt, ite_true] at h
-        exact restOfSize_extend _ s t h
-      · rename_i hgt
-        simp only [hgt, ite_false] at h
-        exact readSize_extend maxLeft _ _ s t h
+      · rfl
+      · rename_i h0
+        simp only [h0, Bool.false_eq_true, ite_false] at h
+        split
+        · rename_i hgt
+          simp only [hgt, ite_true] at h
+          exact restOfSize_extend _ _ s t h
+        · rename_i hgt
+          simp only [hgt, ite_false] at h
+          exact readSize_extend maxLeft _ _ _ s t h
 
 /-- The bytes after a size are never empty: the size ends at a byte that is not a hex digit. -/
-theorem readSize_rest_ne_nil : ∀ {maxLeft size digits : Nat} {s : Bytes},
-    (∀ sz d r, readSize maxLeft size digits s = .ok sz d r → r ≠ []) ∧
-      (∀ r, readSize maxLeft size digits s = .tooLarge r → r ≠ [])
-  | _, _, _, [] => by simp [readSize]
-  | maxLeft, size, digits, c :: s => by
+theorem readSize_rest_ne_nil : ∀ {maxLeft left size digits : Nat} {s : Bytes},
+    (∀ sz d r, readSize maxLeft left size digits s = .ok sz d r → r ≠ []) ∧
+      (∀ r, readSize maxLeft left size digits s = .tooLarge r → r ≠ [])
+  | _, _, _, _, [] => by simp [readSize]
+  | maxLeft, left, size, digits, c :: s => by
     unfold readSize
     cases hv : hexValue c with
     | none => simp
     | some v =>
       simp only
       split
-      · exact ⟨fun _ _ _ h => absurd h restOfSize_not_ok, fun _ h => restOfSize_tooLarge_ne_nil h⟩
-      · exact readSize_rest_ne_nil
+      · simp
+      · split
+        · exact ⟨fun _ _ _ h => absurd h restOfSize_not_ok, fun _ h => restOfSize_tooLarge_ne_nil h⟩
+        · exact readSize_rest_ne_nil
 
-theorem skipExt_extend : ∀ (s t : Bytes), skipExt s ≠ .incomplete →
-    skipExt (s ++ t) = (skipExt s).extend t
-  | [], _, h => by simp [skipExt] at h
-  | c :: s, t, h => by
+theorem skipExt_extend : ∀ (left : Nat) (s t : Bytes), skipExt left s ≠ .incomplete →
+    skipExt left (s ++ t) = (skipExt left s).extend t
+  | _, [], _, h => by simp [skipExt] at h
+  | left, c :: s, t, h => by
     rw [List.cons_append]
     unfold skipExt at h ⊢
     split
@@ -168,23 +189,28 @@ theorem skipExt_extend : ∀ (s t : Bytes), skipExt s ≠ .incomplete →
       · rfl
       · rename_i h2
         simp only [h2] at h
-        exact skipExt_extend s t h
+        split
+        · rfl
+        · rename_i h3
+          simp only [h3] at h
+          exact skipExt_extend _ s t h
 
 /-- `skipChunkExt []` is `ok []`, which a `;` after it would change, so the lemma needs a byte. -/
-theorem skipChunkExt_extend {s : Bytes} (t : Bytes) (hs : s ≠ []) (h : skipChunkExt s ≠ .incomplete) :
-    skipChunkExt (s ++ t) = (skipChunkExt s).extend t := by
+theorem skipChunkExt_extend {left : Nat} {s : Bytes} (t : Bytes) (hs : s ≠ [])
+    (h : skipChunkExt left s ≠ .incomplete) :
+    skipChunkExt left (s ++ t) = (skipChunkExt left s).extend t := by
   match s, hs with
   | c :: s, _ =>
     rw [List.cons_append]
     by_cases hc : c = ';'
     · subst hc
       simp only [skipChunkExt] at h ⊢
-      exact skipExt_extend s t h
-    · have e1 : skipChunkExt (c :: (s ++ t)) = .ok (c :: (s ++ t)) := by
+      exact skipExt_extend _ s t h
+    · have e1 : skipChunkExt left (c :: (s ++ t)) = .ok (c :: (s ++ t)) := by
         unfold skipChunkExt; split
         · rename_i heq; simp at heq; exact absurd heq.1 hc
         · rfl
-      have e2 : skipChunkExt (c :: s) = .ok (c :: s) := by
+      have e2 : skipChunkExt left (c :: s) = .ok (c :: s) := by
         unfold skipChunkExt; split
         · rename_i heq; simp at heq; exact absurd heq.1 hc
         · rfl
@@ -196,61 +222,72 @@ theorem crlf_extend (r t : Bytes) (h : crlf r ≠ .incomplete) : crlf (r ++ t) =
   | [_], h => simp [crlf] at h
   | [], h => simp [crlf] at h
 
-theorem chunkTooLarge_extend {r : Bytes} (t : Bytes) (hr : r ≠ []) (h : chunkTooLarge r ≠ .incomplete) :
-    chunkTooLarge (r ++ t) = chunkTooLarge r := by
+theorem crlf_not_tooLong (r : Bytes) : crlf r ≠ .tooLong := by
+  unfold crlf; split
+  · split <;> simp
+  · simp
+
+theorem chunkTooLarge_extend {left : Nat} {r : Bytes} (t : Bytes) (hr : r ≠ [])
+    (h : chunkTooLarge left r ≠ .incomplete) :
+    chunkTooLarge left (r ++ t) = chunkTooLarge left r := by
   unfold chunkTooLarge at h ⊢
-  cases he : skipChunkExt r with
+  cases he : skipChunkExt left r with
   | incomplete => simp [he] at h
-  | bad => rw [skipChunkExt_extend t hr (by simp [he]), he]; rfl
   | ok r2 =>
     rw [skipChunkExt_extend t hr (by simp [he]), he]
     simp only [he] at h
     simp only [Ext.extend]
     cases hc : crlf r2 with
     | incomplete => simp [hc] at h
-    | bad => rw [crlf_extend r2 t (by simp [hc]), hc]; rfl
-    | ok r3 => rw [crlf_extend r2 t (by simp [hc]), hc]; rfl
+    | tooLong => exact absurd hc (crlf_not_tooLong r2)
+    | _ => rw [crlf_extend r2 t (by simp [hc]), hc]; rfl
+  | _ => rw [skipChunkExt_extend t hr (by simp [he]), he]; rfl
 
 /-! ## Chunked bodies -/
 
-theorem readChunks_extend (maxSize : Nat) :
+theorem readChunks_extend (lim : Limits) :
     ∀ (fuel fuel' total : Nat) (acc s t : Bytes), fuel ≤ fuel' →
-      readChunks maxSize fuel total acc s ≠ .incomplete →
-      readChunks maxSize fuel' total acc (s ++ t) = (readChunks maxSize fuel total acc s).extend t
+      readChunks lim fuel total acc s ≠ .incomplete →
+      readChunks lim fuel' total acc (s ++ t) = (readChunks lim fuel total acc s).extend t
   | 0, _, _, _, _, _, _, h => by simp [readChunks] at h
   | _ + 1, 0, _, _, _, _, hle, _ => by omega
   | fuel + 1, fuel' + 1, total, acc, s, t, hle, h => by
     unfold readChunks at h ⊢
-    have ⟨hok, htl⟩ := readSize_rest_ne_nil (maxLeft := maxSize - total) (size := 0) (digits := 0) (s := s)
-    cases hs : readSize (maxSize - total) 0 0 s with
+    simp only at h ⊢
+    have ⟨hok, htl⟩ := readSize_rest_ne_nil (maxLeft := lim.maxBody - total) (left := lim.maxLine)
+      (size := 0) (digits := 0) (s := s)
+    have hleft : ∀ r : Bytes, (s ++ t).length - (r ++ t).length = s.length - r.length := by
+      intro r; simp only [List.length_append]; omega
+    cases hs : readSize (lim.maxBody - total) lim.maxLine 0 0 s with
     | incomplete => simp [hs] at h
-    | overflow => rw [readSize_extend _ _ _ s t (by simp [hs]), hs]; rfl
+    | overflow => rw [readSize_extend _ _ _ _ s t (by simp [hs]), hs]; rfl
+    | tooLong => rw [readSize_extend _ _ _ _ s t (by simp [hs]), hs]; rfl
     | tooLarge r =>
-      rw [readSize_extend _ _ _ s t (by simp [hs]), hs]
+      rw [readSize_extend _ _ _ _ s t (by simp [hs]), hs]
       simp only [hs] at h
-      simp only [Size.extend]
+      simp only [Size.extend, hleft]
       rw [chunkTooLarge_extend t (htl r hs) h]
-      cases hc : chunkTooLarge r with
+      cases hc : chunkTooLarge (lim.maxLine - (s.length - r.length)) r with
       | ok b r' => exact absurd hc chunkTooLarge_not_ok
       | _ => rfl
     | ok size digits r =>
-      rw [readSize_extend _ _ _ s t (by simp [hs]), hs]
+      rw [readSize_extend _ _ _ _ s t (by simp [hs]), hs]
       simp only [hs] at h
-      simp only [Size.extend]
+      simp only [Size.extend, hleft]
       split
       · rfl
       · rename_i hd
         simp only [hd] at h
         have hr := hok size digits r hs
-        cases he : skipChunkExt r with
+        cases he : skipChunkExt (lim.maxLine - (s.length - r.length)) r with
         | incomplete => simp [he] at h
-        | bad => rw [skipChunkExt_extend t hr (by simp [he]), he]; rfl
         | ok r2 =>
           rw [skipChunkExt_extend t hr (by simp [he]), he]
           simp only [he] at h
           simp only [Ext.extend]
           cases hc : crlf r2 with
           | incomplete => simp [hc] at h
+          | tooLong => exact absurd hc (crlf_not_tooLong r2)
           | bad => rw [crlf_extend r2 t (by simp [hc]), hc]; rfl
           | ok r3 =>
             rw [crlf_extend r2 t (by simp [hc]), hc]
@@ -258,13 +295,10 @@ theorem readChunks_extend (maxSize : Nat) :
             simp only [Ext.extend]
             by_cases hz : (size == 0) = true
             · simp only [hz, ite_true] at h ⊢
-              cases hf : readFields (r3.length + 1) r3 with
+              cases hf : readFields (r3.length + 1) lim.maxHeader r3 with
               | incomplete => simp [hf] at h
-              | bad m =>
-                rw [readFields_extend (r3.length + 1) ((r3 ++ t).length + 1) r3 t (by simp)
-                  (by simp [hf]), hf]; rfl
-              | ok fs rest =>
-                rw [readFields_extend (r3.length + 1) ((r3 ++ t).length + 1) r3 t (by simp)
+              | _ =>
+                rw [readFields_extend (r3.length + 1) ((r3 ++ t).length + 1) _ r3 t (by simp)
                   (by simp [hf]), hf]; rfl
             · simp only [hz, Bool.false_eq_true, ite_false] at h ⊢
               by_cases hlen : r3.length < size + 2
@@ -281,13 +315,15 @@ theorem readChunks_extend (maxSize : Nat) :
                 rw [e1, e2, e3]
                 by_cases hc2 : ((r3.drop size).take 2 == ['\r', '\n']) = true
                 · simp only [hc2, ite_true] at h ⊢
-                  exact readChunks_extend maxSize fuel fuel' _ _ _ t (by omega) h
+                  exact readChunks_extend lim fuel fuel' _ _ _ t (by omega) h
                 · simp only [hc2, Bool.false_eq_true, ite_false]; rfl
+        | _ => rw [skipChunkExt_extend t hr (by simp [he]), he]; rfl
 
 /-! ## Requests -/
 
-theorem readHead_extend (s t : Bytes) (h : ∀ o, readHead s = .fail o → o.atEof = false) :
-    readHead (s ++ t) = (readHead s).extend t := by
+theorem readHead_extend (lim : Limits) (s t : Bytes)
+    (h : ∀ o, readHead lim s = .fail o → o.atEof = false) :
+    readHead lim (s ++ t) = (readHead lim s).extend t := by
   unfold readHead at h ⊢
   rw [List.dropWhile_append]
   generalize hd : s.dropWhile isNewline = d at h ⊢
@@ -297,14 +333,15 @@ theorem readHead_extend (s t : Bytes) (h : ∀ o, readHead s = .fail o → o.atE
     simp [Outcome.atEof] at this
   | cons c d =>
     simp only [List.isEmpty_cons, Bool.false_eq_true, ite_false]
-    cases hl : scanLine false (c :: d) with
+    cases hl : scanLine false lim.maxLine (c :: d) with
     | incomplete =>
       simp only [hl] at h
       have := h _ rfl
       split at this <;> simp [Outcome.atEof] at this
-    | bad => rw [scanLine_extend false _ t (by simp [hl]), hl]; rfl
+    | bad => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
+    | tooLong => rw [scanLine_extend false _ _ t (by simp [hl]), hl]; rfl
     | ok line after =>
-      rw [scanLine_extend false _ t (by simp [hl]), hl]
+      rw [scanLine_extend false _ _ t (by simp [hl]), hl]
       simp only [hl] at h
       simp only [Line.extend]
       cases hp : parseRequestLine line with
@@ -312,28 +349,27 @@ theorem readHead_extend (s t : Bytes) (h : ∀ o, readHead s = .fail o → o.atE
       | ok v =>
         obtain ⟨method, target, http10⟩ := v
         simp only [hp] at h ⊢
-        cases hf : readFields (after.length + 1) after with
+        cases hf : readFields (after.length + 1) lim.maxHeader after with
         | incomplete =>
           simp only [hf] at h
           have := h _ rfl
           simp [Outcome.atEof] at this
-        | bad m =>
-          rw [readFields_extend (after.length + 1) ((after ++ t).length + 1) after t (by simp) (by simp [hf]), hf]; rfl
-        | ok hs rest =>
-          rw [readFields_extend (after.length + 1) ((after ++ t).length + 1) after t (by simp) (by simp [hf]), hf]; rfl
+        | _ =>
+          rw [readFields_extend (after.length + 1) ((after ++ t).length + 1) _ after t (by simp)
+            (by simp [hf]), hf]; rfl
 
-theorem readBody_extend (maxSize : Nat) (hd : Head) (t : Bytes)
-    (h : (readBody maxSize hd).1.atEof = false) :
-    readBody maxSize { hd with after := hd.after ++ t } =
-      ((readBody maxSize hd).1,
-        if (readBody maxSize hd).1.isReq then (readBody maxSize hd).2 ++ t
-        else (readBody maxSize hd).2) := by
+theorem readBody_extend (lim : Limits) (hd : Head) (t : Bytes)
+    (h : (readBody lim hd).1.atEof = false) :
+    readBody lim { hd with after := hd.after ++ t } =
+      ((readBody lim hd).1,
+        if (readBody lim hd).1.isReq then (readBody lim hd).2 ++ t
+        else (readBody lim hd).2) := by
   unfold readBody at h ⊢
   simp only at h ⊢
   by_cases hh : (values hd.headers "host").length > 1
   · simp [hh, Outcome.isReq]
   · simp only [hh, ite_false] at h ⊢
-    cases hf : frame maxSize hd.http10 hd.headers with
+    cases hf : frame lim.maxBody hd.http10 hd.headers with
     | error e => obtain ⟨_, _⟩ := e; simp [Outcome.isReq]
     | ok fr =>
       simp only [hf] at h ⊢
@@ -355,48 +391,48 @@ theorem readBody_extend (maxSize : Nat) (hd : Head) (t : Bytes)
               rw [List.take_append_of_le_length (by omega), List.drop_append_of_le_length (by omega)]
           | chunked =>
             simp only at h ⊢
-            cases hc : readChunks maxSize (hd.after.length + 1) 0 [] hd.after with
+            cases hc : readChunks lim (hd.after.length + 1) 0 [] hd.after with
             | incomplete => simp [hc, Outcome.atEof] at h
             | bad c msg =>
-              rw [readChunks_extend maxSize (hd.after.length + 1) ((hd.after ++ t).length + 1) 0 [] hd.after t (by simp)
-                (by simp [hc]), hc]
+              rw [readChunks_extend lim (hd.after.length + 1) ((hd.after ++ t).length + 1) 0 []
+                hd.after t (by simp) (by simp [hc]), hc]
               simp [Body.extend, Outcome.isReq]
             | ok body rest =>
-              rw [readChunks_extend maxSize (hd.after.length + 1) ((hd.after ++ t).length + 1) 0 [] hd.after t (by simp)
-                (by simp [hc]), hc]
+              rw [readChunks_extend lim (hd.after.length + 1) ((hd.after ++ t).length + 1) 0 []
+                hd.after t (by simp) (by simp [hc]), hc]
               simp [Body.extend, Outcome.isReq]
 
 /-- An outcome not decided by the end of the input stays the same when more bytes follow, and a
 request leaves them after the bytes it left for the next request. -/
-theorem readOne_extend (maxSize : Nat) (s t : Bytes) (h : (readOne maxSize s).1.atEof = false) :
-    readOne maxSize (s ++ t) =
-      ((readOne maxSize s).1,
-        if (readOne maxSize s).1.isReq then (readOne maxSize s).2 ++ t else (readOne maxSize s).2) := by
+theorem readOne_extend (lim : Limits) (s t : Bytes) (h : (readOne lim s).1.atEof = false) :
+    readOne lim (s ++ t) =
+      ((readOne lim s).1,
+        if (readOne lim s).1.isReq then (readOne lim s).2 ++ t else (readOne lim s).2) := by
   unfold readOne at h ⊢
-  cases hh : readHead s with
+  cases hh : readHead lim s with
   | fail o =>
     simp only [hh] at h
-    rw [readHead_extend s t (by intro o' ho'; rw [hh] at ho'; cases ho'; exact h), hh]
+    rw [readHead_extend lim s t (by intro o' ho'; rw [hh] at ho'; cases ho'; exact h), hh]
     simp [HeadResult.extend, readHead_fail hh]
   | ok hd =>
     simp only [hh] at h
-    rw [readHead_extend s t (by intro o' ho'; rw [hh] at ho'; cases ho'), hh]
+    rw [readHead_extend lim s t (by intro o' ho'; rw [hh] at ho'; cases ho'), hh]
     simp only [HeadResult.extend]
-    exact readBody_extend maxSize hd t h
+    exact readBody_extend lim hd t h
 
-theorem readAllAux_ne_nil {maxSize : Nat} :
-    ∀ {fuel : Nat} {s : Bytes}, 0 < fuel → readAllAux maxSize fuel s ≠ []
+theorem readAllAux_ne_nil {lim : Limits} :
+    ∀ {fuel : Nat} {s : Bytes}, 0 < fuel → readAllAux lim fuel s ≠ []
   | fuel + 1, s, _ => by unfold readAllAux; split <;> simp
 
-theorem readAllAux_extend (maxSize : Nat) :
+theorem readAllAux_extend (lim : Limits) :
     ∀ (fuel fuel' : Nat) (s t : Bytes), s.length < fuel → fuel ≤ fuel' →
-      (∀ o, (readAllAux maxSize fuel s).getLast? = some o → o.atEof = false) →
-      readAllAux maxSize fuel' (s ++ t) = readAllAux maxSize fuel s
+      (∀ o, (readAllAux lim fuel s).getLast? = some o → o.atEof = false) →
+      readAllAux lim fuel' (s ++ t) = readAllAux lim fuel s
   | 0, _, _, _, hlen, _, _ => by omega
   | _ + 1, 0, _, _, _, hle, _ => by omega
   | fuel + 1, fuel' + 1, s, t, hlen, hle, h => by
     unfold readAllAux at h ⊢
-    cases hr : readOne maxSize s with
+    cases hr : readOne lim s with
     | mk o rest =>
       simp only [hr] at h
       have ho : o.atEof = false := by
@@ -405,7 +441,7 @@ theorem readAllAux_extend (maxSize : Nat) :
         | bad => rfl
         | incomplete msg => simp [Outcome.atEof] at h
         | closed => simp [Outcome.atEof] at h
-      have hx := readOne_extend maxSize s t (by rw [hr]; exact ho)
+      have hx := readOne_extend lim s t (by rw [hr]; exact ho)
       rw [hr] at hx
       rw [hx]
       cases o with
@@ -414,13 +450,13 @@ theorem readAllAux_extend (maxSize : Nat) :
         | true =>
           simp only [Outcome.isReq, ite_true]
           have hshort := readOne_req_shorter hr
-          have hne := readAllAux_ne_nil (maxSize := maxSize) (fuel := fuel) (s := rest) (by omega)
-          have h' : ∀ o, (readAllAux maxSize fuel rest).getLast? = some o → o.atEof = false := by
+          have hne := readAllAux_ne_nil (lim := lim) (fuel := fuel) (s := rest) (by omega)
+          have h' : ∀ o, (readAllAux lim fuel rest).getLast? = some o → o.atEof = false := by
             intro o ho
             apply h o
             rw [List.getLast?_cons, ho]
             rfl
-          rw [readAllAux_extend maxSize fuel fuel' rest t (by omega) (by omega) h']
+          rw [readAllAux_extend lim fuel fuel' rest t (by omega) (by omega) h']
         | false => rfl
       | bad => rfl
       | incomplete => rfl
@@ -428,16 +464,16 @@ theorem readAllAux_extend (maxSize : Nat) :
 
 /-- Bytes after a stream never change its outcomes, unless its last outcome came from its end
 (`closed`, or an incomplete request). -/
-theorem readAll_extend {maxSize : Nat} {s : Bytes} (t : Bytes)
-    (h : ∀ o, (readAll maxSize s).getLast? = some o → o.atEof = false) :
-    readAll maxSize (s ++ t) = readAll maxSize s := by
+theorem readAll_extend {lim : Limits} {s : Bytes} (t : Bytes)
+    (h : ∀ o, (readAll lim s).getLast? = some o → o.atEof = false) :
+    readAll lim (s ++ t) = readAll lim s := by
   unfold readAll at h ⊢
-  exact readAllAux_extend maxSize _ _ s t (by omega) (by simp) h
+  exact readAllAux_extend lim _ _ s t (by omega) (by simp) h
 
 /-- The hypothesis holds for real streams: a request then a rejection stay the same whatever
 follows. -/
 example (t : Bytes) :
-    readAll 100 ("GET / HTTP/1.1\r\n\r\nGET\t/ HTTP/1.1\r\n\r\n".toList ++ t) =
+    readAll ⟨64, 128, 100⟩ ("GET / HTTP/1.1\r\n\r\nGET\t/ HTTP/1.1\r\n\r\n".toList ++ t) =
       [.req "GET" "/" true [], .bad 400 "Malformed request line"] := by
   rw [readAll_extend t (by decide)]
   decide
