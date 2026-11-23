@@ -2386,8 +2386,10 @@ private[parquet] object IcebergWrite:
         }
 
   /**
-    * Why the current snapshot's files can't be relocated, read from its manifests: position delete
-    * files name data files by path inside their Parquet rows, which a rename can't rewrite
+    * Why the current snapshot's files can't be relocated, read from its manifests and its
+    * position-delete files. A position-delete file names data files by path in its rows, so a
+    * rename writes it again with the moved paths; that needs a Parquet file of only `file_path` and
+    * `pos` rows.
     */
   def relocationFileProblem(layout: Layout, t: Table): Step[Option[String]] =
     val m       = t.metadata
@@ -2397,31 +2399,102 @@ private[parquet] object IcebergWrite:
         .flatMap(id => objects(m, "snapshots").find(s => long(s, "snapshot-id").contains(id)))
         .toIndexedSeq
     flatMap(manifestsOf(layout, t, current)) { manifests =>
-      val paths                              = manifests.values.flatten.toIndexedSeq
-      def loop(i: Int): Step[Option[String]] =
+      val paths = manifests.values.flatten.toIndexedSeq
+      def deleteFiles(i: Int, acc: Vector[(String, String)]): Step[Vector[(String, String)]] =
         if i >= paths.size then
-          Step.Done(None)
+          Step.Done(acc)
         else
           Step.Fetch(
             paths(i),
             bytes =>
-              val positionDeletes = Avro
+              val files = Avro
                 .read(bytes, paths(i))
                 .records
-                .exists(r => isLivePositionDelete(r.asInstanceOf[Map[String, Any]]))
-              if positionDeletes then
-                Step.Done(
-                  Some(
-                    "it has position delete files, whose rows name data files by their old paths; compact the table first"
-                  )
-                )
-              else
-                loop(i + 1)
+                .map(_.asInstanceOf[Map[String, Any]])
+                .filter(isLivePositionDelete)
+                .map { e =>
+                  val df = e("data_file").asInstanceOf[Map[String, Any]]
+                  resolvePath(layout, t, String.valueOf(df("file_path"))) ->
+                    String.valueOf(df.getOrElse("file_format", "parquet"))
+                }
+              deleteFiles(i + 1, acc ++ files)
           )
-      loop(0)
+      flatMap(deleteFiles(0, Vector.empty)) { files =>
+        def check(i: Int): Step[Option[String]] =
+          if i >= files.size then
+            Step.Done(None)
+          else
+            val (path, format) = files(i)
+            if !format.equalsIgnoreCase("parquet") then
+              Step.Done(
+                Some(
+                  s"its position delete file ${path} is ${format}; Uni rewrites only Parquet ones, so compact the table first"
+                )
+              )
+            else
+              Step.Fetch(
+                path,
+                bytes =>
+                  // The same rewrite the move runs, so a file it would fail on fails here first
+                  val problem =
+                    try
+                      relocatedPositionDeletes(bytes, path, identity)
+                      None
+                    catch
+                      case e: ParquetException =>
+                        Some(e.getMessage)
+                  if problem.isEmpty then
+                    check(i + 1)
+                  else
+                    Step.Done(problem)
+              )
+        check(0)
+      }
     }
 
   end relocationFileProblem
+
+  /**
+    * A position-delete file with its data file paths moved, its rows sorted by path and position as
+    * the spec asks, in the same schema (and field IDs)
+    */
+  private def relocatedPositionDeletes(
+      bytes: Array[Byte],
+      path: String,
+      moved: String => String
+  ): Array[Byte] =
+    val f              = Parquet.open(bytes)
+    val (schema, rows) =
+      try
+        val names = f.schema.fields.map(_.name)
+        if names != IndexedSeq("file_path", "pos") then
+          throw ParquetException(
+            s"its position delete file ${path} has the columns ${names.mkString(
+                ", "
+              )}; Uni rewrites only files of file_path and pos, so compact the table first"
+          )
+        val rows =
+          f.readRows()
+            .map { r =>
+              (r("file_path"), r("pos")) match
+                case (p: String, n: Long) =>
+                  (moved(p), n)
+                case (p, n) =>
+                  throw ParquetException(
+                    s"its position delete file ${path} has a row (${p}, ${n}) that isn't a file_path string and a pos long, so compact the table first"
+                  )
+            }
+            .toVector
+        f.schema -> rows
+      finally
+        f.close()
+    val out = java.io.ByteArrayOutputStream()
+    val w   = Parquet.newRecordWriter(out, schema)
+    try rows.sorted.foreach((p, n) => w.write(Map("file_path" -> p, "pos" -> n)))
+    finally w.close()
+    out.toByteArray
+
+  end relocatedPositionDeletes
 
   /** The data files each manifest lists: (path, whether the entry is live) */
   private def dataFilesOf(
@@ -2599,24 +2672,28 @@ private[parquet] object IcebergWrite:
           flatMap(manifestsOf(layout, t, snapshots)) { manifests =>
             flatMap(dataFilesOf(layout, t, manifests.values.flatten.toSeq.distinct)) { dataFiles =>
               val commitId = newUuid()
-              def committed(snapshot: Option[JSONObject], written: Seq[String]): Step[Expired] =
-                commitRelocation(
-                  n,
-                  layout,
-                  t,
-                  snapshot,
-                  snapshots,
-                  manifests,
-                  dataFiles,
-                  written,
-                  () => attempt(n + 1)
-                )
+              def committed(
+                  snapshot: Option[JSONObject],
+                  written: Seq[String],
+                  replaced: Set[String]
+              ): Step[Expired] = commitRelocation(
+                n,
+                layout,
+                t,
+                snapshot,
+                snapshots,
+                manifests,
+                dataFiles,
+                written,
+                replaced,
+                () => attempt(n + 1)
+              )
               current match
                 case None =>
-                  committed(None, Nil)
+                  committed(None, Nil, Set.empty)
                 case Some(s) =>
-                  rewriteSnapshot(layout, t, s, commitId)((snapshot, written) =>
-                    committed(Some(snapshot), written)
+                  rewriteSnapshot(layout, t, s, commitId)((snapshot, written, replaced) =>
+                    committed(Some(snapshot), written, replaced)
                   )
             }
           }
@@ -2630,7 +2707,7 @@ private[parquet] object IcebergWrite:
     * location, and continues with the snapshot pointing at the new list and the files written
     */
   private def rewriteSnapshot(layout: Layout, t: Table, s: JSONObject, commitId: String)(
-      next: (JSONObject, Seq[String]) => Step[Expired]
+      next: (JSONObject, Seq[String], Set[String]) => Step[Expired]
   ): Step[Expired] =
     def avroMeta(c: Avro.Container): (String, Seq[(String, String)]) =
       val schema = c
@@ -2659,7 +2736,12 @@ private[parquet] object IcebergWrite:
       listBytes =>
         val listed  = Avro.read(listBytes, list)
         val entries = listed.records.map(_.asInstanceOf[Map[String, Any]])
-        def loop(i: Int, out: Vector[Map[String, Any]], written: Vector[String]): Step[Expired] =
+        def loop(
+            i: Int,
+            out: Vector[Map[String, Any]],
+            written: Vector[String],
+            replaced: Set[String]
+        ): Step[Expired] =
           if i >= entries.size then
             val (schema, meta) = avroMeta(listed)
             val id             = long(s, "snapshot-id").getOrElse(0L)
@@ -2677,7 +2759,7 @@ private[parquet] object IcebergWrite:
                         k -> v
                     )
                 )
-                next(snapshot, written :+ listPath)
+                next(snapshot, written :+ listPath, replaced)
             )
           else
             val e        = entries(i)
@@ -2696,53 +2778,93 @@ private[parquet] object IcebergWrite:
               bytes =>
                 val c              = Avro.read(bytes, manifest)
                 val (schema, meta) = avroMeta(c)
-                val records        = c
-                  .records
-                  .map { r =>
-                    val entry = r.asInstanceOf[Map[String, Any]]
-                    entry.get("data_file") match
-                      case Some(d: Map[?, ?]) =>
-                        val df = d.asInstanceOf[Map[String, Any]]
-                        // A backstop: renameIcebergTable refuses these before moving the folder
-                        if isLivePositionDelete(entry) then
-                          throw ParquetException(
-                            s"${layout
-                                .root} has position delete files, whose rows name data files by their old paths; compact the table before renaming it"
-                          )
-                        val withPath =
-                          df.get("file_path") match
-                            case Some(p: String) =>
-                              df.updated("file_path", moved(p))
-                            case _ =>
-                              df
-                        val withTarget =
-                          withPath.get("referenced_data_file") match
-                            case Some(p: String) =>
-                              // A deletion vector's data file; the path bounds name it too
-                              withPath
-                                .updated("referenced_data_file", moved(p))
+                val records        = c.records.map(_.asInstanceOf[Map[String, Any]])
+                def relocated(entry: Map[String, Any]): Map[String, Any] =
+                  entry.get("data_file") match
+                    case Some(d: Map[?, ?]) =>
+                      val df       = d.asInstanceOf[Map[String, Any]]
+                      val withPath =
+                        df.get("file_path") match
+                          case Some(p: String) =>
+                            df.updated("file_path", moved(p))
+                          case _ =>
+                            df
+                      val withTarget =
+                        withPath.get("referenced_data_file") match
+                          case Some(p: String) =>
+                            // A deletion vector's data file; the path bounds name it too
+                            withPath
+                              .updated("referenced_data_file", moved(p))
+                              .updated("lower_bounds", null)
+                              .updated("upper_bounds", null)
+                          case _ =>
+                            withPath
+                      entry.updated("data_file", withTarget)
+                    case _ =>
+                      entry
+                // Position-delete files name data files by path in their rows, so each live one
+                // is written again with the moved paths, next to the old one
+                def entries(
+                    j: Int,
+                    acc: Vector[Map[String, Any]],
+                    written: Vector[String],
+                    replaced: Set[String]
+                ): Step[Expired] =
+                  if j < records.size then
+                    val entry = records(j)
+                    if isLivePositionDelete(entry) then
+                      val df      = entry("data_file").asInstanceOf[Map[String, Any]]
+                      val oldPath = resolvePath(layout, t, String.valueOf(df("file_path")))
+                      Step.Fetch(
+                        oldPath,
+                        b =>
+                          val rewritten = relocatedPositionDeletes(b, oldPath, moved)
+                          val dir       =
+                            if oldPath.startsWith(layout.root) then
+                              oldPath.substring(0, IcebergTable.lastSeparator(oldPath) + 1)
+                            else
+                              layout.metadataDir
+                          val newPath = s"${dir}${commitId}-m${i}-${j}-deletes.parquet"
+                          Step.Put(
+                            newPath,
+                            rewritten,
+                            () =>
+                              val entryMoved = relocated(entry)
+                              val file       = entryMoved("data_file")
+                                .asInstanceOf[Map[String, Any]]
+                                .updated("file_path", layout.uriOf(newPath))
+                                .updated("file_size_in_bytes", rewritten.length.toLong)
+                                // These describe the old file's bytes and paths
+                                .updated("column_sizes", null)
                                 .updated("lower_bounds", null)
                                 .updated("upper_bounds", null)
-                            case _ =>
-                              withPath
-                        entry.updated("data_file", withTarget)
-                      case _ =>
-                        entry
-                    end match
-                  }
-                val out2 = Avro.write(schema, meta, records)
-                val path = layout.metadata(s"${commitId}-m${i}.avro")
-                Step.Put(
-                  path,
-                  out2,
-                  () =>
-                    val updated = e
-                      .updated("manifest_path", layout.uriOf(path))
-                      .updated("manifest_length", out2.length.toLong)
-                    loop(i + 1, out :+ updated, written :+ path)
-                )
+                                .updated("split_offsets", null)
+                              entries(
+                                j + 1,
+                                acc :+ entryMoved.updated("data_file", file),
+                                written :+ newPath,
+                                replaced + oldPath
+                              )
+                          )
+                      )
+                    else
+                      entries(j + 1, acc :+ relocated(entry), written, replaced)
+                    end if
+                  else
+                    val out2 = Avro.write(schema, meta, acc)
+                    val path = layout.metadata(s"${commitId}-m${i}.avro")
+                    Step.Put(
+                      path,
+                      out2,
+                      () =>
+                        val updated = e
+                          .updated("manifest_path", layout.uriOf(path))
+                          .updated("manifest_length", out2.length.toLong)
+                        loop(i + 1, out :+ updated, written :+ path, replaced)
+                    )
+                entries(0, Vector.empty, written, replaced)
             )
-        loop(0, Vector.empty, Vector.empty)
+        loop(0, Vector.empty, Vector.empty, Set.empty)
     )
 
   end rewriteSnapshot
@@ -2756,11 +2878,13 @@ private[parquet] object IcebergWrite:
       manifests: Map[Long, Seq[String]],
       dataFiles: Map[String, Seq[(String, Boolean)]],
       written: Seq[String],
+      rewritten: Set[String],
       retry: () => Step[Expired]
   ): Step[Expired] =
     val m      = t.metadata
     val liveId = current.flatMap(long(_, "snapshot-id"))
-    // The current snapshot's live data files are the only old files the new version reads
+    // The current snapshot's live data files are the only old files the new version reads, except
+    // the position-delete files written again with the moved paths
     val live =
       liveId
         .toSeq
@@ -2772,7 +2896,7 @@ private[parquet] object IcebergWrite:
               p
             }
         )
-        .toSet
+        .toSet -- rewritten
     val oldLists = snapshots.flatMap(s => string(s, "manifest-list").map(resolvePath(layout, t, _)))
     val oldMetadata =
       (
