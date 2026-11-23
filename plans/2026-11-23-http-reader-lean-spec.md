@@ -99,8 +99,24 @@ Do this in two stages, so the theorem has evidence before the proof is done:
   `smugglingCases`: the first per kind of outcome and set of options that matter, 8 today. A
   planted bug in the model (whitespace before the colon stripped from names) gave 1,216
   disagreements.
-- **2b (proven).** `no_smuggling` itself. Chunked bodies get a separate theorem over a smaller
-  family: bare LF in a size line, and extensions containing CR.
+- **2b (proven). Done for heads.** `UniSpec/HttpSmuggleProof.lean` (about 550 lines) proves
+  `no_smuggling`: for every byte stream, if `readerFraming` accepts it, `agrees` holds for every
+  member. The proof goes line by line:
+  - an accepted line holds no CR or LF and ends at CR LF, so both line modes find it
+    (`nextLine_crlf`);
+  - an accepted field line starts with a token byte and has a token name before its colon, so
+    every member keeps it as one field with the same name, and the reader's value plus any
+    trailing whitespace it didn't trim (`addLine_ok`, `memberValue_split`);
+  - names compare the same, since `lowerAscii = Char.toLower`;
+  - with a coding, keep-alive rules out a length, so a member frames chunked or rejects. Without
+    one, a member reads the same length or rejects a value it kept whitespace on
+    (`decimal_append`).
+
+  An `example` shows the hypothesis holds for a real request. Planting the 2a bug (whitespace
+  before the colon stripped) breaks the proof. Still open: chunked bodies, with a separate theorem
+  over a smaller family (bare LF in a size line, extensions containing CR), and stating the result
+  for every prefix of the stream that holds the head, as h5i does. Members read only up to the
+  empty line, so that should follow directly.
 
 ### 3. Outcomes don't depend on read splits
 
