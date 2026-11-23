@@ -83,8 +83,8 @@ t.append(pa.table({"dt": pa.array([datetime.date(2026, 11, 21)], pa.date32()), "
 for name in ["events", "evolved", "renamed", "respec", "v1", "empty", "leading"]:
     shutil.copytree(os.path.join(wh, "db", name), os.path.join(out, name))
 
-# deletes and orc: copies of v1-style one-file tables whose current snapshot is edited by hand,
-# adding a live delete manifest to the manifest list, or marking the data file as ORC
+# orc: a copy of a v1-style one-file table whose current snapshot is edited by hand, marking the
+# data file as ORC. Delete fixtures come from make_iceberg_v3.py
 def edited(name, edit_list, edit_manifest):
     t = cat.create_table(f"db.{name}", schema=Schema(NestedField(1, "id", LongType(), required=False)))
     t.append(pa.table({"id": pa.array([1], pa.int64())}))
@@ -104,12 +104,9 @@ def edited(name, edit_list, edit_manifest):
     with open(list_path, "wb") as f:
         fastavro.writer(f, schema, entries, codec="deflate", metadata={k: v for k, v in meta.items() if not k.startswith("avro.")})
     shutil.copytree(os.path.join(wh, "db", name), os.path.join(out, name))
-def add_delete_manifest(entries):
-    entries.append(dict(entries[0], content=1))
 def to_orc(entries):
     for e in entries:
         e["data_file"]["file_format"] = "ORC"
-edited("deletes", add_delete_manifest, lambda es: None)
 edited("orc", lambda es: None, to_orc)
 
 # Avro container files in each codec, for the Avro reader

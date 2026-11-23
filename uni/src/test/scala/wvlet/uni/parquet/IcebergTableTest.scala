@@ -19,6 +19,8 @@ case class IcebergEvent(id: Long, name: String, dt: Option[LocalDate], country: 
 
 case class IcebergEvolved(id: Long, n: Long, added: Option[String]) derives Weaver
 
+case class IcebergIdName(id: Long, name: String) derives Weaver
+
 /**
   * Reads Apache Iceberg tables. The tables under `src/test/resources/parquet/iceberg` were written
   * by pyiceberg (`make_iceberg.py` there) under another folder, so every read also resolves the
@@ -343,9 +345,150 @@ class IcebergTableTest extends UniTest:
       ds.close()
   }
 
+  private def ids(ds: ParquetDataset, opts: ParquetReadOptions = ParquetReadOptions.default) =
+    ds.readRows(opts).map(_("id").asInstanceOf[Long]).toSeq.sorted
+
+  /** The snapshot IDs of a fixture's newest metadata file, oldest first */
+  private def snapshotIds(name: String): Seq[Long] =
+    val newest = metadataFiles(name).last
+    val json   = text(fixtureFiles(name).find(_._1 == newest).get._2)
+    JSON.parse(json).asInstanceOf[JSONObject].get("snapshots") match
+      case Some(JSONArray(vs)) =>
+        vs.collect { case o: JSONObject =>
+          o.get("snapshot-id") match
+            case Some(JSONLong(id)) =>
+              id
+            case _ =>
+              -1L
+        }
+      case _ =>
+        Seq.empty
+
+  test("apply deletion vectors") {
+    val ds = Parquet.dataset(fixture("v3_deletes"))
+    try
+      ids(ds) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
+      // A row filter runs after the deletes, which name rows by position
+      ids(ds, ParquetReadOptions.default.withFilter(col("id") >= 4L)) shouldBe Seq(4L, 5L, 7L, 8L)
+      ds.readRows(ParquetReadOptions.default.withColumns("name")).size shouldBe 6
+      ds.readBatches(ParquetReadOptions.default.withBatchSize(4)).map(_.numRows).sum shouldBe 6
+    finally
+      ds.close()
+    // The snapshot before the delete has every row
+    val before = Parquet.dataset(
+      fixture("v3_deletes"),
+      ParquetDatasetOptions.default.withSnapshotId(snapshotIds("v3_deletes").head)
+    )
+    try ids(before) shouldBe (0L until 10L)
+    finally before.close()
+  }
+
+  test("apply a deletion vector with bitmap and array containers") {
+    val ds = Parquet.dataset(fixture("v3_dv_large"))
+    try
+      // Row i holds a = i / 1000 and b = i % 1000
+      val rows =
+        ds.readBatches(ParquetReadOptions.default.withBatchSize(10000))
+          .flatMap(_.rows)
+          .map(r => r("a").asInstanceOf[Int] * 1000 + r("b").asInstanceOf[Int])
+          .toSeq
+      val deleted = (0 until 60000 by 2) ++ (70000 to 100000) ++ Seq(130000, 139999)
+      rows shouldBe (0 until 140000).filterNot(deleted.toSet)
+    finally
+      ds.close()
+  }
+
+  test("apply position delete files") {
+    val ds = Parquet.dataset(fixture("v2_deletes"))
+    try ids(ds) shouldBe (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
+    finally ds.close()
+  }
+
+  test("apply deletes when reading asynchronously") {
+    val expected = Seq(1L, 2L, 4L, 5L, 7L, 8L)
+    storeWith("v3_deletes").flatMap { store =>
+      Parquet
+        .datasetAsync(store, bucketRoot)
+        .flatMap { ds =>
+          ds.readAllAsync[IcebergIdName]()
+            .map(_.map(_.id).sorted shouldBe expected)
+            .flatMap(_ => ds.batchReaderAsync(ParquetReadOptions.default.withColumns("id")))
+            .flatMap { reader =>
+              // The reader that pulls one row group at a time
+              def pull(acc: Seq[Long]): Rx[Seq[Long]] = reader
+                .nextRowGroup()
+                .flatMap {
+                  case Some(bs) =>
+                    pull(acc ++ bs.flatMap(_.rows).map(_("id").asInstanceOf[Long]))
+                  case None =>
+                    Rx.single(acc)
+                }
+              pull(Seq.empty).map(_.sorted shouldBe expected)
+            }
+        }
+    }
+  }
+
+  test("deletion vector blobs: runs, several buckets, and checksums") {
+    // A portable 64-bit roaring bitmap: bucket 0 with run and array containers, and bucket 1 with
+    // a bitmap container
+    val out               = java.io.ByteArrayOutputStream()
+    def u16(v: Int): Unit =
+      out.write(v & 0xff);
+      out.write((v >>> 8) & 0xff)
+    def i32(v: Int): Unit =
+      u16(v & 0xffff);
+      u16(v >>> 16)
+    def i64(v: Long): Unit =
+      i32(v.toInt);
+      i32((v >>> 32).toInt)
+    i64(2)
+    i32(0)
+    // Two containers with runs: cookie 12347 with size - 1 in the high bits, and the run bitmap
+    i32(12347 | (1 << 16))
+    out.write(0x01) // container 0 is a run container
+    u16(0);
+    u16(20 - 1) // key 0, cardinality 20
+    u16(3);
+    u16(2 - 1) // key 3, cardinality 2
+    u16(2);
+    u16(5);
+    u16(9);
+    u16(100);
+    u16(9) // runs 5..14 and 100..109
+    u16(7);
+    u16(65535) // array container
+    i32(1)
+    i32(12346)
+    i32(1)
+    u16(2);
+    u16(4097 - 1) // key 2, a bitmap container
+    i32(0)        // offset, skipped
+    val words = Array.fill(1024)(0L)
+    (0 until 4097).foreach(v => words(v / 64) |= 1L << (v % 64))
+    words.foreach(i64)
+    val bitmap                  = out.toByteArray
+    val magic                   = Array(0xd1, 0xd3, 0x39, 0x64).map(_.toByte)
+    def be(v: Int): Array[Byte] = Array(v >>> 24, v >>> 16, v >>> 8, v).map(_.toByte)
+    val body                    = magic ++ bitmap
+    val blob                    = be(body.length) ++ body ++ be(wvlet.uni.io.CRC32.compute(body))
+    val file                    = "PFA1".getBytes(StandardCharsets.US_ASCII) ++ blob
+    val positions               = IcebergDeletes.deletionVector(file, 4, blob.length, "t.puffin")
+    val bucket1                 = 1L << 32
+    positions.toSeq shouldBe (
+      (5L to 14L) ++
+        (100L to 109L) ++ Seq(3L << 16 | 7L, 3L << 16 | 65535L) ++
+        (0L until 4097L).map(v => bucket1 | 2L << 16 | v)
+    )
+    val corrupt = file.clone()
+    corrupt(20) = (corrupt(20) ^ 1).toByte
+    intercept[ParquetException](IcebergDeletes.deletionVector(corrupt, 4, blob.length, "t.puffin"))
+      .getMessage shouldContain "checksum mismatch"
+  }
+
   test("refuse what format version 3 tables have that Uni doesn't read") {
-    intercept[ParquetException](Parquet.dataset(fixture("v3_deletes"))).getMessage shouldContain
-      "delete files"
+    intercept[ParquetException](Parquet.dataset(fixture("equality_deletes")))
+      .getMessage shouldContain "equality delete files"
     intercept[ParquetException](Parquet.dataset(fixture("v3_variant"))).getMessage shouldContain
       "Iceberg type variant"
     val newest                                   = metadataFiles("v3").last
@@ -373,8 +516,6 @@ class IcebergTableTest extends UniTest:
   }
 
   test("refuse what changes meaning") {
-    intercept[ParquetException](Parquet.dataset(fixture("deletes"))).getMessage shouldContain
-      "delete files"
     intercept[ParquetException](Parquet.dataset(fixture("orc"))).getMessage shouldContain
       "ORC data files"
     val newest = metadataFiles("events").last

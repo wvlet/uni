@@ -505,8 +505,12 @@ val catalogVersion = Parquet.dataset(
 - **Format versions** 1, 2, and 3 are read. Version 3's `timestamp_ns` and `timestamptz_ns`
   columns read as nanosecond timestamps, and an `unknown` column reads as nulls. Row lineage
   fields are kept in the metadata but not read as columns.
-- **What fails** when the dataset opens, with the reason: delete files and deletion vectors
-  (merge-on-read deletes; compact the table to rewrite them), the `variant`, `geometry`, and
+- **Row deletes.** Merge-on-read deletes are applied: position-delete files (format version 2)
+  and deletion vectors (format version 3, Puffin files) remove rows by their position in a data
+  file, for the data files they are newer than. They are read when the dataset opens, and a row
+  filter sees only the rows that remain.
+- **What fails** when the dataset opens, with the reason: equality delete files (compact the
+  table to rewrite them), the `variant`, `geometry`, and
   `geography` types, an `initial-default` on a field inside a struct, encrypted tables, and data
   files that aren't Parquet. The
   manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
