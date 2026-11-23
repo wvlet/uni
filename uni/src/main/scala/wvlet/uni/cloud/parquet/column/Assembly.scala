@@ -51,9 +51,23 @@ private[cloud] object Assembly:
 
   /**
     * Instance ranges of one node for one leaf. The arrays are sized for the most instances the leaf
-    * can hold, so they are filled without growing; callers know the instance count.
+    * can hold, so they are filled without growing; callers know the instance count. Null arrays
+    * stand for the identity (instance k is entry k), the ranges of every flat leaf.
     */
-  private final class Ranges(val starts: Array[Int], val ends: Array[Int])
+  private final class Ranges(starts: Array[Int], ends: Array[Int]):
+    inline def start(k: Int): Int =
+      if starts == null then
+        k
+      else
+        starts(k)
+
+    inline def end(k: Int): Int =
+      if ends == null then
+        k + 1
+      else
+        ends(k)
+
+  private val identity = Ranges(null, null)
 
   private type Instances = Map[Int, Ranges]
 
@@ -89,14 +103,7 @@ private[cloud] object Assembly:
         throw ParquetException.corrupt(
           s"column ${leaf.data.field.pathString} has ${leaf.m} values, expected ${numRows} rows"
         )
-      val starts = new Array[Int](numRows)
-      val ends   = new Array[Int](numRows)
-      var i      = 0
-      while i < numRows do
-        starts(i) = i
-        ends(i) = i + 1
-        i += 1
-      Ranges(starts, ends)
+      identity
     else
       val starts = new Array[Int](numRows)
       val ends   = new Array[Int](numRows)
@@ -149,7 +156,7 @@ private[cloud] object Assembly:
       var nulls: Array[Boolean] = null
       var k                     = 0
       while k < n do
-        if leaf.d(ranges.starts(k)) < level then
+        if leaf.d(ranges.start(k)) < level then
           if nulls == null then
             nulls = new Array[Boolean](n)
           nulls(k) = true
@@ -258,8 +265,8 @@ private[cloud] object Assembly:
           var k      = 0
           while k < n do
             offs(k) = c
-            val s = ranges.starts(k)
-            val e = ranges.ends(k)
+            val s = ranges.start(k)
+            val e = ranges.end(k)
             if s < e && leaf.d(s) >= level then
               var elemStart = s
               var i         = s + 1
@@ -307,14 +314,19 @@ private[cloud] object Assembly:
     // required columns and for required leaves of lists. The decoded buffer is then the vector.
     if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
       directLeaf(p, leaf.data.values, n, asLong)
+    else if n == leaf.m && (ranges eq identity) then
+      // A flat leaf with nulls: entry k is row k, and its values are in row order
+      scatterLeaf(p, leaf.data, n, asLong)
     else
       gatherLeaf(p, leaf, ranges, n, asLong)
 
   private def isIdentity(ranges: Ranges, n: Int): Boolean =
-    var k = 0
-    while k < n && ranges.starts(k) == k do
-      k += 1
-    k == n
+    (ranges eq identity) || {
+      var k = 0
+      while k < n && ranges.start(k) == k do
+        k += 1
+      k == n
+    }
 
   private def directLeaf(
       p: ParquetField.Primitive,
@@ -323,6 +335,7 @@ private[cloud] object Assembly:
       asLong: Boolean = false
   ): ColumnVector =
     import java.util.Arrays.copyOf
+    // A buffer whose array is exactly the vector is handed over; the cursor does not reuse it
     values match
       case b: IntBuffer if asLong =>
         val out = new Array[Long](n)
@@ -332,23 +345,166 @@ private[cloud] object Assembly:
           i += 1
         LongColumn(p, out, null)
       case b: BooleanBuffer =>
-        BooleanColumn(p, copyOf(b.values, n), null)
+        BooleanColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: IntBuffer =>
-        IntColumn(p, copyOf(b.values, n), null)
+        IntColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: LongBuffer =>
-        LongColumn(p, copyOf(b.values, n), null)
+        LongColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: FloatBuffer =>
-        FloatColumn(p, copyOf(b.values, n), null)
+        FloatColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: DoubleBuffer =>
-        DoubleColumn(p, copyOf(b.values, n), null)
+        DoubleColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: BinaryBuffer =>
         // The buffer's offsets start at 0; its data array is shared
-        BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null).withDictionary(
-          b.dict,
-          dictIndices(b, n, i => i)
-        )
+        BinaryColumn(p, exact(b.offsets, n + 1)(copyOf(b.offsets, n + 1)), b.data, null)
+          .withDictionary(b.dict, dictIndices(b, n, i => i))
 
   end directLeaf
+
+  /** `a` when it has exactly `n` elements, else `copy` */
+  private inline def exact[A](a: Array[A], n: Int)(inline copy: Array[A]): Array[A] =
+    if a.length == n then
+      a
+    else
+      copy
+
+  /**
+    * A flat leaf with nulls, in one pass over the definition levels: entry i is row i, and the
+    * values of the non-null rows come in row order.
+    */
+  private def scatterLeaf(
+      p: ParquetField.Primitive,
+      data: ColumnData,
+      n: Int,
+      asLong: Boolean
+  ): ColumnVector =
+    val defs = data.definitionLevels
+    if defs == null then
+      // A required leaf has a value in every entry
+      throw ParquetException.corrupt(
+        s"column ${p.pathString} has ${data.values.size} values for ${n} rows"
+      )
+    val maxDef = p.maxDefinitionLevel
+    val size   = data.values.size
+    val nulls  = new Array[Boolean](n)
+
+    // Calls put(row, value index) for each non-null row, and flags the null ones and calls
+    // onNull(row, index of the next value) for them. Returns the number of values used.
+    inline def scatter(
+        inline put: (Int, Int) => Unit,
+        inline onNull: (Int, Int) => Unit = (_, _) => ()
+    ): Int =
+      var j = 0
+      var i = 0
+      while i < n do
+        if defs(i) == maxDef then
+          if j == size then
+            throw ParquetException.corrupt(
+              s"column ${p.pathString} has fewer values than its definition levels require"
+            )
+          put(i, j)
+          j += 1
+        else
+          nulls(i) = true
+          onNull(i, j)
+        i += 1
+      j
+
+    // When the decoded array has a slot for every row, the values move to their rows in place,
+    // from the last row back, so a value never lands on one not yet moved. The cursor gives such an
+    // array only when it hands out all of its values, so they are exactly the non-null rows'.
+    inline def spread(inline move: (Int, Int) => Unit, inline clear: Int => Unit): Unit =
+      var j = size - 1
+      var i = n - 1
+      while i >= 0 do
+        if defs(i) == maxDef then
+          if j < 0 then
+            throw ParquetException.corrupt(
+              s"column ${p.pathString} has fewer values than its definition levels require"
+            )
+          move(i, j)
+          j -= 1
+        else
+          nulls(i) = true
+          clear(i)
+        i -= 1
+      if j >= 0 then
+        throw ParquetException.corrupt(
+          s"column ${p.pathString} has more values than its definition levels allow"
+        )
+
+    data.values match
+      case b: IntBuffer if asLong =>
+        val out = new Array[Long](n)
+        scatter((i, j) => out(i) = b.values(j))
+        LongColumn(p, out, nulls)
+      case b: BooleanBuffer if b.values.length == n =>
+        val a = b.values
+        spread((i, j) => a(i) = a(j), i => a(i) = false)
+        BooleanColumn(p, a, nulls)
+      case b: IntBuffer if b.values.length == n =>
+        val a = b.values
+        spread((i, j) => a(i) = a(j), i => a(i) = 0)
+        IntColumn(p, a, nulls)
+      case b: LongBuffer if b.values.length == n =>
+        val a = b.values
+        spread((i, j) => a(i) = a(j), i => a(i) = 0L)
+        LongColumn(p, a, nulls)
+      case b: FloatBuffer if b.values.length == n =>
+        val a = b.values
+        spread((i, j) => a(i) = a(j), i => a(i) = 0f)
+        FloatColumn(p, a, nulls)
+      case b: DoubleBuffer if b.values.length == n =>
+        val a = b.values
+        spread((i, j) => a(i) = a(j), i => a(i) = 0d)
+        DoubleColumn(p, a, nulls)
+      case b: BooleanBuffer =>
+        val out = new Array[Boolean](n)
+        scatter((i, j) => out(i) = b.values(j))
+        BooleanColumn(p, out, nulls)
+      case b: IntBuffer =>
+        val out = new Array[Int](n)
+        scatter((i, j) => out(i) = b.values(j))
+        IntColumn(p, out, nulls)
+      case b: LongBuffer =>
+        val out = new Array[Long](n)
+        scatter((i, j) => out(i) = b.values(j))
+        LongColumn(p, out, nulls)
+      case b: FloatBuffer =>
+        val out = new Array[Float](n)
+        scatter((i, j) => out(i) = b.values(j))
+        FloatColumn(p, out, nulls)
+      case b: DoubleBuffer =>
+        val out = new Array[Double](n)
+        scatter((i, j) => out(i) = b.values(j))
+        DoubleColumn(p, out, nulls)
+      case b: BinaryBuffer =>
+        // Values are in row order from offset 0, so the data array is shared; a null row is empty
+        val offsets = new Array[Int](n + 1)
+        val src     = b.offsets
+        val indices =
+          if b.dict == null then
+            null
+          else
+            new Array[Int](n)
+        val j =
+          if indices == null then
+            scatter((i, j) => offsets(i) = src(j), (i, j) => offsets(i) = src(j))
+          else
+            scatter(
+              (i, j) =>
+                offsets(i) = src(j)
+                indices(i) = b.dictIndex(j)
+              ,
+              (i, j) =>
+                offsets(i) = src(j)
+                indices(i) = -1
+            )
+        offsets(n) = src(j)
+        BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices)
+    end match
+
+  end scatterLeaf
 
   /** The dictionary entry of each row, given the value index of row i (-1 for none) */
   private inline def dictIndices(b: BinaryBuffer, n: Int, inline valueOf: Int => Int): Array[Int] =
@@ -381,7 +537,7 @@ private[cloud] object Assembly:
     val pick = new Array[Int](n)
     var k    = 0
     while k < n do
-      val s = ranges.starts(k)
+      val s = ranges.start(k)
       if s < leaf.m && leaf.d(s) == maxDef then
         pick(k) = vidx(s)
       else

@@ -36,7 +36,7 @@ private[parquet] final class RowGroupBatches(
       if cursors.isEmpty then
         target
       else
-        cursors.map(_.fill(target)).min
+        cursors.map(_.fill(target, toEnd = target == remaining)).min
     if rows == 0 && target > 0 then
       throw ParquetException.corrupt(
         s"a column ends ${remaining} rows before the row group's ${numRows} rows"

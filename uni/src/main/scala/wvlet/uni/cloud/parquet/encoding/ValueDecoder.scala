@@ -50,7 +50,8 @@ private[parquet] object ValueDecoder:
       end: Int,
       n: Int,
       out: ValueBuffer,
-      dictionary: Option[ValueBuffer]
+      dictionary: Option[ValueBuffer],
+      scratch: Array[Int] = null
   ): Unit =
     if n > 0 then
       encoding match
@@ -63,7 +64,12 @@ private[parquet] object ValueDecoder:
           if start >= end then
             throw ParquetException.corrupt("dictionary index data is empty")
           val bitWidth = buf(start) & 0xff
-          val indices  = new Array[Int](n)
+          // Indices go in `scratch` when it is large enough, so pages do not allocate their own
+          val indices =
+            if scratch != null && scratch.length >= n then
+              scratch
+            else
+              new Array[Int](n)
           RleBitPackedDecoder(buf, start + 1, end, bitWidth).read(indices, 0, n)
           out.appendFromDictionary(dict, indices, n)
         case Encoding.RLE if tpe == PhysicalType.BOOLEAN =>
