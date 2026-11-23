@@ -26,6 +26,7 @@ case class CSVFlags(id: Long, active: Boolean = true, score: Double = 0.0) deriv
 case class CSVNested(id: Int, tags: Seq[String]) derives Weaver
 case class CSVNote(name: String, note: Option[String]) derives Weaver
 case class CSVRow(a: String, b: Option[String]) derives Weaver
+case class CSVSingle(x: Option[String]) derives Weaver
 
 class CSVTest extends UniTest:
 
@@ -194,6 +195,31 @@ class CSVTest extends UniTest:
     intercept[IllegalArgumentException] {
       CSV.noQuote().writeRecords(Seq(Seq("a,b")))
     }
+  }
+
+  test("keep empty values in a one-column file") {
+    val values = Seq(CSVSingle(Some("a")), CSVSingle(None), CSVSingle(Some("")))
+    val text   = CSV.write(values)
+    text shouldBe "x\na\n\n\"\"\n"
+    CSV.read[CSVSingle](text) shouldBe values
+    TSV.read[CSVSingle](TSV.write(values)) shouldBe values
+    TSV.parse(TSV.writeRecords(Seq(Seq("a"), Seq("")))) shouldBe
+      Seq(IndexedSeq("a"), IndexedSeq(""))
+  }
+
+  test("refuse to write a value that would read back as missing") {
+    intercept[IllegalArgumentException] {
+      TSV.withNullString("NULL").write(Seq(CSVSingle(Some("NULL"))))
+    }
+    intercept[IllegalArgumentException] {
+      CSV.noQuote().write(Seq(CSVSingle(Some(""))))
+    }
+    CSV.noQuote().write(Seq(CSVSingle(None))) shouldBe "x\n\n"
+  }
+
+  test("write a header for no values and ignore replaced header names") {
+    CSV.write(Seq.empty[CSVPerson]) shouldBe "name,age,email\n"
+    CSV.withColumns("name", "age").read[CSVPerson]("x,\nA,1\n") shouldBe Seq(CSVPerson("A", 1))
   }
 
   test("parse fields and quotes that span chunks") {

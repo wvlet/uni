@@ -49,7 +49,7 @@ CSV.write(Seq(Person("Alice", 30, Some("a@example.com")), Person("Bob", 25)))
 // Bob,25,
 ```
 
-The header comes from the field names. A field is quoted only when it has to be: when it holds the delimiter, a quote, or a line break, has a leading or trailing space, or would otherwise read back as a missing value. Nested values (lists and objects) are written as JSON. Lines end with `\n`.
+The header comes from the field names. A field is quoted only when it has to be: when it holds the delimiter, a quote, or a line break, has a leading or trailing space, or would otherwise read back as a missing value. With `TSV` or `noQuote()`, a value that would read back as missing can't be written, and `write` throws `IllegalArgumentException`. Nested values (lists and objects) are written as JSON. Lines end with `\n`.
 
 `writeRecords` writes lines of strings, and `writeFile` / `writeRecordsFile` write to a file in chunks.
 
@@ -84,7 +84,7 @@ Every setting has a `withXXX` method, and an optional one has a `noXXX` method t
 | `withRaggedRows()` | off | Accepts rows with too few fields (treated as missing) or too many (ignored) |
 | `withFormulaEscape()` | off | Escapes spreadsheet formulas on write |
 
-The reader also accepts CRLF line endings, a leading byte order mark, and a file with no final line break, and it skips blank lines.
+The reader also accepts CRLF line endings, a leading byte order mark, and a file with no final line break, and it skips blank lines. In a one-column file, an empty line is a missing value instead.
 
 ## Errors
 

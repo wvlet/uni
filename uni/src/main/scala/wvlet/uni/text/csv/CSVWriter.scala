@@ -65,16 +65,19 @@ private[csv] final class CSVWriter(format: CSVFormat):
       out: StringBuilder,
       afterRow: () => Unit = () => ()
   ): Unit =
-    val it = values.iterator
-    if it.hasNext then
-      val first   = toObject(weaver, it.next())
-      val columns = columnNames(weaver, first)
-      if format.hasHeader then
-        writeRecord(columns.map(Some(_)), out)
-      writeObject(columns, first, out)
-      it.foreach { v =>
-        afterRow()
-        writeObject(columns, toObject(weaver, v), out)
+    val it    = values.iterator
+    val first = Option.when(it.hasNext)(toObject(weaver, it.next()))
+    // Known columns give a header even for no values, so the file still reads as a table
+    knownColumns(weaver)
+      .orElse(first.map(_.v.map(_._1).toIndexedSeq))
+      .foreach { columns =>
+        if format.hasHeader then
+          writeRecord(columns.map(Some(_)), out)
+        first.foreach(writeObject(columns, _, out))
+        it.foreach { v =>
+          afterRow()
+          writeObject(columns, toObject(weaver, v), out)
+        }
       }
 
   def writeValuesTo[A](path: IOPath, values: IterableOnce[A], weaver: Weaver[A]): Unit =
@@ -107,15 +110,15 @@ private[csv] final class CSVWriter(format: CSVFormat):
           s"Can't write ${other.toJSON} as a CSV row. Rows need an object type such as a case class"
         )
 
-  private def columnNames[A](weaver: Weaver[A], first: JSONObject): IndexedSeq[String] =
+  private def knownColumns[A](weaver: Weaver[A]): Option[IndexedSeq[String]] =
     if format.columns.nonEmpty then
-      format.columns.toIndexedSeq
+      Some(format.columns.toIndexedSeq)
     else
       weaver match
         case c: CaseClassWeaver[?] =>
-          c.fieldNames
+          Some(c.fieldNames)
         case _ =>
-          first.v.map(_._1).toIndexedSeq
+          None
 
   private def writeObject(columns: IndexedSeq[String], obj: JSONObject, out: StringBuilder): Unit =
     val fields = obj.v.toMap
@@ -149,11 +152,8 @@ private[csv] final class CSVWriter(format: CSVFormat):
         case None =>
           out ++= nullText
         case Some(s) =>
-          writeField(escapeFormula(s), out, fields.size == 1)
+          writeField(escapeFormula(s), out)
     }
-    if fields.size == 1 && fields.head.isEmpty && nullText.isEmpty then
-      // A lone empty field would read back as a blank line, which readers skip
-      out ++= s"${quote}${quote}"
     out += '\n'
 
   private def escapeFormula(s: String): String =
@@ -164,10 +164,10 @@ private[csv] final class CSVWriter(format: CSVFormat):
     else
       s
 
-  private def writeField(s: String, out: StringBuilder, alone: Boolean): Unit =
+  private def writeField(s: String, out: StringBuilder): Unit =
     style match
       case CSVEscapeStyle.Quoted =>
-        if needsQuotes(s, alone) then
+        if needsQuotes(s) then
           out += quote
           var i = 0
           while i < s.length do
@@ -180,7 +180,8 @@ private[csv] final class CSVWriter(format: CSVFormat):
         else
           out ++= s
       case CSVEscapeStyle.Backslash =>
-        var i = 0
+        val start = out.length
+        var i     = 0
         while i < s.length do
           s.charAt(i) match
             case '\\' =>
@@ -197,17 +198,29 @@ private[csv] final class CSVWriter(format: CSVFormat):
             case c =>
               out += c
           i += 1
+        if out.length - start == nullText.length && format.nullString.isDefined &&
+          out.substring(start) == nullText
+        then
+          throwNullCollision(s)
       case CSVEscapeStyle.Plain =>
         if s.exists(c => c == delimiter || c == '\n' || c == '\r') then
           throw IllegalArgumentException(
             s"Can't write a field that holds the delimiter or a line break without quotes: ${s}"
           )
+        if format.nullString.contains(s) then
+          throwNullCollision(s)
         out ++= s
 
-  private def needsQuotes(s: String, alone: Boolean): Boolean =
+  // Without quotes, a value written as the null string would read back as a missing value
+  private def throwNullCollision(s: String): Nothing =
+    throw IllegalArgumentException(
+      s"Can't write '${s}': it would read back as a missing value. Use another null string, or noNullString()"
+    )
+
+  private def needsQuotes(s: String): Boolean =
     if s.isEmpty then
       // An empty string differs from a missing value only when quoted
-      format.nullString.contains("") || alone
+      format.nullString.contains("")
     else
       format.nullString.contains(s) || s.charAt(0) == ' ' || s.charAt(s.length - 1) == ' ' ||
       s.exists(c => c == delimiter || c == quote || c == '\n' || c == '\r')

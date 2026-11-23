@@ -144,7 +144,8 @@ private[csv] final class CSVParser(format: CSVFormat, chunks: Iterator[String]):
         var term = Delim
         while term == Delim do
           term = readField()
-        val blank = values.size == 1 && !fieldHadContent
+        // In a one-column file, an empty line is a missing value, not a blank line
+        val blank = values.size == 1 && !fieldHadContent && expectedFields != 1
         if !blank then
           checkFieldCount(startLine)
           result = CSVRecord(values.toIndexedSeq, nulls.toIndexedSeq, startLine)

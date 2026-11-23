@@ -171,7 +171,9 @@ private[csv] final class CSVDecoder[A](format: CSVFormat, parser: CSVParser, wea
           case null =>
             null
           case h: CSVRecord =>
-            checkHeader(h)
+            // Names that withColumns replaces don't need to be valid
+            if format.columns.isEmpty then
+              checkHeader(h)
             h.values
       else
         null
