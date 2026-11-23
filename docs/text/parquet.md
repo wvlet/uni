@@ -490,7 +490,8 @@ val catalogVersion = Parquet.dataset(
 - **Columns** follow the schema, in table order, and match the data files by Iceberg field ID, so
   a renamed column reads under its new name from every file. A column the table dropped is hidden,
   even where older files still hold it, and a column added later (even one reusing a dropped
-  column's name) reads as null in older files. The `int`→`long` and `float`→`double` promotions
+  column's name) reads as null in older files, or as its `initial-default` when it has one
+  (format version 3; filters see the filled value). The `int`→`long` and `float`→`double` promotions
   widen as for any dataset. Data files without field IDs are matched by name, which fails for a
   table with a renamed column or a column dropped and added again.
 - **Partitions.** An identity partition on a `string`, `int`, `long`, or `date` column becomes a
@@ -501,8 +502,13 @@ val catalogVersion = Parquet.dataset(
 - **Moved tables.** Iceberg records absolute paths. Paths under the table's recorded location
   are read under the root you pass, so a copied or moved table reads too. Other paths must be in
   the same bucket, or on the local file system for a local table.
-- **What fails** when the dataset opens, with the reason: delete files (merge-on-read deletes;
-  compact the table to rewrite them), format version 3, and data files that aren't Parquet. The
+- **Format versions** 1, 2, and 3 are read. Version 3's `timestamp_ns` and `timestamptz_ns`
+  columns read as nanosecond timestamps, and an `unknown` column reads as nulls. Row lineage
+  fields are kept in the metadata but not read as columns.
+- **What fails** when the dataset opens, with the reason: delete files and deletion vectors
+  (merge-on-read deletes; compact the table to rewrite them), the `variant`, `geometry`, and
+  `geography` types, an `initial-default` on a field inside a struct, encrypted tables, and data
+  files that aren't Parquet. The
   manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
 - **Properties.** `ds.tableProperties` holds the table's properties.
 - **Format.** `ParquetTableFormat.Iceberg` fails when the root has no metadata and lists only

@@ -2258,7 +2258,13 @@ private[parquet] object IcebergWrite:
         case None =>
           throw ParquetException(s"${layout.root} is not an Iceberg table")
         case Some(t) =>
-          val m         = t.metadata
+          val m = t.metadata
+          if long(m, "format-version").exists(_ > 2) then
+            // Rewritten manifests would lose the version 3 fields (row lineage, deletion vectors)
+            throw ParquetException(
+              s"${layout.root} is an Iceberg format version ${long(m, "format-version")
+                  .get} table; Uni relocates only version 1 and 2 tables"
+            )
           val snapshots = objects(m, "snapshots")
           val current   = long(m, "current-snapshot-id")
             .filter(_ >= 0)
