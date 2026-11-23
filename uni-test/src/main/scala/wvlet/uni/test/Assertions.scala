@@ -189,11 +189,14 @@ trait Assertions:
         )
 
     /**
-      * Assert that actual matches the given partial function
+      * Assert that actual matches the given partial function, then run the matching case, so
+      * assertions inside it are checked too
       */
-    inline infix def shouldMatch(pf: PartialFunction[A, Any])(using source: TestSource): Unit =
-      if !pf.isDefinedAt(actual) then
-        throw AssertionFailure(s"Value <${actual}> did not match the expected pattern", source)
+    inline infix def shouldMatch(pf: PartialFunction[A, Any])(using source: TestSource): Unit = pf
+      .applyOrElse(
+        actual,
+        _ => throw AssertionFailure(s"Value <${actual}> did not match the expected pattern", source)
+      )
 
     /**
       * Assert that option/collection is not defined (is empty)

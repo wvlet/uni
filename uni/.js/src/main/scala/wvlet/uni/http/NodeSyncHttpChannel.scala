@@ -140,12 +140,7 @@ class NodeSyncHttpChannel extends HttpChannel:
       val bodyBytes   = readBytes(sab, HeaderBytes + headersJsonLen, bodyLen)
 
       val headers = decodeHeaders(headersJson)
-      val content =
-        if bodyBytes.isEmpty then
-          HttpContent.Empty
-        else
-          HttpContent.bytes(bodyBytes)
-      Response(HttpStatus.ofCode(status), headers, content)
+      Response(HttpStatus.ofCode(status), headers, HttpContent.fromBytes(bodyBytes, headers))
     finally
       // Always terminate — Atomics.wait returns once the worker stores + notifies, but the
       // Worker handle isn't garbage-collected until we explicitly terminate.

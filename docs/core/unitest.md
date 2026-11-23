@@ -43,7 +43,7 @@ sbt test
 | `x shouldBe empty` | Check x.isEmpty == true (Option, Seq, String) |
 | `x shouldBeTheSameInstanceAs y` | Check x eq y (reference equality) |
 | `x shouldNotBeTheSameInstanceAs y` | Check x ne y (reference inequality) |
-| `x shouldMatch { case .. => }` | Check x matches the pattern |
+| `x shouldMatch { case .. => }` | Check x matches the pattern, then run the assertions in the case |
 | `x shouldContain y` | Check x contains y |
 | `x shouldNotContain y` | Check x does not contain y |
 | `fail("reason")` | Fail the test |

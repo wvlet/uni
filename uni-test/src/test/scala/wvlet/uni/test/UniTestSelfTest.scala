@@ -314,4 +314,18 @@ class UniTestSelfTest extends UniTest:
     }
   }
 
+  test("shouldMatch runs the assertions in the matching case") {
+    val result: Any = ("hello", 42)
+    val failure     = intercept[AssertionFailure] {
+      result shouldMatch { case (_: String, n: Int) =>
+        n shouldBe 43
+      }
+    }
+    failure.getMessage shouldContain "43"
+    intercept[AssertionFailure] {
+      result shouldMatch { case _: Int =>
+      }
+    }.getMessage shouldContain "did not match"
+  }
+
 end UniTestSelfTest
