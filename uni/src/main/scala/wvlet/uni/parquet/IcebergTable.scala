@@ -631,14 +631,16 @@ private[parquet] object IcebergTable:
           .toMap
       )
     }
+    val defaults = defaultsOf(fields, source)
     Resolved(
       root,
       columns,
       partitionColumns,
-      required,
+      // A default fills a partition source column that older files lack
+      required -- defaults.keySet,
       typed.sortBy(_.path),
       fieldIds,
-      defaults = defaultsOf(fields, source)
+      defaults = defaults
     )
 
   end resolved
@@ -706,9 +708,12 @@ private[parquet] object IcebergTable:
         else
           s + "Z"
       java.time.Instant.parse(utc)
-    def nanos(s: String): Long =
+    def since(s: String, perSecond: Long): Long =
       val i = instant(s)
-      Math.addExact(Math.multiplyExact(i.getEpochSecond, 1000000000L), i.getNano.toLong)
+      Math.addExact(
+        Math.multiplyExact(i.getEpochSecond, perSecond),
+        i.getNano.toLong / (1000000000L / perSecond)
+      )
     tpe match
       case "boolean" =>
         v match
@@ -731,9 +736,9 @@ private[parquet] object IcebergTable:
       case "time" =>
         str.map(s => wvlet.uni.weaver.codec.PrimitiveWeaver.parseLocalTime(s).toNanoOfDay / 1000L)
       case "timestamp" | "timestamptz" =>
-        str.map(s => Math.floorDiv(nanos(s), 1000L))
+        str.map(since(_, 1000000L))
       case "timestamp_ns" | "timestamptz_ns" =>
-        str.map(nanos)
+        str.map(since(_, 1000000000L))
       case "uuid" =>
         str.map { s =>
           val u = java.util.UUID.fromString(s)
@@ -741,8 +746,10 @@ private[parquet] object IcebergTable:
           b.putLong(u.getMostSignificantBits).putLong(u.getLeastSignificantBits)
           b.array()
         }
-      case "binary" | FixedType(_) =>
+      case "binary" =>
         str.map(hex)
+      case FixedType(n) =>
+        str.map(hex).filter(_.length == n.toInt)
       case DecimalType(_, sc) =>
         str.map(s => BigDecimal(s).setScale(sc.toInt).bigDecimal.unscaledValue).map(BigInt(_))
       case _ =>

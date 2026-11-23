@@ -899,9 +899,6 @@ class ParquetDataset private[parquet] (
             v match
               case x: Double =>
                 DoubleColumn(p, Array.fill(n)(x), null)
-              case x: Float =>
-                // A float column promoted to double
-                DoubleColumn(p, Array.fill(n)(x.toDouble), null)
               case _ =>
                 fail()
           case _ =>
