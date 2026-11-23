@@ -317,36 +317,99 @@ class IcebergV3WriteTest extends UniTest:
     ids(to) shouldBe Seq(1L, 2L, 4L, 5L, 7L, 8L)
   }
 
-  test("rename a table with equality deletes") {
+  test("rename a table with equality deletes and a position delete") {
     val root = hadoopCopy("equality_deletes")
-    // Leave out DuckDB's position delete (id 7), which a rename refuses; equality deletes hold no
-    // paths
-    val list = IOPath.parse(s"${root}/metadata/snap-4000000000000000004-eq.avro")
-    val c    = Avro.read(FileSystem.readBytes(list), list.path)
-    val kept = c
-      .records
-      .filterNot { r =>
-        val m = r.asInstanceOf[Map[String, Any]]
-        m("content") == 1 && !m("manifest_path").toString.contains("/eq-")
-      }
-    (c.records.size - kept.size) shouldBe 1
-    FileSystem.writeBytes(
-      list,
-      Avro.write(String(c.metadata("avro.schema"), StandardCharsets.UTF_8), Seq.empty, kept)
-    )
-    ids(root) shouldBe Seq(2L, 4L, 5L, 6L, 7L)
+    ids(root) shouldBe Seq(2L, 4L, 5L, 6L)
     val to = s"${root}-renamed"
     Parquet.renameIcebergTable(root, to)
-    ids(to) shouldBe Seq(2L, 4L, 5L, 6L, 7L)
+    ids(to) shouldBe Seq(2L, 4L, 5L, 6L)
   }
 
-  test("refuse to rename a table with position delete files") {
+  /** A metadata/ file of a table, by the file name of its recorded URI */
+  private def metadataFile(root: String, uri: String): IOPath = IOPath.parse(
+    s"${root}/metadata/${uri.split('/').last}"
+  )
+
+  /** The delete manifests of a table's current snapshot */
+  private def deleteManifests(root: String, version: Int): Seq[IOPath] =
+    val m       = metadata(root, version)
+    val current = long(m, "current-snapshot-id").get
+    val s       = snapshots(m).find(s => long(s, "snapshot-id").contains(current)).get
+    val list    = metadataFile(root, s.get("manifest-list").get.asInstanceOf[JSONString].v)
+    Avro
+      .read(FileSystem.readBytes(list), list.path)
+      .records
+      .map(_.asInstanceOf[Map[String, Any]])
+      .filter(_("content") == 1)
+      .map(e => metadataFile(root, e("manifest_path").toString))
+
+  /** The live position-delete files of a table's current snapshot, as recorded */
+  private def positionDeleteFiles(root: String, version: Int): Seq[String] = deleteManifests(
+    root,
+    version
+  ).flatMap { p =>
+    Avro
+      .read(FileSystem.readBytes(p), p.path)
+      .records
+      .map(_.asInstanceOf[Map[String, Any]])
+      .filter(_("status") != 2)
+      .map(_("data_file").asInstanceOf[Map[String, Any]]("file_path").toString)
+  }
+
+  test("rename a table with position delete files") {
+    val root     = hadoopCopy("v2_deletes")
+    val expected = (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
+    ids(root) shouldBe expected
+    val old = positionDeleteFiles(root, 1).map(_.split('/').last)
+    old.nonEmpty shouldBe true
+    val to = s"${root}-renamed"
+    Parquet.renameIcebergTable(root, to)
+    FileSystem.exists(IOPath.parse(root)) shouldBe false
+    ids(to) shouldBe expected
+    // The delete files were written again with the moved paths, and the old ones deleted
+    val rewritten = positionDeleteFiles(to, 2)
+    rewritten.size shouldBe old.size
+    val toPath = IOPath.parse(to).path.replace('\\', '/')
+    rewritten.foreach { f =>
+      f shouldContain toPath
+      val local = IOPath.parse(s"${to}/${f.substring(f.indexOf("/data/") + 1)}")
+      Parquet
+        .readRows(FileSystem.readBytes(local))
+        .map(_("file_path").toString)
+        .foreach(_ shouldContain toPath)
+    }
+    old.foreach { name =>
+      ParquetDataset.listLocal(IOPath.parse(to)).exists(_.segments.last == name) shouldBe false
+    }
+  }
+
+  test("refuse to rename a table with position delete files Uni can't rewrite") {
     val root = hadoopCopy("v2_deletes")
+    // Mark the delete files as ORC, which Uni doesn't write
+    deleteManifests(root, 1).foreach { p =>
+      val c       = Avro.read(FileSystem.readBytes(p), p.path)
+      val records = c
+        .records
+        .map { r =>
+          val m  = r.asInstanceOf[Map[String, Any]]
+          val df = m("data_file").asInstanceOf[Map[String, Any]]
+          m.updated("data_file", df.updated("file_format", "ORC"))
+        }
+      val meta = c
+        .metadata
+        .toSeq
+        .filterNot(_._1.startsWith("avro."))
+        .map((k, v) => k -> String(v, StandardCharsets.UTF_8))
+      FileSystem.writeBytes(
+        p,
+        Avro.write(String(c.metadata("avro.schema"), StandardCharsets.UTF_8), meta, records)
+      )
+    }
     intercept[ParquetException](Parquet.renameIcebergTable(root, s"${root}-renamed"))
-      .getMessage shouldContain "position delete files"
+      .getMessage shouldContain "is ORC; Uni rewrites only Parquet ones"
     // Refused before moving anything
     FileSystem.exists(IOPath.parse(s"${root}-renamed")) shouldBe false
-    ids(root) shouldBe (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
+    FileSystem.exists(IOPath.parse(root)) shouldBe true
   }
 
 end IcebergV3WriteTest
