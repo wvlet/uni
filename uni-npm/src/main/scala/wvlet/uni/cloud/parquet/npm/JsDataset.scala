@@ -2,7 +2,7 @@ package wvlet.uni.cloud.parquet.npm
 
 import wvlet.uni.cloud.parquet.*
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectStore
 
 import java.time.LocalDate
 import scala.concurrent.ExecutionContext

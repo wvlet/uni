@@ -105,7 +105,7 @@ The server must answer Range requests with 206 (and allow them through CORS in b
 ## In S3, R2, GCS, MinIO, or Azure Blob
 
 ```scala
-import wvlet.uni.storage.{ObjectStore, S3Config}
+import wvlet.uni.cloud.storage.{ObjectStore, S3Config}
 
 def s3Events(uri: String): Seq[Event] =
   val f = Parquet.openS3(uri) // s3://bucket/key; default AWS credential chain and region
@@ -137,7 +137,7 @@ def writeS3(uri: String, events: Seq[Event]): Unit =
 Azure Blob works the same way:
 
 ```scala
-import wvlet.uni.storage.AzureConfig
+import wvlet.uni.cloud.storage.AzureConfig
 
 def azureEvents(uri: String): Seq[Event] =
   val f = Parquet.openAzure(uri) // az://container/key; AZURE_STORAGE_CONNECTION_STRING or AZURE_STORAGE_ACCOUNT

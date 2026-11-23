@@ -11,11 +11,11 @@ import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.cloud.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.AzureConfig
-import wvlet.uni.storage.GcsConfig
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
-import wvlet.uni.storage.S3Config
+import wvlet.uni.cloud.storage.AzureConfig
+import wvlet.uni.cloud.storage.GcsConfig
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
+import wvlet.uni.cloud.storage.S3Config
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 
@@ -51,8 +51,8 @@ object Parquet:
 
   /**
     * Opens an S3 object such as `s3://bucket/data.parquet` (JVM, Scala Native, and Node.js). Pass
-    * [[wvlet.uni.storage.S3Config.r2]], [[wvlet.uni.storage.S3Config.gcs]], or
-    * [[wvlet.uni.storage.S3Config.minio]] for S3-compatible stores.
+    * [[wvlet.uni.cloud.storage.S3Config.r2]], [[wvlet.uni.cloud.storage.S3Config.gcs]], or
+    * [[wvlet.uni.cloud.storage.S3Config.minio]] for S3-compatible stores.
     */
   def openS3(uri: String, config: S3Config = S3Config.default): ParquetFile = ParquetFile.open(
     ByteSource.ofS3(uri, config)

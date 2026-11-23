@@ -12,8 +12,8 @@ import wvlet.uni.cloud.parquet.column.ValueBuffer
 import wvlet.uni.cloud.parquet.format.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxParallel
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
 import wvlet.uni.weaver.Weaver
 
 import java.nio.charset.StandardCharsets
@@ -1442,7 +1442,10 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   private[parquet] def listObjectsAsync(store: ObjectStore, root: ObjectUri): Rx[Seq[Listed]] =
     store.listAsync(root, recursive = true).map(_.flatMap(objectListed(root, _)))
 
-  private def objectListed(root: ObjectUri, info: wvlet.uni.storage.ObjectInfo): Option[Listed] =
+  private def objectListed(
+      root: ObjectUri,
+      info: wvlet.uni.cloud.storage.ObjectInfo
+  ): Option[Listed] =
     val key = info.uri.key
     if info.isDirectory || key.endsWith("/") || !key.startsWith(root.key) then
       None

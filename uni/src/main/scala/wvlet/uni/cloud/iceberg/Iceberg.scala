@@ -17,11 +17,11 @@ import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.cloud.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.AzureConfig
-import wvlet.uni.storage.GcsConfig
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
-import wvlet.uni.storage.S3Config
+import wvlet.uni.cloud.storage.AzureConfig
+import wvlet.uni.cloud.storage.GcsConfig
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
+import wvlet.uni.cloud.storage.S3Config
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 

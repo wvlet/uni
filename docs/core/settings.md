@@ -8,7 +8,7 @@ If you have used zustand's `persist` middleware in a JavaScript app, `SettingSto
 same ground: a reactive store, a storage backend, a version number, and migrations.
 
 ```scala
-import wvlet.uni.storage.SettingStore
+import wvlet.uni.util.settings.SettingStore
 import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
@@ -48,7 +48,7 @@ Use `withLocation` to pick another directory:
 
 ```scala
 import wvlet.uni.io.IOPath
-import wvlet.uni.storage.SettingLocation
+import wvlet.uni.util.settings.SettingLocation
 
 // ~/Library/Application Support/my-app on macOS, %APPDATA%\my-app on Windows
 val osConfig = SettingStore
@@ -135,7 +135,7 @@ val shared = SettingStore
 Use `InMemoryStoreBackend` so tests do not touch the real settings directory:
 
 ```scala
-import wvlet.uni.storage.InMemoryStoreBackend
+import wvlet.uni.util.settings.InMemoryStoreBackend
 
 val inMemory = SettingStore
   .of[AppSettings]

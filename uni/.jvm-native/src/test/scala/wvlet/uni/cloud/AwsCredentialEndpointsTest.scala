@@ -13,7 +13,7 @@
  */
 package wvlet.uni.cloud
 
-import wvlet.uni.storage.*
+import wvlet.uni.cloud.storage.*
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpServer

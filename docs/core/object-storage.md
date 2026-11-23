@@ -4,7 +4,7 @@ description: Read and write objects in AWS S3, S3-compatible stores (Cloudflare 
 
 # Object Storage
 
-`wvlet.uni.storage` reads and writes objects in [AWS S3](https://aws.amazon.com/s3/), in
+`wvlet.uni.cloud.storage` reads and writes objects in [AWS S3](https://aws.amazon.com/s3/), in
 services that speak the S3 API ([Cloudflare R2](https://developers.cloudflare.com/r2/) and
 self-hosted servers such as [MinIO](https://min.io/) or the
 [Versity S3 Gateway](https://github.com/versity/versitygw)), in
@@ -14,8 +14,8 @@ pure Scala (AWS Signature Version 4, Google OAuth 2.0 and RSA, Azure Shared Key 
 same code runs on the JVM, Scala Native, and Scala.js, with no AWS, Google, or Azure SDK.
 
 ```scala
-import wvlet.uni.storage.ObjectStore
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectStore
+import wvlet.uni.cloud.storage.ObjectUri
 
 val store = ObjectStore.s3()
 
@@ -105,7 +105,7 @@ Temporary credentials are refreshed before they expire. When no source has crede
 explicitly with `S3Config`:
 
 ```scala
-import wvlet.uni.storage.S3Config
+import wvlet.uni.cloud.storage.S3Config
 import wvlet.uni.cloud.AwsCredentialsProvider
 
 val tokyo = ObjectStore.s3(
@@ -151,7 +151,7 @@ if it does not support `bucket.endpoint` host names.
 tokens, so it works with the credentials a Google Cloud project already has: no HMAC keys needed.
 
 ```scala
-import wvlet.uni.storage.GcsConfig
+import wvlet.uni.cloud.storage.GcsConfig
 import wvlet.uni.cloud.GoogleCredentialsProvider
 
 val gcs = ObjectStore.gcs()
@@ -215,7 +215,7 @@ storage account comes from the store's `AzureConfig`, the way an S3 store's endp
 service:
 
 ```scala
-import wvlet.uni.storage.AzureConfig
+import wvlet.uni.cloud.storage.AzureConfig
 
 val azure = ObjectStore.azure(AzureConfig().withSharedKey("myaccount", "<account-key>"))
 
@@ -450,5 +450,5 @@ does the same for GCS, with every credential type (including workload identity f
 features such as parallel composite uploads. The
 [Azure SDK for Java](https://learn.microsoft.com/azure/developer/java/sdk/) covers every Azure
 Storage feature (Data Lake directories, leases, immutability policies, parallel transfers) and
-every Entra ID credential type, including Azure CLI and developer tool logins. Choose `wvlet.uni.storage` for the common object
+every Entra ID credential type, including Azure CLI and developer tool logins. Choose `wvlet.uni.cloud.storage` for the common object
 operations on Scala.js or Scala Native, in browsers, or with no dependencies beyond Uni.

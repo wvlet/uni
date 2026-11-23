@@ -34,9 +34,9 @@ jobs:
               - 'project/**'
               - 'uni-core/src/main/scala/wvlet/uni/io/IO.scala'
               - 'uni-core/src/main/scala/wvlet/uni/io/IOPath.scala'
-              - 'uni/.jvm-native/src/main/scala/wvlet/uni/storage/StorageEnv.scala'
-              - 'uni/src/main/scala/wvlet/uni/storage/AwsProfiles.scala'
-              - 'uni/src/test/scala/wvlet/uni/storage/AwsProfileCredentialsTest.scala'
+              - 'uni/.jvm-native/src/main/scala/wvlet/uni/cloud/CloudEnv.scala'
+              - 'uni/src/main/scala/wvlet/uni/cloud/AwsProfiles.scala'
+              - 'uni/src/test/scala/wvlet/uni/cloud/AwsProfileCredentialsTest.scala'
             # The Lean spec and the Scala cases generated from it (see spec/lean/README.md)
             lean:
               - '.github/workflows/test.yml'
@@ -147,7 +147,7 @@ jobs:
           java-version: '25'
           cache: sbt
       - uses: ./.github/actions/sbt-launcher
-      # An S3-compatible server for the wvlet.uni.storage and Parquet S3 integration tests.
+      # An S3-compatible server for the wvlet.uni.cloud.storage and Parquet S3 integration tests.
       # Versity S3 Gateway verifies SigV4 signatures and stores buckets as directories. MinIO
       # no longer publishes community binaries or images, so it is not used here.
       - name: Start S3 gateway

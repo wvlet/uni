@@ -465,14 +465,14 @@ class DatasetTest extends UniTest:
   test("list objects of one bucket") {
     val (root, listed) = ParquetDataset.listedObjects(
       Seq("s3://b/t/dt=1/a.parquet", "s3://b/t/dt=2/b.parquet").map(
-        wvlet.uni.storage.ObjectUri.parse
+        wvlet.uni.cloud.storage.ObjectUri.parse
       )
     )
     root.toString shouldBe "s3://b/t/"
     listed.map(_.segments) shouldBe Seq(Seq("dt=1", "a.parquet"), Seq("dt=2", "b.parquet"))
     intercept[IllegalArgumentException] {
       ParquetDataset.listedObjects(
-        Seq("s3://b/a.parquet", "s3://c/b.parquet").map(wvlet.uni.storage.ObjectUri.parse)
+        Seq("s3://b/a.parquet", "s3://c/b.parquet").map(wvlet.uni.cloud.storage.ObjectUri.parse)
       )
     }
   }

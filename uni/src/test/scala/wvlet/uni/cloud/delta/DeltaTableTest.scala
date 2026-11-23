@@ -8,7 +8,7 @@ import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONString
 import wvlet.uni.cloud.parquet.ParquetFilter.*
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.ObjectUri
+import wvlet.uni.cloud.storage.ObjectUri
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 

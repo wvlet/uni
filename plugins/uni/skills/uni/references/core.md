@@ -138,7 +138,7 @@ the JVM, Native, and Node.js, and `localStorage` in a browser. Missing fields ta
 defaults (and the starting value is built from them; `withDefault(v)` overrides it); raise `withVersion` and convert old JSON in `withMigrate` when renaming fields.
 
 ```scala
-import wvlet.uni.storage.{InMemoryStoreBackend, SettingLocation, SettingStore}
+import wvlet.uni.util.settings.{InMemoryStoreBackend, SettingLocation, SettingStore}
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 

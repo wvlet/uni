@@ -1,6 +1,6 @@
 # Object storage (S3, R2, MinIO, Google Cloud Storage, Azure Blob)
 
-`wvlet.uni.storage` (in the `uni` artifact) reads and writes objects in AWS S3 and
+`wvlet.uni.cloud.storage` (in the `uni` artifact) reads and writes objects in AWS S3 and
 S3-compatible stores (AWS Signature V4), Google Cloud Storage (OAuth 2.0), and Azure
 Blob Storage (Shared Key, SAS, Entra ID), in pure Scala: JVM, Scala.js, and Scala
 Native, no AWS, Google, or Azure SDK. All stores
@@ -12,7 +12,7 @@ Full reference: https://wvlet.org/uni/core/object-storage.md
 ## Basic operations
 
 ```scala
-import wvlet.uni.storage.{ObjectStore, ObjectUri, S3Config, StorageException}
+import wvlet.uni.cloud.storage.{ObjectStore, ObjectUri, S3Config, StorageException}
 
 val store = ObjectStore.s3() // AWS credential chain: env, web identity, ~/.aws profile, ECS, EC2 IMDSv2
 
@@ -94,7 +94,7 @@ URLs; never ship long-lived keys. The bucket needs CORS.
 
 ```scala
 import wvlet.uni.cloud.GoogleCredentialsProvider
-import wvlet.uni.storage.GcsConfig
+import wvlet.uni.cloud.storage.GcsConfig
 
 // Application Default Credentials: GOOGLE_APPLICATION_CREDENTIALS (service-account
 // key), then the `gcloud auth application-default login` file, then the GCE/GKE
@@ -132,7 +132,7 @@ The storage account comes from `AzureConfig`, not the URI.
 
 ```scala
 import wvlet.uni.cloud.AzureCredentialsProvider
-import wvlet.uni.storage.AzureConfig
+import wvlet.uni.cloud.storage.AzureConfig
 
 // Default: AZURE_STORAGE_CONNECTION_STRING, or AZURE_STORAGE_ACCOUNT plus
 // AZURE_STORAGE_KEY / AZURE_STORAGE_SAS_TOKEN / service principal env vars /
