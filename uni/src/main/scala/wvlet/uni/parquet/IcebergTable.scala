@@ -85,11 +85,38 @@ private[parquet] object IcebergTable:
     /** A name no column can have, for a file column the table dropped */
     def droppedName(id: Int): String = s"\u0000dropped-${id}"
 
-  private val HadoopMetadata   = """v(\d+)\.metadata\.json""".r
-  private val CatalogMetadata  = """(\d+)-.+\.metadata\.json""".r
+  /**
+    * A Hadoop table's metadata file name, `vN.metadata.json`. iceberg-java names a gzip-compressed
+    * one `vN.gz.metadata.json`, and older releases `vN.metadata.json.gz`.
+    */
+  val HadoopMetadata = """v(\d+)(?:\.gz)?\.metadata\.json(?:\.gz)?""".r
+
+  /** A catalog table's metadata file name, `NNNNN-<uuid>.metadata.json`, compressed or not */
+  val CatalogMetadata          = """(\d+)-.+\.metadata\.json(?:\.gz)?""".r
   private val MaxFormatVersion = 3
 
-  def isMetadataFile(path: String): Boolean = path.endsWith(".metadata.json")
+  def isMetadataFile(path: String): Boolean =
+    path.endsWith(".metadata.json") || path.endsWith(".metadata.json.gz")
+
+  /** The file names a Hadoop table's version can have, the uncompressed one first */
+  def hadoopMetadataNames(version: String): Seq[String] = Seq(
+    s"v${version}.metadata.json",
+    s"v${version}.gz.metadata.json",
+    s"v${version}.metadata.json.gz"
+  )
+
+  /** The JSON text of a metadata file, gunzipped when the bytes are gzip data */
+  def metadataText(path: String, bytes: Array[Byte]): String =
+    val json =
+      if bytes.length >= 2 && (bytes(0) & 0xff) == 0x1f && (bytes(1) & 0xff) == 0x8b then
+        try
+          wvlet.uni.io.codec.Inflate.gunzip(bytes, bytes.length * 8)
+        catch
+          case e: wvlet.uni.io.codec.CodecException =>
+            throw ParquetException(s"${path} is corrupt gzip data: ${e.getMessage}", e)
+      else
+        bytes
+    String(json, StandardCharsets.UTF_8)
 
   /**
     * Whether a listing below a root has a `metadata/` folder with `.metadata.json` files directly
@@ -137,9 +164,7 @@ private[parquet] object IcebergTable:
               if isMetadataFile(v) then
                 byName(v.split('/').last)
               else
-                newer
-                  .orElse(byName(s"v${v}.metadata.json"))
-                  .orElse(byName(s"v${v}.gz.metadata.json"))
+                newer.orElse(hadoopMetadataNames(v).flatMap(byName).headOption)
             file match
               case Some(f) =>
                 fromMetadataFile(tableRoot, f.path, snapshotId, objects)
@@ -187,18 +212,15 @@ private[parquet] object IcebergTable:
       metadataPath: String,
       snapshotId: Option[Long],
       objects: Boolean
-  ): Step =
-    if metadataPath.endsWith(".gz.metadata.json") then
-      throw ParquetException(s"${metadataPath} is gzip-compressed, which Uni doesn't read yet")
-    Step.Fetch(
-      IndexedSeq(metadataPath),
-      bytes =>
-        JSON.parse(String(bytes.head, StandardCharsets.UTF_8)) match
-          case m: JSONObject =>
-            fromMetadata(tableRoot, metadataPath, m, snapshotId, objects)
-          case _ =>
-            throw ParquetException(s"${metadataPath} is not a JSON object")
-    )
+  ): Step = Step.Fetch(
+    IndexedSeq(metadataPath),
+    bytes =>
+      JSON.parse(metadataText(metadataPath, bytes.head)) match
+        case m: JSONObject =>
+          fromMetadata(tableRoot, metadataPath, m, snapshotId, objects)
+        case _ =>
+          throw ParquetException(s"${metadataPath} is not a JSON object")
+  )
 
   /** The table root for a metadata file path: the folder above `metadata/`, else none */
   def rootOfMetadataFile(path: String): Option[String] =

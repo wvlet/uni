@@ -773,4 +773,77 @@ class IcebergTableTest extends UniTest:
     }
   }
 
+  test("read gzip-compressed metadata of a catalog table") {
+    // iceberg-java names these NNNNN-<uuid>.gz.metadata.json
+    metadataFiles("gzip_catalog").map(_.split("-").head) shouldBe
+      Seq("metadata/00000", "metadata/00001", "metadata/00002")
+    metadataFiles("gzip_catalog").forall(_.endsWith(".gz.metadata.json")) shouldBe true
+    ids(Parquet.dataset(fixture("gzip_catalog"))) shouldBe Seq(1L, 2L, 3L)
+  }
+
+  test("read gzip-compressed metadata of a Hadoop table") {
+    // The hint names v2; v3 is the legacy v3.metadata.json.gz name, which the reader rolls to
+    ids(Parquet.dataset(fixture("gzip_hadoop"))) shouldBe Seq(1L, 2L, 3L)
+    ids(Parquet.dataset(s"${fixture("gzip_hadoop")}/metadata/v2.gz.metadata.json")) shouldBe
+      Seq(1L, 2L)
+    ids(Parquet.dataset(s"${fixture("gzip_hadoop")}/metadata/v3.metadata.json.gz")) shouldBe
+      Seq(1L, 2L, 3L)
+    val hinted =
+      copyOf("gzip_hadoop")((rel, b) =>
+        if rel == "metadata/v3.metadata.json.gz" then
+          None
+        else
+          Some(b)
+      )()
+    ids(Parquet.dataset(hinted)) shouldBe Seq(1L, 2L)
+    val unhinted =
+      copyOf("gzip_hadoop")((rel, b) =>
+        if rel == "metadata/version-hint.text" then
+          None
+        else
+          Some(b)
+      )()
+    ids(Parquet.dataset(unhinted)) shouldBe Seq(1L, 2L, 3L)
+  }
+
+  test("refuse corrupt gzip metadata") {
+    val root =
+      copyOf("gzip_hadoop")((rel, b) =>
+        if rel == "metadata/v3.metadata.json.gz" then
+          Some(b.take(20))
+        else
+          Some(b)
+      )()
+    intercept[ParquetException](Parquet.dataset(root)).getMessage shouldContain
+      "v3.metadata.json.gz is corrupt gzip data"
+  }
+
+  test("append to a table with gzip-compressed metadata") {
+    val root = copyOf("gzip_hadoop")((_, b) => Some(b))()
+    Parquet.writeDataset(
+      root,
+      Seq(IcebergIdName(4L, "d")),
+      ParquetDatasetWriteOptions
+        .default
+        .withTableFormat(ParquetTableFormat.Iceberg)
+        .withMode(ParquetWriteMode.Append)
+    )
+    // The next version is plain JSON
+    FileSystem.exists(IOPath.parse(s"${root}/metadata/v4.metadata.json")) shouldBe true
+    ids(Parquet.dataset(root)) shouldBe Seq(1L, 2L, 3L, 4L)
+  }
+
+  test("rename a table with gzip-compressed metadata") {
+    val root = copyOf("gzip_hadoop")((_, b) => Some(b))()
+    val to   = s"${root}-moved"
+    dirs = IOPath.parse(to) :: dirs
+    Parquet.renameIcebergTable(root, to)
+    ids(Parquet.dataset(to)) shouldBe Seq(1L, 2L, 3L)
+    // The compressed versions are replaced by one plain version for the new location
+    FileSystem
+      .list(IOPath.parse(s"${to}/metadata"))
+      .map(_.fileName)
+      .filter(IcebergTable.isMetadataFile) shouldBe Seq("v4.metadata.json")
+  }
+
 end IcebergTableTest

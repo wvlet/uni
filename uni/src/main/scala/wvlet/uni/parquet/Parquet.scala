@@ -932,7 +932,7 @@ object Parquet:
     // Checked before moving: only a Hadoop table (metadata/vN.metadata.json) can be relocated
     val hadoop =
       FileSystem.isDirectory(metadataDir) &&
-        FileSystem.list(metadataDir).exists(p => p.fileName.matches("""v\d+\.metadata\.json"""))
+        FileSystem.list(metadataDir).exists(p => IcebergTable.HadoopMetadata.matches(p.fileName))
     if !hadoop then
       throw ParquetException(
         s"${from} is not an Iceberg table that Uni writes (metadata/vN.metadata.json)"

@@ -87,9 +87,10 @@ private[parquet] object IcebergWrite:
   private val Existing = 0
   private val Deleted  = 2
 
-  private val HadoopMetadata  = """v(\d+)\.metadata\.json""".r
-  private val CatalogMetadata = """(\d+)-.+\.metadata\.json""".r
-  private val MaxAttempts     = 4
+  import IcebergTable.CatalogMetadata
+  import IcebergTable.HadoopMetadata
+
+  private val MaxAttempts = 4
 
   // ---- Loading ----
 
@@ -98,8 +99,8 @@ private[parquet] object IcebergWrite:
     layout.metadataDir,
     names =>
       val metadataFiles = names.filter(IcebergTable.isMetadataFile)
-      val versions      = metadataFiles.collect { case HadoopMetadata(v) =>
-        v.toInt
+      val versions      = metadataFiles.collect { case n @ HadoopMetadata(v) =>
+        v.toInt -> n
       }
       if versions.isEmpty then
         metadataFiles.collectFirst { case n @ CatalogMetadata(_) =>
@@ -120,12 +121,13 @@ private[parquet] object IcebergWrite:
               case None =>
                 Step.Done(None)
       else
-        val v    = versions.max
-        val path = layout.metadata(s"v${v}.metadata.json")
+        // A compressed version is read like a plain one; the next commit writes plain JSON
+        val v    = versions.map(_._1).max
+        val path = layout.metadata(versions.filter(_._1 == v).map(_._2).minBy(n => (n.length, n)))
         Step.Fetch(
           path,
           bytes =>
-            JSON.parse(String(bytes, StandardCharsets.UTF_8)) match
+            JSON.parse(IcebergTable.metadataText(path, bytes)) match
               case m: JSONObject =>
                 Step.Done(Some(Table(v, path, m)))
               case _ =>
@@ -2775,7 +2777,7 @@ private[parquet] object IcebergWrite:
     val oldMetadata =
       (
         1 to t.version
-      ).map(v => layout.metadata(s"v${v}.metadata.json"))
+      ).flatMap(v => IcebergTable.hadoopMetadataNames(v.toString).map(layout.metadata))
     val unreferenced =
       (
         oldLists ++ manifests.values.flatten ++ dataFiles.values.flatten.map(_._1) ++ oldMetadata
