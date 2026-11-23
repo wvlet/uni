@@ -40,7 +40,10 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   `Rx.queue`, which accepts any event sequence and delivers queued events synchronously, and compares
   what `RxRunner` emits. Generated Scala source, not a classpath resource, so the cases run on JS and
   Native too.
-- The `Lean spec` CI job runs `lake build` and fails when regenerating changes the checked-in cases.
+- The `Lean spec` CI job runs `lake build --wfail` and fails when regenerating changes the checked-in
+  cases. The build includes a proof gate, `spec/lean/Check.lean`: every declaration in a `UniSpec`
+  module may depend only on `propext`, `Classical.choice`, and `Quot.sound`, so a `sorry`, a
+  `native_decide`, or an `axiom` fails the build rather than passing with a warning.
   It runs only when `spec/lean/**`, the generated file, or the workflow changes. The Scala side runs
   in the normal test jobs, so an Rx change is checked against the model without Lean installed.
 
