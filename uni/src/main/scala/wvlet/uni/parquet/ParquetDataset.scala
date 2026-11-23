@@ -214,8 +214,14 @@ class ParquetDataset private[parquet] (
                     plan
                       .rowFilter
                       .foreach { f =>
-                        val m = f.matches(out)
-                        positions = positions.indices.filter(m(_)).map(positions(_)).toArray
+                        val m    = f.matches(out)
+                        val kept = scala.collection.mutable.ArrayBuilder.ofLong()
+                        var r    = 0
+                        while r < m.length do
+                          if m(r) then
+                            kept += positions(r)
+                          r += 1
+                        positions = kept.result()
                       }
                   found ++= positions
                 }

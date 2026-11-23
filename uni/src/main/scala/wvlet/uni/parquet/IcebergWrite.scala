@@ -1632,7 +1632,7 @@ private[parquet] object IcebergWrite:
           copy(
             deleteFiles = deleteFiles + 1,
             positions = positions + num(d, "record_count"),
-            deleteBytes = deleteBytes + num(d, "file_size_in_bytes"),
+            deleteBytes = deleteBytes + deleteFileSize(d),
             vectors =
               vectors + (
                 if isVector(d) then
@@ -1652,6 +1652,16 @@ private[parquet] object IcebergWrite:
     end Removed
 
     private val NoneRemoved = Removed(Set.empty, 0, 0, 0)
+
+    /**
+      * A delete file's size in the summary: a vector's blob, not its Puffin file, which other
+      * vectors share (as iceberg-java counts it)
+      */
+    private def deleteFileSize(d: Map[String, Any]): Long =
+      if isVector(d) then
+        num(d, "content_size_in_bytes")
+      else
+        num(d, "file_size_in_bytes")
 
     private def isVector(d: Map[String, Any]): Boolean = d
       .get("file_format")
@@ -2239,7 +2249,7 @@ private[parquet] object IcebergWrite:
       val addedDeletes   = deletes.manifests.flatMap(_.files)
       val addedPositions = addedDeletes.map(num(_, "record_count")).sum
       val addedVectors   = addedDeletes.count(isVector).toLong
-      val deleteBytes    = addedDeletes.map(num(_, "file_size_in_bytes")).sum
+      val deleteBytes    = addedDeletes.map(deleteFileSize).sum
       def kindCounts(prefix: String, vectors: Long, files: Long): Seq[(String, JSONValue)] = Seq(
         s"${prefix}-dvs"                   -> vectors,
         s"${prefix}-position-delete-files" -> (files - vectors)
