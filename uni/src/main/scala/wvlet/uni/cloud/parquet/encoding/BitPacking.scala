@@ -132,7 +132,11 @@ private[parquet] final class RleBitPackedDecoder(
   private var packed          = new Array[Int](0)
   private var packedPos       = 0
   private var packedRemaining = 0
-  private val valueBytes      = (bitWidth + 7) / 8
+  // A bit-packed run of 1-bit levels read straight from `buf`: its first byte, next bit, and bits left
+  private var bitStart     = 0
+  private var bitIndex     = 0
+  private var bitRemaining = 0
+  private val valueBytes   = (bitWidth + 7) / 8
 
   private def readVarInt(): Int =
     var result = 0
@@ -153,7 +157,8 @@ private[parquet] final class RleBitPackedDecoder(
     )
     result
 
-  private def nextRun(): Unit =
+  /** With `lazyBits`, a bit-packed run of 1-bit values is left in `buf` for [[readLevels]] */
+  private def nextRun(lazyBits: Boolean = false): Unit =
     val header = readVarInt()
     if (header & 1) == 0 then
       rleRemaining = header >>> 1
@@ -178,6 +183,12 @@ private[parquet] final class RleBitPackedDecoder(
         // Zero-width values are all 0: no need to unpack them
         rleRemaining = count
         rleValue = 0
+        return
+      if lazyBits && bitWidth == 1 then
+        bitStart = pos
+        bitIndex = 0
+        bitRemaining = count
+        pos = math.min(end.toLong, pos + bytes).toInt
         return
       if packed.length < count then
         packed = new Array[Int](count)
@@ -208,5 +219,110 @@ private[parquet] final class RleBitPackedDecoder(
         throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
       else
         nextRun()
+
+  /**
+    * Reads `n` levels into `dst` as bytes, and returns how many equal `maxLevel`. Throws when a
+    * level exceeds `maxLevel` (at most 127) or the data ends first. An RLE run is checked and
+    * counted once for the whole run, so levels need no second pass.
+    */
+  def readLevels(dst: Array[Byte], offset: Int, n: Int, maxLevel: Int): Int =
+    // 1-bit levels (flat optional columns) are expanded from the packed bits as they are counted
+    val lazyBits = bitWidth == 1 && maxLevel == 1
+    var count    = 0
+    var i        = 0
+    while i < n do
+      if bitRemaining > 0 then
+        val k = math.min(bitRemaining, n - i)
+        var t = 0
+        while t < k do
+          val bi = bitIndex + t
+          val p  = bitStart + (bi >>> 3)
+          // The run's last group may be cut short at the end of the data: missing bits read as 0
+          val v =
+            if p < end then
+              (buf(p) >>> (bi & 7)) & 1
+            else
+              0
+          dst(offset + i + t) = v.toByte
+          count += v
+          t += 1
+        bitIndex += k
+        bitRemaining -= k
+        i += k
+      else if rleRemaining > 0 then
+        val k = math.min(rleRemaining, n - i)
+        if rleValue < 0 || rleValue > maxLevel then
+          RleBitPackedDecoder.levelOutOfRange(rleValue, maxLevel)
+        java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue.toByte)
+        if rleValue == maxLevel then
+          count += k
+        rleRemaining -= k
+        i += k
+      else if packedRemaining > 0 then
+        val k = math.min(packedRemaining, n - i)
+        count += RleBitPackedDecoder.copyLevels(packed, packedPos, dst, offset + i, k, maxLevel)
+        packedPos += k
+        packedRemaining -= k
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun(lazyBits)
+    end while
+    count
+
+  end readLevels
+
+end RleBitPackedDecoder
+
+private[parquet] object RleBitPackedDecoder:
+
+  /**
+    * Copies `n` levels from `src` to `dst` as bytes, and returns how many equal `maxLevel`. Throws
+    * when a level exceeds `maxLevel`.
+    */
+  def copyLevels(
+      src: Array[Int],
+      from: Int,
+      dst: Array[Byte],
+      offset: Int,
+      n: Int,
+      maxLevel: Int
+  ): Int =
+    var count = 0
+    var bad   = 0
+    var j     = 0
+    while j < n do
+      val v = src(from + j)
+      dst(offset + j) = v.toByte
+      // Branch-free, so the loop stays simple: unsigned compare catches negatives too
+      bad |= (
+        if Integer.compareUnsigned(v, maxLevel) > 0 then
+          1
+        else
+          0
+      )
+      count += (
+        if v == maxLevel then
+          1
+        else
+          0
+      )
+      j += 1
+    if bad != 0 then
+      var k = 0
+      while k < n do
+        levelOutOfRangeIf(src(from + k), maxLevel)
+        k += 1
+    count
+
+  end copyLevels
+
+  private def levelOutOfRangeIf(v: Int, maxLevel: Int): Unit =
+    if Integer.compareUnsigned(v, maxLevel) > 0 then
+      levelOutOfRange(v, maxLevel)
+
+  def levelOutOfRange(v: Int, maxLevel: Int): Nothing =
+    throw ParquetException.corrupt(s"level ${v} exceeds the maximum ${maxLevel}")
 
 end RleBitPackedDecoder
