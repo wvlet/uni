@@ -47,3 +47,11 @@ print("v2_posdel", "pyiceberg:", [r["id"] for r in StaticTable.from_metadata(new
 for p in glob.glob(f"{d}/v*_*/metadata/*.avro"):
     with open(p, "rb") as f:
         list(fastavro.reader(f))
+
+# Merge-on-read updates: rows 2 and 3 read ITEM2 and ITEM3, and row 4 is in dt 2026-11-30, once
+# each; DuckDB reads Uni's updated v3 table with the row IDs the rows had before
+for table in ["v3_update", "v2_update"]:
+    meta = newest(table)
+    print(table, "duckdb:", con.execute(f"SELECT id, item, dt FROM iceberg_scan('{meta}') ORDER BY id").fetchall())
+print("v3_update", "duckdb row ids:", con.execute(f"SELECT id, _row_id FROM iceberg_scan('{newest('v3_update')}') ORDER BY id").fetchall())
+print("v2_update", "pyiceberg:", [(r["id"], r["item"]) for r in StaticTable.from_metadata(newest("v2_update")).scan().to_arrow().sort_by("id").to_pylist()])

@@ -427,8 +427,7 @@ private[parquet] object IcebergWrite:
 
   end planAppend
 
-  private def formatVersionOf(t: Table): Int =
-    long(t.metadata, "format-version").getOrElse(1L).toInt
+  def formatVersionOf(t: Table): Int = long(t.metadata, "format-version").getOrElse(1L).toInt
 
   /**
     * Replaces every row. Rows that fit the table schema keep it (and the partition spec, unless
@@ -2504,8 +2503,16 @@ private[parquet] object IcebergWrite:
     * file's earlier deletes, whose file-scoped entries it replaces), position-delete files for
     * version 2 (one per data file). The commit fails with [[LostRace]] when another writer commits
     * first, since the positions must be found again.
+    *
+    * With `added`, the data files a writer wrote for a merge-on-read update (planned on the same
+    * table version `t`), the snapshot adds them too and is an `overwrite`.
     */
-  final class RowDeleteCommit(baseLayout: Layout, t: Table, rows: IndexedSeq[RowDeletes]):
+  final class RowDeleteCommit(
+      baseLayout: Layout,
+      t: Table,
+      rows: IndexedSeq[RowDeletes],
+      added: Option[(Plan, IndexedSeq[DataFile])] = None
+  ):
     private val layout   = tableLayout(baseLayout, t)
     private val version  = formatVersionOf(t)
     private val commitId = newUuid()
@@ -2563,7 +2570,7 @@ private[parquet] object IcebergWrite:
                 s"${missing.mkString(", ")} is not a live data file of ${layout.root}"
               )
             flatMap(writeDeleteFiles(found)) { manifests =>
-              val plan = Plan(
+              lazy val deleteOnly = Plan(
                 layout,
                 Some(t),
                 ParquetSchema(
@@ -2594,7 +2601,12 @@ private[parquet] object IcebergWrite:
                 ,
                 rows.map(r => (found(r.path).specId, found(r.path).partition)).distinct.size
               )
-              val c = CommitState(plan, IndexedSeq.empty, change)
+              val c =
+                added match
+                  case Some((plan, files)) =>
+                    CommitState(plan, files, change)
+                  case None =>
+                    CommitState(deleteOnly, IndexedSeq.empty, change)
               commit = Some(c)
               c.run()
             }

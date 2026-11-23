@@ -262,6 +262,10 @@ def typedDataset(root: String) = Parquet.dataset(
   position-delete files again with the moved paths (current snapshot only).
   `Parquet.deleteIcebergRows(root, filter)` deletes the matching rows merge-on-read and returns
   how many: deletion vectors (Puffin) in v3 tables, position-delete files in v2, data files kept.
+  `Parquet.updateIcebergRows(root, filter)(row => row.updated("k", v))` updates them
+  merge-on-read in one `overwrite` snapshot (new data files for the new rows, deletes for the old;
+  v3 rows keep their `_row_id`) and returns how many; on a lost race it reads the rows and calls
+  the function again, so keep the function free of side effects.
   Identity partitions on string, int, long, or date only; overwrite modes, other transforms,
   schema changes, and catalog-owned tables (`00003-<uuid>.metadata.json`) fail by name.
 

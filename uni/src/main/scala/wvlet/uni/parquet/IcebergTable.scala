@@ -38,7 +38,12 @@ private[parquet] object IcebergTable:
       size: Long,
       partitions: Map[String, Any],
       /** Column bounds from the manifest entry, for skipping the file by a filter */
-      stats: Option[DatasetFile.Stats] = None
+      stats: Option[DatasetFile.Stats] = None,
+      /**
+        * The row ID of the file's first row (format version 3): the entry's `first_row_id`, or one
+        * inherited from the manifest's. None before the table has row lineage
+        */
+      firstRowId: Option[Long] = None
   )
 
   /** The table at the chosen snapshot */
@@ -349,6 +354,9 @@ private[parquet] object IcebergTable:
                 val specId = c.meta("partition-spec-id").flatMap(_.toIntOption).getOrElse(mf.specId)
                 // A v1 manifest list has no content field, so the manifest's own metadata counts too
                 val isDeletes = mf.deletes || c.meta("content").contains("deletes")
+                // Entries without a first row ID inherit the next IDs of the manifest's, as Iceberg's
+                // Java library assigns them: in order, skipping deleted entries
+                var nextRowId = mf.firstRowId
                 c.records
                   .foreach { r =>
                     if status(r) != Deleted then
@@ -356,7 +364,15 @@ private[parquet] object IcebergTable:
                       if isDeletes then
                         deletes += deleteFile(r, mf.path, paths, seq, specId)
                       else
-                        val f = dataFile(r, mf.path, paths, specs.get(specId), fields)
+                        val parsed = dataFile(r, mf.path, paths, specs.get(specId), fields)
+                        val f      =
+                          parsed.firstRowId match
+                            case Some(_) =>
+                              parsed
+                            case None =>
+                              val id = nextRowId
+                              nextRowId = nextRowId.map(_ + recordCount(r))
+                              parsed.copy(firstRowId = id)
                         sequences(f.path) = IcebergDeletes.DataFileScope(
                           seq,
                           specId,
@@ -463,8 +479,24 @@ private[parquet] object IcebergTable:
       specId: Int,
       sequenceNumber: Long,
       /** Whether the manifest list says it lists delete files */
-      deletes: Boolean = false
+      deletes: Boolean = false,
+      /** The manifest's first row ID (format version 3), which its data files inherit */
+      firstRowId: Option[Long] = None
   )
+
+  private def longOf(v: Option[Any]): Option[Long] = v.collect {
+    case l: Long =>
+      l
+    case i: Int =>
+      i.toLong
+  }
+
+  private def recordCount(entry: Any): Long =
+    entry.asInstanceOf[Map[String, Any]].get("data_file") match
+      case Some(d: Map[?, ?]) =>
+        longOf(d.asInstanceOf[Map[String, Any]].get("record_count")).getOrElse(0L)
+      case _ =>
+        0L
 
   private val Added = 1
 
@@ -530,7 +562,7 @@ private[parquet] object IcebergTable:
               i.toLong
           }
           .getOrElse(0L)
-        Some(Manifest(path, specId, seq, deletes))
+        Some(Manifest(path, specId, seq, deletes, longOf(m.get("first_row_id"))))
       case _ =>
         None
     }
@@ -674,7 +706,7 @@ private[parquet] object IcebergTable:
           nameOf(fields, pf.sourceId).map(n => n -> partition.getOrElse(pf.name, null))
         }
         .toMap
-    DataFile(paths.resolve(path), size, values, statsOf(d, fields))
+    DataFile(paths.resolve(path), size, values, statsOf(d, fields), longOf(d.get("first_row_id")))
 
   end dataFile
 
