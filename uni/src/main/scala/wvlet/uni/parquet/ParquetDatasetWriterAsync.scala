@@ -244,7 +244,8 @@ private[parquet] object AsyncDatasetDriver:
       case Step.Put(path, bytes, next) =>
         s.putAsync(ObjectUri.parse(path), bytes).flatMap(_ => runSteps(s, next()))
       case Step.Create(path, bytes, next) =>
-        s.putIfAbsentAsync(ObjectUri.parse(path), bytes).flatMap(ok => runSteps(s, next(ok)))
+        s.putIfAbsentAsync(ObjectUri.parse(path), bytes)
+          .flatMap(v => runSteps(s, next(v.isDefined)))
       case Step.Delete(path, next) =>
         s.deleteAsync(ObjectUri.parse(path)).flatMap(_ => runSteps(s, next()))
 

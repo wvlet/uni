@@ -203,6 +203,8 @@ class AzureParsingTest extends UniTest:
       Seq("az://c/logs/a.txt", "az://c/logs/odd￾name", "az://c/logs/2026/")
     page.entries.head.size shouldBe 42L
     page.entries.head.etag shouldBe Some("0x8D")
+    // The same quoted form HEAD and PUT answers carry, so either can be passed to putIfMatch
+    page.entries.head.version shouldBe Some("\"0x8D\"")
     page.entries.head.contentType shouldBe Some("text/plain")
     page.entries.last.isDirectory shouldBe true
     page.nextToken shouldBe Some("2!72!MDAwMDA0")

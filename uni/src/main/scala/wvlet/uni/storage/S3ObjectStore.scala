@@ -150,7 +150,8 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
           resp.header("Content-Length").flatMap(_.trim.toLongOption).getOrElse(0L),
           resp.header("ETag"),
           resp.header("Last-Modified"),
-          resp.header("Content-Type")
+          resp.header("Content-Type"),
+          version = resp.header("ETag")
         )
       )
 
@@ -196,33 +197,93 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     val call = Call(HttpMethod.PUT, uri, body = content, contentType = Some(contentType))
     sendAsync(call).map(r => checked(call, r)).map(_ => ())
 
-  private def createCall(uri: ObjectUri, content: Array[Byte], contentType: String): Call = Call(
+  private def conditionalPut(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String,
+      condition: (String, String)
+  ): Call = Call(
     HttpMethod.PUT,
     uri,
-    headers = Seq("If-None-Match" -> "*"),
+    headers = Seq(condition),
     body = content,
     contentType = Some(contentType)
   )
 
-  // 412: the object exists; 409: a concurrent conditional write to the same key is in flight
-  private def createResult(call: Call, resp: Response): Boolean =
+  // 412: the precondition failed (the object exists, changed, or is missing); 409: a concurrent
+  // conditional write to the same key is in flight; 404 NoSuchKey: If-Match on a missing object.
+  // Other 404s, such as NoSuchBucket, still raise.
+  private def conditionalResult(call: Call, resp: Response): Option[String] =
     if resp.statusCode == 412 || resp.statusCode == 409 then
-      false
+      None
+    else if resp.statusCode == 404 &&
+      errorOf(call.uri, resp, region).code == StorageErrorCode.NoSuchKey
+    then
+      None
     else
       checked(call, resp)
-      true
+      Some(newVersion(call.uri, resp))
 
-  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
-    val call = createCall(uri, content, contentType)
-    createResult(call, send(call))
+  private def newVersion(uri: ObjectUri, resp: Response): String = resp
+    .header("ETag")
+    .getOrElse(
+      throw StorageException(CloudErrorCode.InvalidResponse, s"No ETag in the answer for ${uri}")
+    )
+
+  override def putIfAbsent(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Option[String] =
+    val call = conditionalPut(uri, content, contentType, "If-None-Match" -> "*")
+    conditionalResult(call, send(call))
 
   override def putIfAbsentAsync(
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String
-  ): Rx[Boolean] =
-    val call = createCall(uri, content, contentType)
-    sendAsync(call).map(createResult(call, _))
+  ): Rx[Option[String]] =
+    val call = conditionalPut(uri, content, contentType, "If-None-Match" -> "*")
+    sendAsync(call).map(conditionalResult(call, _))
+
+  // GCS's XML API ignores If-Match on uploads, so a swap would overwrite without a check
+  private val isGcsEndpoint: Boolean =
+    val host = endpointAuthority.takeWhile(_ != ':').toLowerCase
+    host == "googleapis.com" || host.endsWith(".googleapis.com")
+
+  private def ifMatchCall(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Call =
+    if isGcsEndpoint then
+      throw UnsupportedOperationException(
+        "putIfMatch is not safe through GCS's S3-compatible API, which ignores If-Match on " +
+          "uploads; use ObjectStore.gcs() for gs:// objects"
+      )
+    conditionalPut(uri, content, contentType, "If-Match" -> version)
+
+  override def putIfMatch(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Option[String] =
+    val call = ifMatchCall(uri, content, version, contentType)
+    conditionalResult(call, send(call))
+
+  override def putIfMatchAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Rx[Option[String]] = Rx
+    .single(())
+    .flatMap(_ =>
+      val call = ifMatchCall(uri, content, version, contentType)
+      sendAsync(call).map(conditionalResult(call, _))
+    )
 
   override def delete(uri: ObjectUri): Unit =
     val call = Call(HttpMethod.DELETE, uri)
@@ -384,7 +445,8 @@ object S3ObjectStore:
           prefix.copy(key = c.childText("Key").getOrElse("")),
           c.childText("Size").flatMap(_.trim.toLongOption).getOrElse(0L),
           c.childText("ETag"),
-          c.childText("LastModified")
+          c.childText("LastModified"),
+          version = c.childText("ETag")
         )
       }
     val dirs = xml

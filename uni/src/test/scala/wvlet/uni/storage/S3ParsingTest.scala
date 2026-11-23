@@ -54,6 +54,7 @@ class S3ParsingTest extends UniTest:
     page.entries.map(_.uri.key) shouldBe Seq("data/a & b.parquet", "data/ x ", "data/sub/")
     page.entries.head.size shouldBe 1024L
     page.entries.head.etag shouldBe Some("\"abc\"")
+    page.entries.head.version shouldBe Some("\"abc\"")
     page.entries.last.isDirectory shouldBe true
   }
 
@@ -141,6 +142,28 @@ class S3ParsingTest extends UniTest:
     val url = signed.presign(ObjectUri("b", "k"), HttpMethod.PUT, 60)
     url.startsWith("https://b.s3.us-east-1.amazonaws.com/k?") shouldBe true
     url shouldContain "X-Amz-Expires=60"
+  }
+
+  test("putIfMatch refuses GCS's S3-compatible endpoint, which ignores If-Match on uploads") {
+    val store = S3ObjectStore(S3Config.gcs.withCredentials("key", "secret"))
+    val uri   = ObjectUri("b", "pointer.json")
+    intercept[UnsupportedOperationException] {
+      store.putIfMatch(uri, Array.emptyByteArray, "\"abc\"")
+    }
+    store
+      .putIfMatchAsync(uri, Array.emptyByteArray, "\"abc\"")
+      .recover { case e: UnsupportedOperationException =>
+        None
+      }
+      .map(_ shouldBe None)
+    val regional = S3ObjectStore(
+      S3Config()
+        .withEndpoint("https://storage.us-east1.rep.googleapis.com:443")
+        .withCredentials("k", "s")
+    )
+    intercept[UnsupportedOperationException] {
+      regional.putIfMatch(uri, Array.emptyByteArray, "\"abc\"")
+    }
   }
 
   test("part size must be at least 5 MiB") {

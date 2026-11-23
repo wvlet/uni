@@ -15,8 +15,9 @@ import scala.collection.mutable
   * every put after that many succeed fail.
   */
 class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
-  private val objects = mutable.TreeMap.empty[String, Array[Byte]]
-  private var puts    = 0
+  private val objects  = mutable.TreeMap.empty[String, Array[Byte]]
+  private val versions = mutable.Map.empty[String, String]
+  private var puts     = 0
 
   private def syncCall(name: String): Nothing =
     throw UnsupportedOperationException(s"${name} is sync; the async writer must not call it")
@@ -47,7 +48,8 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
 
   private def info(key: String, bytes: Array[Byte]): ObjectInfo = ObjectInfo(
     ObjectUri.parse(key),
-    bytes.length.toLong
+    bytes.length.toLong,
+    version = versions.get(key)
   )
 
   // Puts run on several threads on the JVM, so every access to the objects holds the lock
@@ -71,13 +73,44 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
       synchronized {
         if failPuts.exists(puts >= _) then
           throw java.io.IOException(s"put failed: ${uri}")
-        puts += 1
-        objects(uri.toString) = content.clone()
+        store(uri.toString, content)
+        ()
       }
     }
 
-  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
-    syncCall("putIfAbsent")
+  override def putIfAbsent(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Option[String] = syncCall("putIfAbsent")
+
+  override def putIfMatch(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Option[String] = syncCall("putIfMatch")
+
+  // The version of a stored object is the put count when it was written
+  private def store(key: String, content: Array[Byte]): String =
+    puts += 1
+    objects(key) = content.clone()
+    versions(key) = puts.toString
+    puts.toString
+
+  override def putIfMatchAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      version: String,
+      contentType: String
+  ): Rx[Option[String]] = Rx.single {
+    synchronized {
+      if versions.get(uri.toString).contains(version) then
+        Some(store(uri.toString, content))
+      else
+        None
+    }
+  }
 
   /** Called before each `putIfAbsentAsync`, so a test can commit a racing version first */
   var beforeCreate: ObjectUri => Unit = _ => ()
@@ -86,17 +119,15 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
       uri: ObjectUri,
       content: Array[Byte],
       contentType: String
-  ): Rx[Boolean] = Rx.single {
+  ): Rx[Option[String]] = Rx.single {
     beforeCreate(uri)
     val created = synchronized {
       if objects.contains(uri.toString) then
-        false
+        None
       else
-        puts += 1
-        objects(uri.toString) = content.clone()
-        true
+        Some(store(uri.toString, content))
     }
-    if created && loseCreateResponse then
+    if created.isDefined && loseCreateResponse then
       throw java.io.IOException(s"connection reset after creating ${uri}")
     created
   }
@@ -117,7 +148,11 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
   )
 
   override def deleteAsync(uri: ObjectUri): Rx[Unit] = Rx.single(
-    synchronized(objects.remove(uri.toString))
+    synchronized {
+      objects.remove(uri.toString)
+      versions.remove(uri.toString)
+      ()
+    }
   )
 
 end MemoryObjectStore

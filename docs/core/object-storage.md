@@ -300,18 +300,57 @@ top.filter(_.isDirectory).foreach(d => println(d.uri))
 ## Creating an Object Only If Absent
 
 `putIfAbsent(uri, bytes)` creates the object only when nothing is stored at the key yet. It
-returns true when this call created the object and false when one was already there. Of several
-writers racing for the same key, at most one gets true, so it can commit a version file, such as
-the `vN.metadata.json` of an [Iceberg table](../text/parquet#writing-apache-iceberg-tables), or
-take a lock. S3 sends `If-None-Match: *`, GCS `ifGenerationMatch=0`, and Azure `If-None-Match: *`.
-`putIfAbsentAsync` returns an `Rx[Boolean]`.
+returns `Some(version)`, the new object's [version](#replacing-an-object-only-if-unchanged), when
+this call created the object, and `None` when one was already there. Of several writers racing for
+the same key, at most one gets a version, so it can commit a version file, such as the
+`vN.metadata.json` of an [Iceberg table](../text/parquet#writing-apache-iceberg-tables), or take a
+lease. S3 sends `If-None-Match: *`, GCS `ifGenerationMatch=0`, and Azure `If-None-Match: *`.
+`putIfAbsentAsync` returns an `Rx[Option[String]]`.
 
 ```scala
 val versionFile  = ObjectUri.parse("s3://my-bucket/table/metadata/v2.metadata.json")
 val metadataJson = """{"format-version": 2}"""
-if !store.putIfAbsent(versionFile, metadataJson.getBytes("UTF-8")) then
+if store.putIfAbsent(versionFile, metadataJson.getBytes("UTF-8")).isEmpty then
   println("another writer committed v2 first")
 ```
+
+## Replacing an Object Only If Unchanged
+
+`putIfMatch(uri, bytes, version)` replaces the object only if it still has the version you read,
+so two writers can't both win a read-modify-write. Use it to move a pointer to the current
+snapshot or to renew a lease held in one object.
+
+- `ObjectInfo.version`, from `head` or `list`, is the token to pass back: the ETag on S3 and
+  Azure, the generation on GCS. Treat it as opaque.
+- The call returns `Some(newVersion)` when it replaced the object. Pass that version to the next
+  swap; you don't need another `head`.
+- It returns `None` when the race is lost: the object changed or no longer exists. Read it again
+  and retry, or give up.
+- Any other failure, such as a missing bucket, denied access, or throttling, raises
+  `StorageException`, so an outage never looks like a lost race.
+- S3 and Azure send `If-Match`, and GCS sends `ifGenerationMatch`. `putIfMatchAsync` returns an
+  `Rx[Option[String]]`.
+
+Call `head` before `get`. If another writer lands in between, the swap then fails instead of
+committing changes made to stale bytes:
+
+```scala
+val pointer = ObjectUri.parse("s3://my-bucket/table/current.json")
+store.put(pointer, "1".getBytes("UTF-8"))
+
+def advance(): Option[String] =
+  store.head(pointer).flatMap(_.version).flatMap { version =>
+    val current = String(store.get(pointer), "UTF-8").toInt
+    store.putIfMatch(pointer, (current + 1).toString.getBytes("UTF-8"), version)
+  }
+
+// Retry a lost race a few times
+val committed = Iterator.continually(advance()).take(5).collectFirst { case Some(v) => v }
+```
+
+GCS's S3-compatible API ignores `If-Match` on uploads, so an S3 store configured with
+`S3Config.gcs` refuses `putIfMatch` with an `UnsupportedOperationException`. Use
+`ObjectStore.gcs()` for `gs://` objects instead.
 
 ## Uploading Large Objects
 

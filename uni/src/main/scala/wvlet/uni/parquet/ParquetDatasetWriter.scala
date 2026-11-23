@@ -1619,7 +1619,7 @@ private[parquet] object DatasetWriterCore:
                   case _: FileAlreadyExistsException =>
                     false
               case DatasetTarget.Objects(store, _, _) =>
-                store.putIfAbsent(ObjectUri.parse(path), bytes)
+                store.putIfAbsent(ObjectUri.parse(path), bytes).isDefined
           step = next(created)
         case Step.Delete(path, next) =>
           runSync(target, RootAction.Delete(path, s"Failed to delete ${path}"))
