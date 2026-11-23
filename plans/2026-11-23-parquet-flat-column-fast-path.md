@@ -19,6 +19,7 @@
 - Flat leaves skip the range machinery: `rowRanges` records an identity range without arrays, and structs reading null flags through it see the same starts.
 - A flat leaf with no nulls hands over the decoded array when its length is exactly the row count, and copies it once otherwise.
 - A flat leaf with nulls is filled in one pass over the definition levels, writing values and the null mask together; binary data stays shared, and dictionary indices come from the same pass.
+- When a batch takes the rest of the chunk (the default), a flat nullable fixed-size column decodes into an array with a slot per row, and the pass moves values to their rows in place, back to front, so the column allocates no second array.
 - Leaves under lists and maps keep `gatherLeaf` as it is today.
 - After handing out its whole buffer, the cursor sizes the next value and level buffers from the batch it just handed out, capped by the values left in the chunk, so buffers stop regrowing from 1,024 every batch. Sizing follows what was actually read, so a corrupt value count still cannot force a huge allocation.
 - Tests compare the new path against the general path for: flat required, optional with no nulls, some nulls, all nulls, dictionary-encoded strings with nulls, structs over optional leaves, and multi-page chunks over several batches.
