@@ -277,6 +277,28 @@ class NettyMalformedRequestTest extends UniTest:
     )
   }
 
+  test("reject a bare CR before the request line") {
+    // Netty skips any control bytes there; RFC 9112 Section 2.2 allows only empty lines
+    Seq("\r", "\r\r\n", "\r\n\r", "\n\r").foreach { prefix =>
+      rejected(ascii(s"${prefix}GET / HTTP/1.1\r\nHost: localhost\r\n\r\n"), 400)
+    }
+  }
+
+  test("skip empty lines before the request line, and reject a bare CR between requests") {
+    server.start { s =>
+      calls.set(0)
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "\r\n\nGET /a HTTP/1.1\r\nHost: localhost\r\n\r\n\r\nGET /b HTTP/1.1\r\n" +
+            "Host: localhost\r\n\r\n\rGET /c HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        )
+      )
+      statuses(response) shouldBe Seq("200", "200", "400")
+      calls.get() shouldBe 2
+    }
+  }
+
   test("answer an earlier pipelined request with a body before rejecting a bad separator") {
     server.start { s =>
       calls.set(0)
