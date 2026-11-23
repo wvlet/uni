@@ -10,7 +10,7 @@ Goal: put the cloud-native utilities in one package. Parquet, Iceberg, Delta, an
 4. Move `ByteReader`'s static `intLE`, `longLE`, and `longBE` to `wvlet.uni.io.codec.Bytes`.
 5. Update the docs, `for-ai-agents.md`, the plugin skill (with a version bump), and the ADRs. Keep the npm entry point `@wvlet/uni/parquet`. Make no deprecated aliases.
 
-## Next PR
+## Second PR (after #1161)
 
 - Move `ObjectStore` and the S3, GCS, Azure, and HTTP stores to `cloud.storage`.
 - Move `SettingStore` and its backends to `wvlet.uni.util.settings`.
