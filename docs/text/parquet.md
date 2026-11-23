@@ -785,8 +785,8 @@ Parquet.dropIcebergTable(visitsRoot)
   recorded path. Before moving anything, it refuses a target that exists, object stores, tables
   with branches or tags other than `main` (their snapshots would be lost), and tables that set
   `write.data.path` or `write.metadata.path`. Deletion vectors are pointed at the moved data
-  files. A table with position-delete files fails after the move check, since their rows name data
-  files by the old paths; compact it first.
+  files. A table with position-delete files is refused too, since their rows name data files by
+  the old paths; compact it first.
 - `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
   no readable table, then every file under the root. It fails when the root is not an Iceberg
   table.

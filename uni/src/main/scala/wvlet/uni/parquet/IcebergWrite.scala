@@ -2243,6 +2243,58 @@ private[parquet] object IcebergWrite:
 
   end manifestsOf
 
+  /**
+    * Why the current snapshot's files can't be relocated, read from its manifests: position delete
+    * files name data files by path inside their Parquet rows, which a rename can't rewrite
+    */
+  def relocationFileProblem(layout: Layout, t: Table): Step[Option[String]] =
+    val m       = t.metadata
+    val current =
+      long(m, "current-snapshot-id")
+        .filter(_ >= 0)
+        .flatMap(id => objects(m, "snapshots").find(s => long(s, "snapshot-id").contains(id)))
+        .toIndexedSeq
+    flatMap(manifestsOf(layout, t, current)) { manifests =>
+      val paths                              = manifests.values.flatten.toIndexedSeq
+      def loop(i: Int): Step[Option[String]] =
+        if i >= paths.size then
+          Step.Done(None)
+        else
+          Step.Fetch(
+            paths(i),
+            bytes =>
+              val positionDeletes = Avro
+                .read(bytes, paths(i))
+                .records
+                .exists { r =>
+                  val e = r.asInstanceOf[Map[String, Any]]
+                  e.get("status").forall(_ != Deleted) &&
+                  e.get("data_file")
+                    .exists {
+                      case d: Map[?, ?] =>
+                        val df = d.asInstanceOf[Map[String, Any]]
+                        df.get("content").exists(_ != 0) &&
+                        !df
+                          .get("file_format")
+                          .exists(f => String.valueOf(f).equalsIgnoreCase("puffin"))
+                      case _ =>
+                        false
+                    }
+                }
+              if positionDeletes then
+                Step.Done(
+                  Some(
+                    "it has position delete files, whose rows name data files by their old paths; compact the table first"
+                  )
+                )
+              else
+                loop(i + 1)
+          )
+      loop(0)
+    }
+
+  end relocationFileProblem
+
   /** The data files each manifest lists: (path, whether the entry is live) */
   private def dataFilesOf(
       layout: Layout,

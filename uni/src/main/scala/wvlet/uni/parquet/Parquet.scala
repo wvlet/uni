@@ -940,9 +940,16 @@ object Parquet:
     if FileSystem.exists(target) then
       throw ParquetException(s"Cannot rename ${from} to ${to}: ${to} already exists")
     withTarget(datasetTarget(from)) { t =>
+      val layout = DatasetWriterCore.icebergLayout(t)
       DatasetWriterCore
-        .runStepsSync(t, IcebergWrite.load(DatasetWriterCore.icebergLayout(t)))
-        .flatMap(table => IcebergWrite.relocationProblem(table.metadata))
+        .runStepsSync(t, IcebergWrite.load(layout))
+        .flatMap(table =>
+          IcebergWrite
+            .relocationProblem(table.metadata)
+            .orElse(
+              DatasetWriterCore.runStepsSync(t, IcebergWrite.relocationFileProblem(layout, table))
+            )
+        )
         .foreach(p => throw ParquetException(s"Cannot rename ${from} to ${to}: ${p}"))
     }
     FileSystem.move(source, target)

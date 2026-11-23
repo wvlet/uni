@@ -255,6 +255,9 @@ class IcebergV3WriteTest extends UniTest:
     val root = hadoopCopy("v2_deletes")
     intercept[ParquetException](Parquet.renameIcebergTable(root, s"${root}-renamed"))
       .getMessage shouldContain "position delete files"
+    // Refused before moving anything
+    FileSystem.exists(IOPath.parse(s"${root}-renamed")) shouldBe false
+    ids(root) shouldBe (0L until 20L).filterNot(i => i % 4 == 1 || i == 12)
   }
 
 end IcebergV3WriteTest
