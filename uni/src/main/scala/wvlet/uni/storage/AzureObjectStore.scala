@@ -241,11 +241,16 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
     contentType = Some(contentType)
   )
 
-  // 409 BlobAlreadyExists (If-None-Match on an existing blob; some emulators answer 412) and 412
-  // ConditionNotMet (If-Match on a changed or missing blob) are lost races. Other 404s, such as
-  // ContainerNotFound, still raise.
-  private def conditionalResult(call: StorageCall, resp: Response): Option[String] =
-    if resp.statusCode == 409 || resp.statusCode == 412 then
+  // A lost race: 409 BlobAlreadyExists for If-None-Match (some emulators answer 412), and 412
+  // ConditionNotMet for If-Match on a changed or missing blob. If-Match keeps 409 as an error,
+  // since Put Blob also answers 409 for failures such as an immutability policy. Other 404s,
+  // such as ContainerNotFound, still raise.
+  private def conditionalResult(
+      call: StorageCall,
+      resp: Response,
+      lostRace: Set[Int]
+  ): Option[String] =
+    if lostRace.contains(resp.statusCode) then
       None
     else
       checked(call, resp)
@@ -266,7 +271,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       contentType: String
   ): Option[String] =
     val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
-    conditionalResult(call, send(call))
+    conditionalResult(call, send(call), Set(409, 412))
 
   override def putIfAbsentAsync(
       uri: ObjectUri,
@@ -274,7 +279,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       contentType: String
   ): Rx[Option[String]] =
     val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
-    sendAsync(call).map(conditionalResult(call, _))
+    sendAsync(call).map(conditionalResult(call, _, Set(409, 412)))
 
   override def putIfMatch(
       uri: ObjectUri,
@@ -283,7 +288,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       contentType: String
   ): Option[String] =
     val call = putCall(uri, content, contentType, Seq("If-Match" -> version))
-    conditionalResult(call, send(call))
+    conditionalResult(call, send(call), Set(412))
 
   override def putIfMatchAsync(
       uri: ObjectUri,
@@ -292,7 +297,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       contentType: String
   ): Rx[Option[String]] =
     val call = putCall(uri, content, contentType, Seq("If-Match" -> version))
-    sendAsync(call).map(conditionalResult(call, _))
+    sendAsync(call).map(conditionalResult(call, _, Set(412)))
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit =
     val call = putCall(uri, content, contentType)

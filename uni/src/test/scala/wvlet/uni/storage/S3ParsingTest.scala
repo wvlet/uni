@@ -156,6 +156,14 @@ class S3ParsingTest extends UniTest:
         None
       }
       .map(_ shouldBe None)
+    val regional = S3ObjectStore(
+      S3Config()
+        .withEndpoint("https://storage.us-east1.rep.googleapis.com:443")
+        .withCredentials("k", "s")
+    )
+    intercept[UnsupportedOperationException] {
+      regional.putIfMatch(uri, Array.emptyByteArray, "\"abc\"")
+    }
   }
 
   test("part size must be at least 5 MiB") {

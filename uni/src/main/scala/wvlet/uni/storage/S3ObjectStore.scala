@@ -247,13 +247,17 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     sendAsync(call).map(conditionalResult(call, _))
 
   // GCS's XML API ignores If-Match on uploads, so a swap would overwrite without a check
+  private val isGcsEndpoint: Boolean =
+    val host = endpointAuthority.takeWhile(_ != ':').toLowerCase
+    host == "googleapis.com" || host.endsWith(".googleapis.com")
+
   private def ifMatchCall(
       uri: ObjectUri,
       content: Array[Byte],
       version: String,
       contentType: String
   ): Call =
-    if endpointAuthority.equalsIgnoreCase("storage.googleapis.com") then
+    if isGcsEndpoint then
       throw UnsupportedOperationException(
         "putIfMatch is not safe through GCS's S3-compatible API, which ignores If-Match on " +
           "uploads; use ObjectStore.gcs() for gs:// objects"
