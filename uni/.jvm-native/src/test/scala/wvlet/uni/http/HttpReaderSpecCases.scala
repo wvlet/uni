@@ -112,6 +112,7 @@ object HttpReaderSpecCases:
     "POST /ext-nul HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;a\u0000\r\nhello\r\n0\r\n\r\n␞bad 400 Invalid chunk extension",
     "POST /data-too-long HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nhello\r\n0\r\n\r\n␞bad 400 Invalid chunk data",
     "POST /data-bare-lf HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\n0\r\n\r\n␞bad 400 Invalid chunk data",
+    "POST /data-cr-without-lf HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\rx0\r\n\r\n␞bad 400 Invalid chunk data",
     "POST /trailer-obs-fold HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX-A: a\r\n b\r\n\r\n␞bad 400 Obsolete line folding",
     "POST /trailer-bad-name HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nX A: a\r\n\r\n␞bad 400 Invalid header name",
     "POST /truncated-chunk HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhel␞bad 400 Incomplete request body",

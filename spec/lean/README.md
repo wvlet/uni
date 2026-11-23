@@ -39,6 +39,23 @@ lake exe gen-dom-render-cases  # rewrite DomRenderSpecCases.scala; fails if the 
 Commit the regenerated Scala file with the model change. The `Lean spec` CI job fails when the
 checked-in cases differ from the model's output.
 
+## Planted bugs
+
+The HTTP reader cases are only as good as the bugs they catch.
+[`mutants/mutate_http_reader.py`](mutants/mutate_http_reader.py) plants bugs that lenient HTTP
+parsers have shipped (a bare LF, whitespace before the colon, the last `Content-Length` winning, an
+off-by-one at each size limit, and others) in `SocketHttpProtocol.scala`, one at a time. For each one
+it runs `HttpReaderSpecTest` and restores the file. From the repository root:
+
+```bash
+python3 spec/lean/mutants/mutate_http_reader.py            # every mutant, a few minutes
+python3 spec/lean/mutants/mutate_http_reader.py two-hosts  # just the named ones
+```
+
+A mutant that survives means a missing case: add an input to `GenHttpReaderCases.lean` and
+regenerate. Run it when the model or the reader changes. It is not part of CI, because each
+mutant recompiles `uni`.
+
 ## Changing a model
 
 - When `RxRunner` or `OffsetPacker` behaviour changes on purpose, change the model first, re-prove

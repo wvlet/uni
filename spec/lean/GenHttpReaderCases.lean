@@ -139,6 +139,7 @@ def inputs : List String := [
   chunkedPost "/ext-nul" "5;a\x00\r\nhello\r\n0\r\n\r\n",
   chunkedPost "/data-too-long" "3\r\nhello\r\n0\r\n\r\n",
   chunkedPost "/data-bare-lf" "5\r\nhello\n0\r\n\r\n",
+  chunkedPost "/data-cr-without-lf" "5\r\nhello\rx0\r\n\r\n",
   chunkedPost "/trailer-obs-fold" "0\r\nX-A: a\r\n b\r\n\r\n",
   chunkedPost "/trailer-bad-name" "0\r\nX A: a\r\n\r\n",
   chunkedPost "/truncated-chunk" "5\r\nhel",
