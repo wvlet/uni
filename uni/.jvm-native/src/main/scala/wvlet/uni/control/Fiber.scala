@@ -28,9 +28,9 @@ final class FiberCancelledException extends RuntimeException("Fiber was cancelle
 /**
   * A computation running concurrently on its own thread, written as plain blocking code.
   *
-  * Fibers run on [[RxScheduler.blocking]]: a virtual thread on JDK 24+, a pooled platform thread on
-  * JDK 17-23 and on Scala Native. Available on the JVM and Scala Native; Scala.js code uses
-  * `RxFiber`.
+  * Fibers run on [[wvlet.uni.rx.RxScheduler.blocking]]: a virtual thread on JDK 24+, a pooled
+  * platform thread on JDK 17-23 and on Scala Native. Available on the JVM and Scala Native;
+  * Scala.js code uses `RxFiber`.
   *
   * {{{
   *   val a = Fiber { fetch(x) }
@@ -188,7 +188,7 @@ object Fiber extends LogSupport:
 
   private val current = ThreadLocal[Fiber[?]]()
 
-  /** Start `body` concurrently on [[RxScheduler.blocking]]. */
+  /** Start `body` concurrently on [[wvlet.uni.rx.RxScheduler.blocking]]. */
   def apply[A](body: => A): Fiber[A] = create(() => body).start()
 
   // `new` is needed: apply above replaces the constructor proxy

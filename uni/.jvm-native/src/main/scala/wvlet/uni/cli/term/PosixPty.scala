@@ -37,7 +37,7 @@ import scala.collection.mutable.ArrayBuffer
   *   val terminal = TerminalEmulator(80, 24)
   *   val shell    = PosixPty.spawn("/bin/bash", Seq("-l"), PtyOptions().withSize(80, 24))
   *   PtyProcess.connect(terminal, shell)
-  *   shell.onExit(code => println(s"exited with ${code}"))
+  *   shell.onExit(code => println(s"exited with \${code}"))
   * }}}
   */
 object PosixPty:

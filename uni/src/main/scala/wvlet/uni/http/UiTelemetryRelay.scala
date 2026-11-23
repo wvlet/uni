@@ -22,9 +22,9 @@ import scala.util.control.NonFatal
 
 /**
   * Receives UI events that `UiTelemetry` (uni-ui) posts from the browser, and passes them to the
-  * service's [[Telemetry]] as events, which `withOtlp` sends to `/v1/logs`. A browser can't post
-  * OTLP to the Datadog Agent or a Collector itself: they don't accept a page's origin and shouldn't
-  * face the internet.
+  * service's [[wvlet.uni.telemetry.Telemetry]] as events, which `withOtlp` sends to `/v1/logs`. A
+  * browser can't post OTLP to the Datadog Agent or a Collector itself: they don't accept a page's
+  * origin and shouldn't face the internet.
   *
   * The endpoint is open to anyone who can reach the page, so it accepts only what `UiTelemetry`
   * sends and drops the rest of the request:

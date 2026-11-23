@@ -120,7 +120,7 @@ trait ObjectStore extends AutoCloseable:
     * A URL that lets anyone holding it send `method` to the object until it expires (at most 7
     * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it; Azure
     * also needs an `x-ms-blob-type: BlockBlob` header on the upload). Fails with
-    * [[CloudErrorCode.NoCredentials]] when the store's credentials can't sign.
+    * [[wvlet.uni.cloud.CloudErrorCode.NoCredentials]] when the store's credentials can't sign.
     */
   def presign(
       uri: ObjectUri,

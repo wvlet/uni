@@ -56,7 +56,7 @@ private[http] object SocketServerLimits:
   final val DefaultMaxDecompressedRequestSize = 64 * 1024 * 1024
 
 /**
-  * An HTTP/1.1 server over blocking sockets, shared by Scala Native ([[NativeHttpServer]]) and the
+  * An HTTP/1.1 server over blocking sockets, shared by Scala Native (`NativeHttpServer`) and the
   * JVM's built-in server. A daemon accept thread hands each accepted connection to a worker; the
   * worker parses requests, runs the (filter-composed) handler, and writes responses on that same
   * thread, keeping the connection alive unless the client requests close. Each platform supplies

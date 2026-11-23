@@ -18,8 +18,9 @@ import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.weaver.Weaver
 
 /**
-  * Read YAML 1.2 (core schema) into [[JSONValue]]s, and decode them into Scala types with
-  * [[Weaver]]. [[parseDocument]] keeps comments and formatting for editing YAML in place.
+  * Read YAML 1.2 (core schema) into [[wvlet.uni.json.JSON.JSONValue]]s, and decode them into Scala
+  * types with [[wvlet.uni.weaver.Weaver]]. [[parseDocument]] keeps comments and formatting for
+  * editing YAML in place.
   *
   * {{{
   *   case class Config(name: String, port: Int = 8080) derives Weaver
@@ -38,7 +39,7 @@ object YAML:
   val defaultMaxAliasNodes: Long = 1_000_000L
 
   /**
-    * Parse a single YAML document. An empty document is [[JSONNull]].
+    * Parse a single YAML document. An empty document is [[wvlet.uni.json.JSON.JSONNull]].
     */
   def parse(yaml: String): JSONValue =
     parseAll(yaml) match
@@ -90,10 +91,10 @@ object YAML:
       }
 
   /**
-    * Write documents back as a YAML stream. Parsed documents print their text as [[toYaml]] does. A
-    * `---` marker is added before a document that does not start with one, unless the previous
-    * document ends with `...`, and a line break is added after a document that does not end with
-    * one.
+    * Write documents back as a YAML stream. Parsed documents print their text as
+    * [[YAMLDocument.toYaml]] does. A `---` marker is added before a document that does not start
+    * with one, unless the previous document ends with `...`, and a line break is added after a
+    * document that does not end with one.
     */
   def writeStream(docs: Seq[YAMLDocument]): String = YAMLWriter.writeStream(docs)
 

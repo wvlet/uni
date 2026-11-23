@@ -55,7 +55,7 @@ case class MCPTool(
   * }}}
   *
   * Every public method of the trait becomes a tool named after the method. Tool descriptions come
-  * from the [[description]] annotation. Dispatch reuses the transport-neutral
+  * from the [[wvlet.uni.surface.description]] annotation. Dispatch reuses the transport-neutral
   * [[wvlet.uni.http.rpc.RPCDispatcher]], so parameter decoding behaves exactly like uni RPC
   * (canonical-name matching, default values, `Option` handling, `Rx[A]` return types).
   *

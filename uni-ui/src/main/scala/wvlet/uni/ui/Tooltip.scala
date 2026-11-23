@@ -31,7 +31,7 @@ import scala.language.implicitConversions
   *
   * {{{
   *   Tooltip("Close dock", trigger = IconButton("Close dock", Icons.close).onClick(...))
-  *   Tooltip(title.map(t => s"Terminal: ${t}"), trigger = button(...)).withSide(Side.Right)
+  *   Tooltip(title.map(t => s"Terminal: \${t}"), trigger = button(...)).withSide(Side.Right)
   * }}}
   *
   * The label is `div.uni-tooltip` with `role="tooltip"` and `data-side`. It holds text only; use a

@@ -36,12 +36,13 @@ import scala.util.{Failure, Success}
   * The span is named by the RPC method (`UserService/getUser`) or the route (`GET /users/:id`) once
   * the router resolves it, else by the HTTP method. It ends when the response is ready, or when an
   * event stream ends. While the handler runs its synchronous part, the span is
-  * [[Telemetry.currentSpan]], so outgoing calls from an HTTP client with `withTelemetry` become its
-  * children. Handlers can also read it from the [[TelemetryFilter.CurrentSpan]] attribute.
+  * [[wvlet.uni.telemetry.Telemetry.currentSpan]], so outgoing calls from an HTTP client with
+  * `withTelemetry` become its children. Handlers can also read it from the
+  * [[TelemetryFilter.CurrentSpan]] attribute.
   *
   * Add it as the outermost filter, next to [[HttpAccessLogFilter]], so the span covers the other
-  * filters. With a disabled [[Telemetry]] it passes requests through untouched. WebSocket upgrades
-  * don't run filters and get no span.
+  * filters. With a disabled [[wvlet.uni.telemetry.Telemetry]] it passes requests through untouched.
+  * WebSocket upgrades don't run filters and get no span.
   */
 class TelemetryFilter(telemetry: Telemetry) extends RxHttpFilter:
 

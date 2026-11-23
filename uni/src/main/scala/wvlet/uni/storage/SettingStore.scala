@@ -94,7 +94,7 @@ end SettingLocation
   *   converts stored state JSON of an older version (the second argument) into the current schema
   * @param default
   *   the value to start from when nothing is stored. When not set, the value is built from the
-  *   default parameter values of `A`, read with [[Surface]].
+  *   default parameter values of `A`, read with [[wvlet.uni.surface.Surface]].
   * @param backend
   *   a storage backend to use instead of the platform default
   * @param watchChanges
@@ -166,7 +166,7 @@ end SettingStoreConfig
   * of zustand's `persist` middleware.
   *
   * Every `set` or `update` writes the value through to the backend. Subscribers and derived values
-  * (`map`, `subscribe`) work as with any [[RxVar]].
+  * (`map`, `subscribe`) work as with any [[wvlet.uni.rx.RxVar]].
   *
   * {{{
   *   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver

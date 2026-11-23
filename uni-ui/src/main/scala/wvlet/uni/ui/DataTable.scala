@@ -39,7 +39,7 @@ case class CellKey[K](row: K, column: String)
   *
   * {{{
   *   Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method)
-  *   Column[Call]("millis", "Time", cell = c => f"${c.millis}%.1f ms").sortBy(_.millis).withWidth("96px").alignEnd
+  *   Column[Call]("millis", "Time", cell = c => f"\${c.millis}%.1f ms").sortBy(_.millis).withWidth("96px").alignEnd
   * }}}
   *
   * @param width
@@ -88,7 +88,7 @@ object Column:
   *   val sort = Rx.variable(Option(SortBy("millis", SortDirection.Descending)))
   *   DataTable(log.calls, key = _.id, columns = Seq(
   *     Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
-  *     Column[Call]("millis", "Time", cell = c => f"${c.millis}%.1f ms").sortBy(_.millis).alignEnd
+  *     Column[Call]("millis", "Time", cell = c => f"\${c.millis}%.1f ms").sortBy(_.millis).alignEnd
   *   )).withLabel("RPC calls").withSort(sort).onSelect(c => show(c))
   * }}}
   *
@@ -225,7 +225,7 @@ class DataTable[A, K] private (
     * reads the data rather than the rendered row.
     *
     * {{{
-    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of ${u.name}?"))
+    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of \${u.name}?"))
     * }}}
     */
   def withAgentConfirm(f: A => Option[String]): DataTable[A, K] = copy(agentConfirm = Some(f))

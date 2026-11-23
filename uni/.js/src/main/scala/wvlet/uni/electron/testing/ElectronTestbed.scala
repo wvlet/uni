@@ -154,6 +154,12 @@ class ElectronTestbed:
   /** The number of `ipcMain.on` listeners on `channel`, for leak checks in tests. */
   def ipcListenerCount(channel: String): Int = listeners.get(channel).map(_.size).getOrElse(0)
 
+  private val onContents: js.Function2[js.Any, js.Function, Unit] =
+    (name, fn) => addContentsListener(name, fn)
+
+  private val offContents: js.Function2[js.Any, js.Function, Unit] =
+    (name, fn) => removeContentsListener(name, fn)
+
   /**
     * The renderer's fake `webContents` (`event.sender`), to pass to `ElectronMain.newAsyncClient`.
     * Like Electron, it delivers stream messages and main-process calls asynchronously and in order.
@@ -166,9 +172,9 @@ class ElectronTestbed:
             (channel: js.Any, id: js.Any, msg: js.Any) => deliver(String.valueOf(channel), id, msg)
         ): js.Function3[js.Any, js.Any, js.Any, Unit],
       isDestroyed = (() => destroyed): js.Function0[Boolean],
-      on = (addContentsListener: js.Function2[js.Any, js.Function, Unit]),
-      once = (addContentsListener: js.Function2[js.Any, js.Function, Unit]),
-      removeListener = (removeContentsListener: js.Function2[js.Any, js.Function, Unit])
+      on = onContents,
+      once = onContents,
+      removeListener = offContents
     )
 
   /** Simulate closing the renderer window: its `webContents` is destroyed. */

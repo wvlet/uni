@@ -245,7 +245,10 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .jvmSettings(
     jvmNativeSharedSources,
     // Checks that the reference Snappy implementation reads what the pure-Scala compressor writes
-    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Test
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Test,
+    // A library jar has no single entry point (uni ships several CLI mains, such as
+    // OpenAPIGeneratorMain), so its manifest names none and packaging does not warn about the choice
+    Compile / packageBin / mainClass := None
   )
   .jsSettings(jsBuildSettings, minimizeJavadoc)
   // The test binary stays on Immix (the default). Boehm deadlocked the Parquet tests in about half

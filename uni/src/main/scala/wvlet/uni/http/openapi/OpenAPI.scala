@@ -46,14 +46,14 @@ case class OpenAPIConfig(
   def withErrorResponses(codes: Int*): OpenAPIConfig    = copy(errorResponses = codes)
 
 /**
-  * Generate an OpenAPI 3.0.3 document from the routes of a [[Router]].
+  * Generate an OpenAPI 3.0.3 document from the routes of a [[wvlet.uni.http.router.Router]].
   *
   *   - Paths: `/users/:id` becomes `/users/{id}`.
   *   - `operationId` and `summary` are the method name, `description` comes from
   *     `@Endpoint(description = ...)`, and `tags` is the controller's simple name.
   *   - Parameters follow the router's binding rules: path parameters, then query parameters for
   *     primitives, and a `requestBody` (JSON and MessagePack) for the rest; see
-  *     [[HttpRequestMapper]].
+  *     [[wvlet.uni.http.router.HttpRequestMapper]].
   *   - Object types become `$ref`s into `components/schemas`, described by the class's
   *     `@description`.
   *

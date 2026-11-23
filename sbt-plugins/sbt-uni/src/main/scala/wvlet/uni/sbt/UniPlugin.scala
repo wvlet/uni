@@ -366,8 +366,10 @@ object UniPlugin extends AutoPlugin:
         extra = extra
       )
     },
-    uniStop   := ReStartActions.stopApp(streams.value.log, ansiEnabled, thisProjectRef.value),
-    uniStatus := ReStartActions.showStatus(streams.value.log, ansiEnabled, thisProjectRef.value)
+    uniStop :=
+      Def.uncached(ReStartActions.stopApp(streams.value.log, ansiEnabled, thisProjectRef.value)),
+    uniStatus :=
+      Def.uncached(ReStartActions.showStatus(streams.value.log, ansiEnabled, thisProjectRef.value))
   )
 
   // Stop any background apps when the build is reloaded, so we never leak a forked JVM.

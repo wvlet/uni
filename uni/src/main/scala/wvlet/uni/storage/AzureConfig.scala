@@ -48,7 +48,10 @@ case class AzureConfig(
     provider
   )
 
-  /** Fixed credentials. A [[AzureCredentials.SharedKey]] also sets the account when unset. */
+  /**
+    * Fixed credentials. A [[wvlet.uni.cloud.AzureCredentials.SharedKey]] also sets the account when
+    * unset.
+    */
   def withCredentials(credentials: AzureCredentials): AzureConfig =
     val c = withCredentials(AzureCredentialsProvider.static(credentials))
     credentials match
