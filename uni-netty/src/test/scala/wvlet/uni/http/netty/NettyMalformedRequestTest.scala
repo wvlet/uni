@@ -299,6 +299,21 @@ class NettyMalformedRequestTest extends UniTest:
     }
   }
 
+  test("reject a bare CR before a request that follows a rejected Expect") {
+    server.start { s =>
+      calls.set(0)
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 99999999\r\n" +
+            "Expect: 100-continue\r\n\r\n\rGET /x HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        )
+      )
+      statuses(response) shouldBe Seq("413", "400")
+      calls.get() shouldBe 0
+    }
+  }
+
   test("answer an earlier pipelined request with a body before rejecting a bad separator") {
     server.start { s =>
       calls.set(0)

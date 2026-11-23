@@ -32,9 +32,9 @@ import io.netty.util.ReferenceCountUtil
 /**
   * Netty's `HttpServerCodec`, split into its decoder and encoder, with a strict request line.
   *
-  * Netty 4.2 splits the request line on any run of SP, HTAB, VT, FF, or bare CR, and skips
-  * whitespace and control bytes before the method; `HttpDecoderConfig` has no option to turn that
-  * off. A proxy that reads `GET\r /a HTTP/1.1` or `\rGET /a HTTP/1.1` differently would see
+  * Netty 4.2 splits the request line on any run of SP, HTAB, VT, FF, or bare CR, and skips any run
+  * of CR and LF before the method, a bare CR included; `HttpDecoderConfig` has no option to turn
+  * that off. A proxy that reads `GET\r /a HTTP/1.1` or `\rGET /a HTTP/1.1` differently would see
   * different requests (request smuggling). The decoder here allows exactly one SP between the
   * words, as RFC 9112 Section 3 does, and only empty lines (CRLF, or a bare LF) before the request
   * line, as RFC 9112 Section 2.2 does, both as the built-in socket server does. A violation fails
@@ -107,6 +107,12 @@ private[netty] class StrictHttpServerCodec(
               methods.add(r.method())
             case _ =>
           i += 1
+
+    // Netty resets the decoder without a LastHttpContent when the aggregator rejects an Expect
+    // request and keeps the connection open
+    override def reset(): Unit =
+      atRequestStart = true
+      super.reset()
 
     /**
       * Skip the empty lines (CRLF, or a bare LF) before a request line, and return whether its
