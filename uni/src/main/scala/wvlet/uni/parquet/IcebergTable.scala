@@ -395,7 +395,13 @@ private[parquet] object IcebergTable:
                         equality,
                         byPath,
                         sequences.toMap,
-                        id => specs.get(id).forall(_.forall(_.transform == "void")),
+                        id =>
+                          specs
+                            .getOrElse(
+                              id,
+                              throw ParquetException(s"${source} has no partition spec ${id}")
+                            )
+                            .forall(_.transform == "void"),
                         keyColumn
                       )
                     )

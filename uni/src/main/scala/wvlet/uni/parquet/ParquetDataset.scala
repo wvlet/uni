@@ -892,15 +892,26 @@ class ParquetDataset private[parquet] (
       deletes: IndexedSeq[IcebergDeletes.EqualityDelete],
       plan: Plan
   ): ColumnBatch =
-    val vectors = deletes.map(_.columns.map(c => b.columns(plan.evalIndex(c))))
-    val keep    = scala.collection.mutable.ArrayBuilder.ofInt()
-    var r       = 0
+    // Deletes on the same key columns share one key per row
+    val groups = deletes
+      .groupBy(_.columns)
+      .toArray
+      .map { (columns, ds) =>
+        (IcebergDeletes.KeyReader(columns.map(c => b.columns(plan.evalIndex(c)))), ds.toArray)
+      }
+    val keep = scala.collection.mutable.ArrayBuilder.ofInt()
+    var r    = 0
     while r < b.numRows do
       var deleted = false
-      var j       = 0
-      while !deleted && j < deletes.size do
-        deleted = deletes(j).deletes(vectors(j), r)
-        j += 1
+      var g       = 0
+      while !deleted && g < groups.length do
+        val (reader, ds) = groups(g)
+        val key          = reader.key(r)
+        var j            = 0
+        while !deleted && j < ds.length do
+          deleted = ds(j).contains(key)
+          j += 1
+        g += 1
       if !deleted then
         keep += r
       r += 1
@@ -909,6 +920,8 @@ class ParquetDataset private[parquet] (
       b
     else
       ColumnBatch(rows.length, b.columns.map(ColumnVector.take(_, rows)))
+
+  end withoutEqual
 
   /** The batch with the plan's columns: the file's vectors, nulls, and partition values */
   private def toOutput(b: ColumnBatch, file: DatasetFile, plan: Plan): ColumnBatch =

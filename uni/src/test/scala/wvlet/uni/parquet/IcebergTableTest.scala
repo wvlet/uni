@@ -438,6 +438,26 @@ class IcebergTableTest extends UniTest:
     finally before.close()
   }
 
+  test("equality delete keys compare stored values as Iceberg does") {
+    val schema = ParquetSchema
+      .builder()
+      .optional("i", ParquetType.INT32)
+      .optional("l", ParquetType.INT64)
+      .optional("d", ParquetType.DOUBLE)
+      .build()
+    def f(n: String)                    = schema.field(n).get
+    def keys(v: ColumnVector): Seq[Any] =
+      val r = IcebergDeletes.KeyReader(IndexedSeq(v))
+      (0 until v.size).map(r.key)
+    // An int written before widening to long matches the long; nulls match nulls
+    keys(ColumnVector.IntColumn(f("i"), Array(1, 0), Array(false, true))) shouldBe
+      keys(ColumnVector.LongColumn(f("l"), Array(1L, 5L), Array(false, true)))
+    // NaN equals NaN, and -0.0 differs from 0.0
+    val d = keys(ColumnVector.DoubleColumn(f("d"), Array(Double.NaN, Double.NaN, 0.0, -0.0), null))
+    d(0) shouldBe d(1)
+    d(2) shouldNotBe d(3)
+  }
+
   test("apply equality deletes when reading asynchronously") {
     val expected = Seq(2L, 4L, 5L, 6L)
     storeWith("equality_deletes").flatMap { store =>
