@@ -1,5 +1,7 @@
 package wvlet.uni.parquet
 
+import wvlet.uni.io.codec.CodecException
+import wvlet.uni.io.codec.Inflate
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.parquet.ParquetDataset.Listed
@@ -110,9 +112,9 @@ private[parquet] object IcebergTable:
     val json =
       if bytes.length >= 2 && (bytes(0) & 0xff) == 0x1f && (bytes(1) & 0xff) == 0x8b then
         try
-          wvlet.uni.io.codec.Inflate.gunzip(bytes, bytes.length * 8)
+          Inflate.gunzip(bytes, bytes.length * 8)
         catch
-          case e: wvlet.uni.io.codec.CodecException =>
+          case e: CodecException =>
             throw ParquetException(s"${path} is corrupt gzip data: ${e.getMessage}", e)
       else
         bytes
