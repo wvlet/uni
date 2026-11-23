@@ -128,7 +128,12 @@ private[parquet] object IcebergDeletes:
     * The key values of one equality-delete file: a row whose `columns` (the table's current names)
     * hold one of `keys` is deleted. Keys are built by [[KeyReader]].
     */
-  final class EqualityDelete(val columns: IndexedSeq[String], keys: scala.collection.Set[Any]):
+  final class EqualityDelete(
+      val columns: IndexedSeq[String],
+      keys: scala.collection.Set[Any],
+      /** The equality-delete file the keys come from */
+      val source: String = ""
+  ):
     def size: Int = keys.size
 
     /** Whether a key from a [[KeyReader]] over `columns` is deleted */
@@ -207,7 +212,7 @@ private[parquet] object IcebergDeletes:
             keys += reader.key(i)
             i += 1
         }
-      EqualityDelete(d.equalityIds.map(columnName(_, d.path)), keys)
+      EqualityDelete(d.equalityIds.map(columnName(_, d.path)), keys, d.path)
     finally
       f.close()
 

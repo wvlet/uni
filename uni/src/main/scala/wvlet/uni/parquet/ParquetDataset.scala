@@ -210,6 +210,21 @@ class ParquetDataset private[parquet] (
   )(each: ParquetDataset.MatchedRows[R] => Unit): Unit =
     scanMatches(ParquetReadOptions.default.withFilter(filter), Some(decode))(each)
 
+  /**
+    * What reading a data file's live rows depends on: the positions its delete files delete, the
+    * equality-delete files that apply to it, and its first row ID. A row change whose files are
+    * still live with the same state can commit on a newer table version without reading again.
+    */
+  private[parquet] def readState(path: String): ParquetDataset.ReadState = ParquetDataset.ReadState(
+    rowDeletes.getOrElse(path, Array.emptyLongArray).toIndexedSeq,
+    equalityDeletes.getOrElse(path, IndexedSeq.empty).map(_.source).sorted,
+    firstRowIds.get(path)
+  )
+
+  /** The files a filter may match, by partition values and statistics, without reading them */
+  private[parquet] def candidateFiles(filter: ParquetFilter): Set[String] =
+    selectByPartition(ParquetReadOptions.default.withFilter(filter)).map(_.file.path).toSet
+
   private def scanMatches[R](
       options: ParquetReadOptions,
       decode: Option[ColumnBatch => Iterator[R]]
@@ -1369,6 +1384,13 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     * The rows of one data file that a filter matched: their positions (sorted), the positions the
     * file's delete files already delete, the rows, and their row IDs (null where a row has none)
     */
+  /** See [[ParquetDataset.readState]] */
+  private[parquet] case class ReadState(
+      deleted: IndexedSeq[Long],
+      equalityDeletes: Seq[String],
+      firstRowId: Option[Long]
+  )
+
   private[parquet] case class MatchedRows[R](
       file: DatasetFile,
       positions: Array[Long],

@@ -265,8 +265,9 @@ def typedDataset(root: String) = Parquet.dataset(
   `Parquet.updateIcebergRows(root, filter)(row => row.updated("k", v))` (or
   `updateIcebergRows[A](root, filter)(a => a.copy(...))` for case classes) updates them
   merge-on-read in one `overwrite` snapshot (new data files for the new rows, deletes for the old;
-  v3 rows keep their `_row_id`) and returns how many; on a lost race it reads the rows and calls
-  the function again, so keep the function free of side effects.
+  v3 rows keep their `_row_id`) and returns how many; a lost race keeps the written data files
+  when the other commit left the touched files and the schema alone, and otherwise reads the rows
+  and calls the function again, so keep the function free of side effects.
   `Parquet.compactIcebergTable(root)` (or with `IcebergCompactionOptions.default
   .withTargetFileSize(bytes).withFilter(f).noFileMerging()`) rewrites files with deletes applied,
   merges small files per partition, and removes delete files no file needs, in one `replace`

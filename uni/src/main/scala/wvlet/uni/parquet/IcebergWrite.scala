@@ -2610,6 +2610,17 @@ private[parquet] object IcebergWrite:
 
   // ---- Row deletes ----
 
+  /**
+    * Whether data files planned on table version `a` still fit version `b`: the same format
+    * version, current schema, default partition spec, and location, so their field IDs, partition
+    * values, and paths stay right
+    */
+  def sameWriteShape(a: Table, b: Table): Boolean =
+    Seq("format-version", "current-schema-id", "default-spec-id").forall(k =>
+      long(a.metadata, k) == long(b.metadata, k)
+    ) &&
+      string(a.metadata, "location") == string(b.metadata, "location")
+
   /** The table's current snapshot, if it has one */
   def currentSnapshotId(t: Table): Option[Long] = long(t.metadata, "current-snapshot-id").filter(
     _ >= 0

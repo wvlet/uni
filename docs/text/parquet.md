@@ -828,9 +828,13 @@ val updatedVisits = Parquet.updateIcebergRows[Visit](
   each row's old `_row_id` and leave `_last_updated_sequence_number` null, so the row takes the
   update's sequence number. Reads don't show these columns. A table upgraded to version 3 that
   has no commit since then has no row IDs yet, so its updated rows get new ones.
-- **Commits.** The rows are read from the current snapshot. If another writer commits first, the
-  update deletes the files it wrote, reads the rows again from the new snapshot, and calls the
-  function again, up to 4 attempts. The function must therefore have no side effects. Tables
+- **Commits.** The rows are read from the current snapshot. If another writer commits first and
+  left the update's rows alone, the update keeps the data files it wrote and plans only its
+  delete files again on the new snapshot. That holds when the schema, partition spec, and format
+  version are the same, every touched data file is still live with the same deletes, and no
+  file the filter may match was added. Otherwise the update deletes the files it wrote, reads
+  the rows again, and calls the function again. Either way it makes up to 4 attempts, so the
+  function must have no side effects. Tables
   partitioned by transforms Uni can't write (`day`, `bucket`) can't take updates, though they
   can take deletes.
 
