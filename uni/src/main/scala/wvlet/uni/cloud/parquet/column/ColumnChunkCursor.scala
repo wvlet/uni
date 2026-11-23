@@ -207,6 +207,9 @@ private[parquet] final class ColumnChunkCursor(
     val v =
       if maxDef == 0 then
         e - base
+      else if e == committed then
+        // Every committed entry goes out, so does every decoded value: no need to count them
+        values.size - valueBase
       else
         var c = 0
         var i = base
@@ -474,9 +477,12 @@ private[parquet] final class ColumnChunkCursor(
           val pr   = ByteReader(page)
           if maxRep > 0 then
             readLevelsV1(pr, h.repetitionLevelEncoding, maxRep, repLevels, levelEnd, h.numValues)
-          if maxDef > 0 then
-            readLevelsV1(pr, h.definitionLevelEncoding, maxDef, defLevels, levelEnd, h.numValues)
-          hold(h.numValues, h.encoding, page, pr.pos, page.length)
+          val nonNull =
+            if maxDef > 0 then
+              readLevelsV1(pr, h.definitionLevelEncoding, maxDef, defLevels, levelEnd, h.numValues)
+            else
+              h.numValues
+          hold(h.numValues, nonNull, h.encoding, page, pr.pos, page.length)
         case PageType.DATA_PAGE_V2 =>
           val h = header
             .dataPageV2
@@ -489,16 +495,17 @@ private[parquet] final class ColumnChunkCursor(
             throw ParquetException.corrupt("data page v2 level lengths are out of range")
           if maxRep > 0 then
             RleBitPackedDecoder(chunk, pageStart, pageStart + repLen, BitPacking.bitWidthOf(maxRep))
-              .readBytes(repLevels, levelEnd, h.numValues)
-            checkLevels(repLevels, levelEnd, h.numValues, maxRep)
-          if maxDef > 0 then
-            RleBitPackedDecoder(
-              chunk,
-              pageStart + repLen,
-              pageStart + repLen + defLen,
-              BitPacking.bitWidthOf(maxDef)
-            ).readBytes(defLevels, levelEnd, h.numValues)
-            checkLevels(defLevels, levelEnd, h.numValues, maxDef)
+              .readLevels(repLevels, levelEnd, h.numValues, maxRep)
+          val nonNull =
+            if maxDef > 0 then
+              RleBitPackedDecoder(
+                chunk,
+                pageStart + repLen,
+                pageStart + repLen + defLen,
+                BitPacking.bitWidthOf(maxDef)
+              ).readLevels(defLevels, levelEnd, h.numValues, maxDef)
+            else
+              h.numValues
           val valuesStart       = pageStart + repLen + defLen
           val valuesLen         = size - repLen - defLen
           val rawLen            = header.uncompressedSize - repLen - defLen
@@ -512,7 +519,7 @@ private[parquet] final class ColumnChunkCursor(
             else
               // The values stay in the chunk's bytes, which ChunkInput keeps until the next read
               (chunk, valuesStart, valuesStart + valuesLen)
-          hold(h.numValues, h.encoding, buf, start, end)
+          hold(h.numValues, nonNull, h.encoding, buf, start, end)
         case PageType.INDEX_PAGE =>
         // Not used by readers
       end match
@@ -520,10 +527,17 @@ private[parquet] final class ColumnChunkCursor(
 
   end loadNextPage
 
-  private def hold(n: Int, encoding: Encoding, buf: Array[Byte], start: Int, end: Int): Unit =
+  /** Holds a page of `n` level entries, `nonNull` of which have a value */
+  private def hold(
+      n: Int,
+      nonNull: Int,
+      encoding: Encoding,
+      buf: Array[Byte],
+      start: Int,
+      end: Int
+  ): Unit =
     levelsRead += n
     if n > 0 then
-      val nonNull = countNonNull(defLevels, levelEnd, n, maxDef)
       levelEnd += n
       held = HeldPage(n, nonNull, encoding, buf, start, end)
       // With no committed entries left, the page must start a row: batches end at row starts
@@ -540,19 +554,6 @@ private[parquet] final class ColumnChunkCursor(
             .pathString} has ${n} values, more than the chunk's remaining ${total - levelsRead}"
       )
 
-  private def countNonNull(defLevels: Array[Byte], offset: Int, n: Int, maxDef: Int): Int =
-    if maxDef == 0 then
-      n
-    else
-      var c = 0
-      var i = offset
-      val e = offset + n
-      while i < e do
-        if defLevels(i) == maxDef then
-          c += 1
-        i += 1
-      c
-
   private def readLevelsV1(
       r: ByteReader,
       encoding: Encoding,
@@ -560,34 +561,30 @@ private[parquet] final class ColumnChunkCursor(
       dst: Array[Byte],
       offset: Int,
       n: Int
-  ): Unit =
+  ): Int =
     val bitWidth = BitPacking.bitWidthOf(maxLevel)
     encoding match
       case Encoding.RLE =>
         val len = r.readIntLE()
         r.ensure(len)
-        RleBitPackedDecoder(r.buf, r.pos, r.pos + len, bitWidth).readBytes(dst, offset, n)
+        val c = RleBitPackedDecoder(r.buf, r.pos, r.pos + len, bitWidth).readLevels(
+          dst,
+          offset,
+          n,
+          maxLevel
+        )
         r.pos += len
+        c
       case Encoding.BIT_PACKED =>
         val len = ((n.toLong * bitWidth + 7) / 8).toInt
         r.ensure(len)
         val tmp = new Array[Int](n)
         BitPacking.unpackIntsMsbFirst(r.buf, r.pos, r.pos + len, bitWidth, tmp, n)
-        var i = 0
-        while i < n do
-          dst(offset + i) = tmp(i).toByte
-          i += 1
         r.pos += len
+        RleBitPackedDecoder.copyLevels(tmp, 0, dst, offset, n, maxLevel)
       case other =>
         throw ParquetException.unsupported(s"${other} encoding for levels")
-    checkLevels(dst, offset, n, maxLevel)
 
-  private def checkLevels(levels: Array[Byte], offset: Int, n: Int, maxLevel: Int): Unit =
-    var i = offset
-    while i < offset + n do
-      // A level past 127 wraps to a negative byte, which is out of range too
-      if levels(i) < 0 || levels(i) > maxLevel then
-        throw ParquetException.corrupt(s"level ${levels(i) & 0xff} exceeds the maximum ${maxLevel}")
-      i += 1
+  end readLevelsV1
 
 end ColumnChunkCursor

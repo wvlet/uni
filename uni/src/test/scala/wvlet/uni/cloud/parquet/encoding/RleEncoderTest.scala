@@ -24,4 +24,40 @@ class RleEncoderTest extends UniTest:
       decoded.toSeq shouldBe values.toSeq
   }
 
+  test("read levels as bytes, counting those at the maximum level") {
+    for maxLevel <- Seq(1, 2, 5, 127) do
+      val bitWidth = BitPacking.bitWidthOf(maxLevel)
+      // Runs of equal levels (RLE) mixed with scattered ones (bit-packed)
+      val levels =
+        Array.tabulate(5003) { i =>
+          if i % 1000 < 300 then
+            maxLevel
+          else
+            rnd.nextInt(maxLevel + 1)
+        }
+      val out = ByteBuf()
+      RleEncoder.encode(levels, levels.length, bitWidth, out)
+      val bytes = out.toByteArray
+      val dst   = new Array[Byte](levels.length + 3)
+      // Read in uneven pieces, so pieces end inside runs
+      val dec   = RleBitPackedDecoder(bytes, 0, bytes.length, bitWidth)
+      var i     = 0
+      var count = 0
+      for k <- Iterator.continually(Seq(1, 7, 333, 64)).flatten.takeWhile(_ => i < levels.length) do
+        val m = math.min(k, levels.length - i)
+        count += dec.readLevels(dst, 3 + i, m, maxLevel)
+        i += m
+      dst.drop(3).map(_.toInt).toSeq shouldBe levels.toSeq
+      count shouldBe levels.count(_ == maxLevel)
+  }
+
+  test("reject levels past the maximum") {
+    val out = ByteBuf()
+    RleEncoder.encode(Array(0, 1, 3, 1, 0, 2, 1, 1), 8, 2, out)
+    val bytes = out.toByteArray
+    intercept[wvlet.uni.cloud.parquet.ParquetException] {
+      RleBitPackedDecoder(bytes, 0, bytes.length, 2).readLevels(new Array[Byte](8), 0, 8, 2)
+    }
+  }
+
 end RleEncoderTest
