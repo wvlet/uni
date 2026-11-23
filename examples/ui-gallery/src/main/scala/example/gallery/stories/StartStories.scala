@@ -40,7 +40,7 @@ object StartStories:
     "start",
     "Get started",
     "Set up a Scala.js project with Uni and uni-ui, then build and run your first app.",
-    () => StartView(page, app)
+    _ => StartView(page, app)
   )
 
 end StartStories

@@ -70,7 +70,7 @@ class Gallery(
         cls -> "gallery gallery--embed",
         embedGuide.map {
           case Some(g) =>
-            g.view()
+            g.view(scheme)
           case None =>
             StoryView(current.map(_.story).filter(_.isDefined).map(_.get), mode, embed = true)
         }
@@ -96,7 +96,7 @@ class Gallery(
               case c: ComponentPage =>
                 PageView(c, r.example, mode.get)
               case g: GuidePage =>
-                g.view()
+                g.view(scheme)
           )
         ),
         CommandPalette(paletteOpen, Rx.const(commands))

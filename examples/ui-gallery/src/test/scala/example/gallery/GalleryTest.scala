@@ -358,8 +358,12 @@ class GalleryTest extends DomTestSupport:
           current shouldBe Seq(link)
         }
       }
-    check(StartStories.page.view(), "5. Run", "1. Build").flatMap(_ =>
-      check(ColorsView(), ColorsPage.groups.last.title, ColorsPage.groups.head.title)
+    check(StartStories.page.view(Rx.variable(ColorScheme.Light)), "5. Run", "1. Build").flatMap(_ =>
+      check(
+        ColorsView(Rx.variable(ColorScheme.System)),
+        ColorsPage.groups.last.title,
+        ColorsPage.groups.head.title
+      )
     )
   }
 
@@ -407,7 +411,7 @@ class GalleryTest extends DomTestSupport:
 
   test("each swatch shows the light and dark values the cascade resolves") {
     withUniUiCss {
-      val m                                           = mount(ColorsView())
+      val m = mount(ColorsView(Rx.variable(ColorScheme.System)))
       def value(token: String, theme: String): String = m
         .get(s"[data-token='${token}'] [data-theme-value='${theme}']")
         .getAttribute("data-copy")
@@ -428,8 +432,28 @@ class GalleryTest extends DomTestSupport:
     }
   }
 
+  test("the Light and Dark buttons switch the gallery's color scheme") {
+    val scheme = Rx.variable(ColorScheme.System)
+    val m      = mount(ColorsView(scheme))
+    val light  = m.get(".colors-scheme[data-theme='light']")
+    val dark   = m.get(".colors-scheme[data-theme='dark']")
+    light.getAttribute("aria-pressed") shouldBe "false"
+    dark.getAttribute("aria-pressed") shouldBe "false"
+    fireEvent.click(dark)
+    scheme.get shouldBe ColorScheme.Dark
+    dark.getAttribute("aria-pressed") shouldBe "true"
+    light.getAttribute("aria-pressed") shouldBe "false"
+    fireEvent.click(light)
+    scheme.get shouldBe ColorScheme.Light
+    light.getAttribute("aria-pressed") shouldBe "true"
+    // Pressing the chosen scheme again goes back to the OS setting
+    fireEvent.click(light)
+    scheme.get shouldBe ColorScheme.System
+    light.getAttribute("aria-pressed") shouldBe "false"
+  }
+
   test("clicking a swatch copies its var() and says whether that worked") {
-    val m    = mount(ColorsView())
+    val m    = mount(ColorsView(Rx.variable(ColorScheme.System)))
     val chip = m.get("[data-token='accent'] .swatch-chip")
     chip.getAttribute("data-copy") shouldBe "var(--uni-accent)"
     fireEvent.click(chip)
