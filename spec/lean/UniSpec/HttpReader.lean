@@ -32,11 +32,19 @@ abbrev Bytes := List Char
 inductive Outcome where
   | req (method : String) (target : String) (keepAlive : Bool) (body : Bytes)
   | bad (code : Nat) (message : String)
+  /-- The input ended inside a request: a 400 with `message`. More bytes could change it. -/
+  | incomplete (message : String)
   | closed
   deriving Repr, DecidableEq, Inhabited
 
 def Outcome.isReq : Outcome → Bool
   | .req .. => true
+  | _ => false
+
+/-- The outcome comes from the end of the input, not from the bytes before it: more bytes could
+change it. -/
+def Outcome.atEof : Outcome → Bool
+  | .incomplete _ | .closed => true
   | _ => false
 
 def isHttpWhitespace (c : Char) : Bool := c == '\r' || c == '\n' || c == ' ' || c == '\t'
@@ -266,6 +274,11 @@ def skipExt : Bytes → Ext
     else if isInvalidValueChar c then .bad
     else skipExt t
 
+/-- A CR LF at the front of `r`, and the bytes after it. -/
+def crlf : Bytes → Ext
+  | a :: b :: r => if a = '\r' ∧ b = '\n' then .ok r else .bad
+  | _ => .incomplete
+
 /-- After the size digits: an optional extension, up to the line's end. -/
 def skipChunkExt : Bytes → Ext
   | ';' :: t => skipExt t
@@ -283,9 +296,11 @@ def chunkTooLarge (r : Bytes) : Body :=
   match skipChunkExt r with
   | .incomplete => .incomplete
   | .bad => .bad 400 "Invalid chunk extension"
-  | .ok ('\r' :: '\n' :: _) => .bad 413 "Request body too large"
-  | .ok (_ :: _ :: _) => .bad 400 "Invalid chunk size"
-  | .ok _ => .incomplete
+  | .ok r2 =>
+    match crlf r2 with
+    | .ok _ => .bad 413 "Request body too large"
+    | .bad => .bad 400 "Invalid chunk size"
+    | .incomplete => .incomplete
 
 /-- Decode chunks after `total` body bytes `acc`: the body and the bytes after the trailers. Every
 chunk takes at least 3 bytes, so `s.length + 1` fuel is enough. -/
@@ -303,8 +318,8 @@ def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
         | .incomplete => .incomplete
         | .bad => .bad 400 "Invalid chunk extension"
         | .ok r2 =>
-          match r2 with
-          | '\r' :: '\n' :: r3 =>
+          match crlf r2 with
+          | .ok r3 =>
             if size == 0 then
               match readFields (r3.length + 1) r3 with
               | .ok _ rest => .ok acc rest
@@ -314,8 +329,8 @@ def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
             else if (r3.drop size).take 2 == ['\r', '\n'] then
               readChunks maxSize fuel (total + size) (acc ++ r3.take size) (r3.drop (size + 2))
             else .bad 400 "Invalid chunk data"
-          | _ :: _ :: _ => .bad 400 "Invalid chunk size"
-          | _ => .incomplete
+          | .bad => .bad 400 "Invalid chunk size"
+          | .incomplete => .incomplete
 
 /-! ## Requests -/
 
@@ -338,14 +353,14 @@ inductive HeadResult where
 def readHead (s0 : Bytes) : HeadResult :=
   let s := s0.dropWhile isNewline
   match scanLine false s with
-  | .incomplete => .fail (if s.all isHttpWhitespace then .closed else .bad 400 "Incomplete request")
+  | .incomplete => .fail (if s.all isHttpWhitespace then .closed else .incomplete "Incomplete request")
   | .bad => .fail (.bad 400 "Invalid line ending")
   | .ok line afterLine =>
     match parseRequestLine line with
     | .error (c, m) => .fail (.bad c m)
     | .ok (method, target, http10) =>
       match readFields (afterLine.length + 1) afterLine with
-      | .incomplete => .fail (.bad 400 "Incomplete request")
+      | .incomplete => .fail (.incomplete "Incomplete request")
       | .bad m => .fail (.bad 400 m)
       | .ok headers after => .ok ⟨method, target, http10, headers, after⟩
 
@@ -366,13 +381,13 @@ def readBody (maxSize : Nat) (hd : Head) : Outcome × Bytes :=
           let keep := keepAlive hd.http10 (fr == .chunked) hd.headers
           match fr with
           | .length n =>
-            if hd.after.length < n then (.bad 400 "Incomplete request body", [])
+            if hd.after.length < n then (.incomplete "Incomplete request body", [])
             else (.req m (String.ofList hd.target) keep (hd.after.take n), hd.after.drop n)
           | .chunked =>
             match readChunks maxSize (hd.after.length + 1) 0 [] hd.after with
             | .ok body rest => (.req m (String.ofList hd.target) keep body, rest)
             | .bad c msg => (.bad c msg, [])
-            | .incomplete => (.bad 400 "Incomplete request body", [])
+            | .incomplete => (.incomplete "Incomplete request body", [])
 
 /-- Read one request from the front of `s`: its outcome and the bytes left for the next one. -/
 def readOne (maxSize : Nat) (s : Bytes) : Outcome × Bytes :=
@@ -495,7 +510,19 @@ theorem skipChunkExt_spec {s r : Bytes} (h : skipChunkExt s = .ok r) : r.length 
 /-- A chunk size over the limit never yields a body. -/
 theorem chunkTooLarge_not_ok {r body rest : Bytes} : chunkTooLarge r ≠ .ok body rest := by
   unfold chunkTooLarge
-  split <;> simp
+  repeat' split
+  all_goals simp
+
+/-- A CR LF takes two bytes. -/
+theorem crlf_ok {r r3 : Bytes} (h : crlf r = .ok r3) : r.length = r3.length + 2 := by
+  match r, h with
+  | a :: b :: r, h =>
+    simp only [crlf] at h
+    split at h
+    · simp only [Ext.ok.injEq] at h; subst h; simp
+    · simp at h
+  | [_], h => simp [crlf] at h
+  | [], h => simp [crlf] at h
 
 /-- A chunked body never exceeds the limit, and decoding consumes at least one byte. -/
 theorem readChunks_spec {maxSize : Nat} :
@@ -519,7 +546,8 @@ theorem readChunks_spec {maxSize : Nat} :
         · rename_i r2 he
           have hr2 := skipChunkExt_spec he
           split at h
-          · rename_i r3
+          · rename_i r3 hc
+            have hr3 := crlf_ok hc
             split at h
             · split at h
               · rename_i fs rest' hf
@@ -528,7 +556,6 @@ theorem readChunks_spec {maxSize : Nat} :
                 obtain ⟨pre, hs, -⟩ := readFields_split hf
                 refine ⟨by omega, ?_⟩
                 have : r3.length = pre.length + rest'.length := by simp [hs]
-                simp at hr2
                 omega
               · simp at h
               · simp at h
@@ -538,7 +565,7 @@ theorem readChunks_spec {maxSize : Nat} :
                 · rename_i hlen _ hcrlf
                   have ⟨h1, h2⟩ := readChunks_spec h (by simp; omega) (by omega)
                   refine ⟨h1, ?_⟩
-                  simp at h2 hr2
+                  simp at h2
                   omega
                 · simp at h
           · simp at h
