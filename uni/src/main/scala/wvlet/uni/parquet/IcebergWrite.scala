@@ -2435,10 +2435,14 @@ private[parquet] object IcebergWrite:
               Step.Fetch(
                 path,
                 bytes =>
-                  val f       = Parquet.open(bytes)
+                  // The same rewrite the move runs, so a file it would fail on fails here first
                   val problem =
-                    try positionDeleteProblem(f.schema, path)
-                    finally f.close()
+                    try
+                      relocatedPositionDeletes(bytes, path, identity)
+                      None
+                    catch
+                      case e: ParquetException =>
+                        Some(e.getMessage)
                   if problem.isEmpty then
                     check(i + 1)
                   else
@@ -2449,17 +2453,6 @@ private[parquet] object IcebergWrite:
     }
 
   end relocationFileProblem
-
-  private def positionDeleteProblem(schema: ParquetSchema, path: String): Option[String] =
-    val names = schema.fields.map(_.name)
-    if names == IndexedSeq("file_path", "pos") then
-      None
-    else
-      Some(
-        s"its position delete file ${path} has the columns ${names.mkString(
-            ", "
-          )}; Uni rewrites only files of file_path and pos, so compact the table first"
-      )
 
   /**
     * A position-delete file with its data file paths moved, its rows sorted by path and position as
@@ -2473,18 +2466,23 @@ private[parquet] object IcebergWrite:
     val f              = Parquet.open(bytes)
     val (schema, rows) =
       try
-        // A backstop: renameIcebergTable checks this before moving the folder
-        positionDeleteProblem(f.schema, path).foreach(p =>
-          throw ParquetException(s"Cannot relocate the table: ${p}")
-        )
+        val names = f.schema.fields.map(_.name)
+        if names != IndexedSeq("file_path", "pos") then
+          throw ParquetException(
+            s"its position delete file ${path} has the columns ${names.mkString(
+                ", "
+              )}; Uni rewrites only files of file_path and pos, so compact the table first"
+          )
         val rows =
           f.readRows()
             .map { r =>
               (r("file_path"), r("pos")) match
                 case (p: String, n: Long) =>
                   (moved(p), n)
-                case _ =>
-                  throw ParquetException(s"Position delete file ${path} has a null row")
+                case (p, n) =>
+                  throw ParquetException(
+                    s"its position delete file ${path} has a row (${p}, ${n}) that isn't a file_path string and a pos long, so compact the table first"
+                  )
             }
             .toVector
         f.schema -> rows
