@@ -790,8 +790,9 @@ val deleted = Parquet.deleteIcebergRows(
 - **Afterwards.** Readers stop seeing the rows; time travel to an earlier snapshot still shows
   them, until `expireIcebergSnapshots` deletes the files only expired snapshots need. The delete
   always writes delete files, whatever the table's `write.delete.mode` says; to rewrite files
-  instead, use copy-on-write below. Tables that a catalog owns and format version 1 tables fail, as
-  for appends.
+  instead, use copy-on-write below. Readers apply each delete file until
+  [compaction](#compacting-tables) rewrites the files and removes it. Tables that a catalog owns
+  and format version 1 tables fail, as for appends.
 
 #### Updating Rows (Merge-on-Read)
 
@@ -852,6 +853,55 @@ The rewritten manifests list the other files as `EXISTING` and the removed ones 
 Iceberg's Java library does. Writing no rows only removes the files (a `delete` snapshot). The rows
 must fit the table schema. A file that is no longer live fails the commit; if another writer
 removed one while this write ran, the commit fails instead of bringing the file's rows back.
+Delete files of the removed files stay live until a [compaction](#compacting-tables) removes them.
+
+#### Compacting Tables
+
+Every merge-on-read delete adds files that readers apply, and every small append adds a data file.
+`Parquet.compactIcebergTable` rewrites the data files that deletes apply to, with the deletes
+applied, merges small files, and removes the delete files no remaining data file needs, in one
+`replace` snapshot. The rows don't change.
+
+```scala
+import wvlet.uni.parquet.IcebergCompactionOptions
+
+val compacted = Parquet.compactIcebergTable("s3://my-bucket/warehouse/visits/")
+// IcebergCompaction(removedDataFiles, addedDataFiles, removedDeleteFiles, rows)
+
+// Only the files of one day, cut at 128 MiB, without merging small files that have no deletes
+Parquet.compactIcebergTable(
+  "s3://my-bucket/warehouse/visits/",
+  IcebergCompactionOptions
+    .default
+    .withFilter(ParquetFilter.col("dt") === LocalDate.of(2026, 11, 20))
+    .withTargetFileSize(128L * 1024 * 1024)
+    .noFileMerging()
+)
+```
+
+- **Which files.** Files are grouped by partition spec and partition value. In a group, every file
+  that deletes apply to is rewritten (`withMinDeleteRatio(0.3)` rewrites only files with at least
+  that fraction of rows deleted), together with the group's small files (below 75% of the target
+  size, `withMinFileSize`). A group without deletes is merged only when it has `withMinInputFiles`
+  small files (5). New files are cut at the target size: `withTargetFileSize`, else the table's
+  `write.target-file-size-bytes`, else 512 MiB. `withFilter` limits the rewrite to the files a
+  filter may match, by partition values and column statistics.
+- **Delete files.** After the rewrite, a deletion vector, position-delete file, or equality-delete
+  file is removed when no remaining data file can match it: its data file was rewritten, its
+  partition was, or (for equality deletes) no older file is left in its scope. Delete files that
+  copy-on-write rewrites left behind are removed too, even when no data file needs a rewrite.
+- **Partitions and schemas.** Each new file keeps its group's partition spec and partition value,
+  so tables with bucket or day partitions compact too. Rows are read with the current schema, and
+  the new files carry its field IDs.
+- **Row lineage.** In a format version 3 table, the new files store each row's `_row_id` and
+  `_last_updated_sequence_number`, so row IDs survive the rewrite, as the Iceberg spec requires.
+  DuckDB reads the same `_row_id` values before and after.
+- **Commits.** The new files keep the data sequence number of the snapshot the compaction read, as
+  iceberg-java's rewrites do, so equality deletes committed meanwhile still apply to them. If
+  another writer commits first, the compaction rebases on it when that commit didn't touch the
+  rewritten files (no new position delete or deletion vector on them) or the delete files it
+  removes; otherwise it plans and rewrites again, up to 4 times. A failed compaction deletes the
+  files it wrote. The old files stay for time travel until `expireIcebergSnapshots` deletes them.
 
 #### Changing and Dropping Tables
 

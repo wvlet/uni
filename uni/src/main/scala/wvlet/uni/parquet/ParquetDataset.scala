@@ -339,6 +339,106 @@ class ParquetDataset private[parquet] (
 
   end rowIdsOf
 
+  /**
+    * Reads every row of one file that the table hasn't deleted, with all of the dataset's columns,
+    * passing each batch with the positions of its rows in the file and, for each of `longIds`, the
+    * values and null flags of the file's top-level INT64 column with that field ID for the same
+    * rows (None when the file lacks it). For compacting an Iceberg table, whose new files keep the
+    * rows' lineage; the extra columns are read one row group at a time.
+    */
+  private[parquet] def foreachLiveBatch(file: DatasetFile, longIds: Seq[Int] = Seq.empty)(
+      f: (ColumnBatch, Array[Long], Seq[Option[(Array[Long], Array[Boolean])]]) => Unit
+  ): Unit =
+    val options  = ParquetReadOptions.default
+    val selected = IndexedSeq(Selected(file, None, None))
+    val metas    = selected.map(s => footer(s.file))
+    val plan     = buildPlan(options, selected, metas)
+    val s        = selected.head
+    val deleted  = rowDeletes.getOrElse(file.path, Array.emptyLongArray)
+    val pf       = ParquetFile(wrapErrors(file)(openSource(file)), metas.head)
+    try
+      wrapErrors(file) {
+        val opts  = fileOptions(s, plan, pf.schema)
+        val names = longIds.map(id =>
+          pf.schema
+            .fields
+            .collectFirst {
+              case p: ParquetField.Primitive
+                  if p.fieldId.contains(id) && p.physicalType == PhysicalType.INT64 =>
+                p.name
+            }
+        )
+        var start = 0L
+        pf.rowGroups
+          .indices
+          .foreach { i =>
+            val groupStart = start
+            val extra      = longColumnsOf(pf, i, names)
+            val batches    =
+              if opts.columns.exists(_.isEmpty) then
+                emptyBatches(pf.rowGroups(i).numRows, opts)
+              else
+                pf.rowGroupBatches(i, opts)
+            batches.foreach { b =>
+              var positions = livePositions(deleted, start, b.numRows)
+              var out       = toOutput(dropRows(b, deleted, start), file, plan)
+              start += b.numRows
+              equalityDeletes
+                .get(file.path)
+                .foreach { ds =>
+                  val rows = notEqual(out, ds, plan)
+                  positions = rows.map(positions(_))
+                  out = ColumnBatch(rows.length, out.columns.map(ColumnVector.take(_, rows)))
+                }
+              if out.numRows > 0 then
+                val aligned = extra.map(
+                  _.map { (vs, ns) =>
+                    (
+                      positions.map(p => vs((p - groupStart).toInt)),
+                      positions.map(p => ns((p - groupStart).toInt))
+                    )
+                  }
+                )
+                f(out, positions, aligned)
+            }
+          }
+      }
+    finally pf.close()
+    end try
+
+  end foreachLiveBatch
+
+  /** The values and null flags of these top-level INT64 columns in one row group */
+  private def longColumnsOf(
+      pf: ParquetFile,
+      rowGroup: Int,
+      names: Seq[Option[String]]
+  ): Seq[Option[(Array[Long], Array[Boolean])]] =
+    val wanted = names.flatten
+    if wanted.isEmpty then
+      names.map(_ => None)
+    else
+      val n      = pf.rowGroups(rowGroup).numRows.toInt
+      val values = wanted.map(_ => Array.ofDim[Long](n))
+      val nulls  = wanted.map(_ => Array.ofDim[Boolean](n))
+      var at     = 0
+      pf.rowGroupBatches(rowGroup, ParquetReadOptions.default.withColumns(wanted*))
+        .foreach { b =>
+          wanted
+            .indices
+            .foreach { k =>
+              val c = b.column(wanted(k)).asInstanceOf[ColumnVector.LongColumn]
+              var r = 0
+              while r < b.numRows do
+                values(k)(at + r) = c.getLong(r)
+                nulls(k)(at + r) = c.isNull(r)
+                r += 1
+            }
+          at += b.numRows
+        }
+      val byName = wanted.indices.map(k => wanted(k) -> (values(k), nulls(k))).toMap
+      names.map(_.map(byName))
+
   override def close(): Unit =
     val toClose = synchronized {
       val fs = openFiles.toSeq

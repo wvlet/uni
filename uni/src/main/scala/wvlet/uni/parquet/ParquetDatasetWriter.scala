@@ -1697,6 +1697,16 @@ private[parquet] object DatasetWriterCore:
 
   end runStepsSync
 
+  /** Opens a stream that writes the file at `path` of the target, with sync calls */
+  def openOutputSync(target: DatasetTarget, path: String): java.io.OutputStream =
+    target match
+      case DatasetTarget.Local(_) =>
+        val p = IOPath.parse(path)
+        p.parent.foreach(FileSystem.createDirectoryIfNotExists)
+        FileSystem.writeStream(p)
+      case DatasetTarget.Objects(store, _, _) =>
+        store.newOutputStream(ObjectUri.parse(path))
+
   def listDirSync(target: DatasetTarget, dir: String): Seq[String] =
     target match
       case DatasetTarget.Local(_) =>
