@@ -1145,13 +1145,53 @@ object Parquet:
         else
           // A failure while finishing the files discards them
           val (plan, files) = core.closeUncommitted()
-          val c             = IcebergWrite.RowDeleteCommit(layout, t, rows, Some(plan -> files))
-          Some(RowChange(c, core.writtenFiles.map(_.path), c.deletedRows))
+          val written       = core.writtenFiles.map(_.path)
+          // What the rows depended on, to tell whether a newer version leaves them valid
+          val candidates = ds.candidateFiles(filter)
+          val states     = rows.map(r => r.path -> ds.readState(r.path)).toMap
+          def change(base: IcebergWrite.Table): RowChange =
+            val c = IcebergWrite.RowDeleteCommit(
+              layout,
+              base,
+              rows,
+              Some(plan.copy(base = Some(base)) -> files)
+            )
+            RowChange(
+              c,
+              written,
+              c.deletedRows,
+              newer => Option.when(reusable(newer))(change(newer))
+            )
+          def reusable(newer: IcebergWrite.Table): Boolean =
+            IcebergWrite.sameWriteShape(t, newer) &&
+              IcebergWrite
+                .currentSnapshotId(newer)
+                .exists { id =>
+                  withSnapshot(target, id) { now =>
+                    // No file the filter may match was added, and each touched file reads the same
+                    val live = now.files.map(_.path).toSet
+                    now.candidateFiles(filter).subsetOf(candidates) &&
+                    states.forall((path, state) =>
+                      live.contains(path) && now.readState(path) == state
+                    )
+                  }
+                }
+          Some(change(t))
+        end if
       }
     }
 
-  /** A row change to commit: the commit, the data files written for it, and the rows it changes */
-  private case class RowChange(commit: IcebergWrite.RowDeleteCommit, files: Seq[String], rows: Long)
+  /**
+    * A row change to commit: the commit, the data files written for it, the rows it changes, and,
+    * given a newer table version that won the race, the same change on that version when its data
+    * files still hold, so they are kept rather than written again
+    */
+  private case class RowChange(
+      commit: IcebergWrite.RowDeleteCommit,
+      files: Seq[String],
+      rows: Long,
+      rebase: IcebergWrite.Table => Option[RowChange] = _ => None
+  )
 
   /** Reads the Iceberg table at `target` as of a snapshot */
   private def withSnapshot[A](target: DatasetTarget, snapshotId: Long)(
@@ -1169,37 +1209,54 @@ object Parquet:
 
   /**
     * Commits a merge-on-read row change, prepared on the table's current version. When another
-    * writer commits first, the change's files are deleted and it is prepared again on the new
-    * version, up to [[IcebergWrite.MaxAttempts]] times.
+    * writer commits first, the change moves to the new version if its data files still hold
+    * ([[RowChange.rebase]]), with only its delete files planned again; otherwise its files are
+    * deleted and it is prepared again. Either way, up to [[IcebergWrite.MaxAttempts]] attempts.
     */
   private def commitRowChange(target: DatasetTarget, done: String)(
       prepare: (IcebergWrite.Layout, IcebergWrite.Table, Long) => Option[RowChange]
   ): Long =
-    val layout                = DatasetWriterCore.icebergLayout(target)
-    def attempt(n: Int): Long =
-      val t = DatasetWriterCore
-        .runStepsSync(target, IcebergWrite.load(layout))
-        .getOrElse(throw ParquetException(s"${target.rootName} is not an Iceberg table"))
-      // The rows come from the snapshot the commit builds on; if a newer version arrives
-      // meanwhile, the commit loses the race and the change is prepared again
+    val layout                     = DatasetWriterCore.icebergLayout(target)
+    def load(): IcebergWrite.Table = DatasetWriterCore
+      .runStepsSync(target, IcebergWrite.load(layout))
+      .getOrElse(throw ParquetException(s"${target.rootName} is not an Iceberg table"))
+    def commit(change: RowChange, n: Int): Long =
+      val c = change.commit
+      // A lost race keeps the data files until the change is known to need them no longer
+      runTableCommit(target, layout, n, done)(
+        c.run(),
+        c.mayHaveCommitted,
+        c.verify(),
+        c.writtenFiles,
+        keptOnRace = change.files
+      ) match
+        case Some(_) =>
+          change.rows
+        case None =>
+          val (newer, rebased) =
+            try
+              val t = load()
+              (t, change.rebase(t))
+            catch
+              case e: Throwable =>
+                cleanUpFiles(target, change.files)
+                throw e
+          rebased match
+            case Some(next) =>
+              commit(next, n + 1)
+            case None =>
+              cleanUpFiles(target, change.files)
+              attempt(newer, n + 1)
+    end commit
+    // The rows come from the snapshot the commit builds on; if a newer version arrives
+    // meanwhile, the commit loses the race
+    def attempt(t: IcebergWrite.Table, n: Int): Long =
       IcebergWrite.currentSnapshotId(t).flatMap(id => prepare(layout, t, id)) match
         case None =>
           0L
         case Some(change) =>
-          val c = change.commit
-          runTableCommit(target, layout, n, done)(
-            c.run(),
-            c.mayHaveCommitted,
-            c.verify(),
-            change.files ++ c.writtenFiles
-          ) match
-            case None =>
-              attempt(n + 1)
-            case Some(_) =>
-              change.rows
-      end match
-    end attempt
-    attempt(1)
+          commit(change, n)
+    attempt(load(), 1)
 
   end commitRowChange
 
@@ -1217,7 +1274,9 @@ object Parquet:
       run: => IcebergWrite.Step[IcebergWrite.Committed],
       mayHaveCommitted: => Boolean,
       verify: => IcebergWrite.Step[Option[IcebergWrite.Committed]],
-      written: => Seq[String]
+      written: => Seq[String],
+      /** Files that a lost race keeps, for the caller to reuse or delete; deleted on any failure */
+      keptOnRace: Seq[String] = Seq.empty
   ): Option[IcebergWrite.Committed] =
     val committed =
       try
@@ -1228,6 +1287,7 @@ object Parquet:
           if n < IcebergWrite.MaxAttempts then
             None
           else
+            cleanUpFiles(target, keptOnRace)
             throw ParquetException(
               s"Another writer kept committing to ${target
                   .rootName} first; gave up after ${n} attempts",
@@ -1244,7 +1304,7 @@ object Parquet:
             else
               None
           if verified.isEmpty then
-            cleanUpFiles(target, written)
+            cleanUpFiles(target, written ++ keptOnRace)
             throw e
           verified
     committed.foreach { done =>

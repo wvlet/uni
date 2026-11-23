@@ -200,6 +200,62 @@ class IcebergRowUpdateTest extends UniTest with IcebergTableFixtures:
     dataFiles(root) shouldBe before
   }
 
+  /** Updates the `dt = d2` rows, running `concurrently` once, as another writer, mid-update */
+  private def raceUpdate(root: String, filter: ParquetFilter = col("dt") === d2)(
+      concurrently: => Unit
+  ): (Long, Int) =
+    var calls   = 0
+    val updated =
+      Parquet.updateIcebergRows(root, filter) { row =>
+        calls += 1
+        if calls == 1 then
+          concurrently
+        upper(row)
+      }
+    (updated, calls)
+
+  test("a lost race that left the touched files alone keeps the written files") {
+    val root   = create(v3)
+    val before = rowIds(root, col("dt") === d2)
+    val files  = dataFiles(root)
+    // Another writer appends to the other partition, which the filter can't match
+    raceUpdate(root) {
+      Parquet.writeDataset(
+        root,
+        Seq(IcebergSale(6, "fig", d1, None)),
+        ParquetDatasetWriteOptions.default.withMode(ParquetWriteMode.Append)
+      )
+    } shouldBe (3L, 3)
+    items(root).map(_._2) shouldBe Seq("apple", "banana", "CHERRY", "DURIAN", "ELDERBERRY", "fig")
+    rowIds(root, col("dt") === d2) shouldBe before
+    // The append's file and the update's one file, which wasn't written twice
+    dataFiles(root).diff(files).size shouldBe 2
+    summary(root, "operation") shouldBe Some("overwrite")
+  }
+
+  test("a lost race that added rows the filter may match reads again") {
+    val root = create(v3)
+    raceUpdate(root) {
+      Parquet.writeDataset(
+        root,
+        Seq(IcebergSale(6, "fig", d2, None)),
+        ParquetDatasetWriteOptions.default.withMode(ParquetWriteMode.Append)
+      )
+    } shouldBe (4L, 7)
+    items(root).map(_._2) shouldBe Seq("apple", "banana", "CHERRY", "DURIAN", "ELDERBERRY", "FIG")
+  }
+
+  test("a lost race that changed the schema reads again") {
+    val root = create(v3)
+    raceUpdate(root) {
+      Parquet.alterIcebergTable(
+        root,
+        IcebergTableChange.AddColumn(ParquetColumn.optional("note", ParquetType.STRING))
+      )
+    } shouldBe (3L, 6)
+    items(root).map(_._2) shouldBe Seq("apple", "banana", "CHERRY", "DURIAN", "ELDERBERRY")
+  }
+
   test("refuse a root that isn't an Iceberg table") {
     val root = newRoot()
     Parquet.writeDataset(root, sales, ParquetDatasetWriteOptions.default)
