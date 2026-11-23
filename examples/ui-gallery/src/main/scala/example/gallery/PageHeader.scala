@@ -134,6 +134,9 @@ class PageHeader(
     )
     ro.observe(el)
     resize = Some(ro)
+    // A new page opens at the previous page's scroll position, and no scroll event follows, so
+    // fold the header and mark the section in view once the page is laid out
+    onScroll(null)
 
   override def beforeUnmount: Unit =
     scroller.foreach(_.removeEventListener("scroll", onScroll))

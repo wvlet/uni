@@ -367,6 +367,24 @@ class GalleryTest extends DomTestSupport:
     )
   }
 
+  test("a page opened in a scrolled gallery folds its header without waiting for a scroll") {
+    val view = Rx.variable[RxElement](StartStories.page.view(Rx.variable(ColorScheme.Light)))
+    val m    = mount(div(cls -> "gallery-main", styleAttr -> "height: 400px; overflow: auto", view))
+    val main = m.get(".gallery-main")
+    waitMs(50).flatMap { _ =>
+      main.scrollTop = 600
+      waitMs(100).flatMap { _ =>
+        m.get(".story-hero").classList.contains("is-stuck") shouldBe true
+        // The next page opens at the same scroll position, so no scroll event follows
+        view := ColorsView(Rx.variable(ColorScheme.System))
+        waitMs(100).map { _ =>
+          (main.scrollTop > 100) shouldBe true
+          m.get(".story-hero").classList.contains("is-stuck") shouldBe true
+        }
+      }
+    }
+  }
+
   test("the accessibility check runs checkPattern on the live components") {
     val m = mount(PageView(page("tabs"), None, ViewMode.Preview))
     waitMs(700).map { _ =>
