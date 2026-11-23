@@ -138,4 +138,17 @@ object HttpReaderSpecCases:
     "GET /1 HTTP/1.1\r\nHost: localhost\r\n\r\nBAD\r\n\r\nGET /never-read HTTP/1.1\r\nHost: localhost\r\n\r\n␞req GET /1 keep-alive ␟bad 400 Malformed request line"
   )
 
+  // Inputs a lenient front proxy could frame differently (UniSpec/HttpSmuggle.lean): one-edit
+  // variants of the cases above that the reader rejects or closes the connection after.
+  val smugglingCases: Seq[String] = Seq(
+    "GET / HTTP/1.\n\r\nHost: localhost\r\n\r\n␞bad 400 Invalid line ending",
+    "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length : 5\r\n\r\nhello␞bad 400 Invalid header name",
+    "\r \r\n\nGET /after-blank-lines HTTP/1.1\r\nHost: localhost\r\n\r\n␞bad 400 Malformed request line",
+    "POST /tabs HTTP/1.\n\r\nContent-Length:\t2\t\r\n\r\nok␞bad 400 Invalid line ending",
+    "POST /tabs HTTP/1.1\r\nContent-Length :\t2\t\r\n\r\nok␞bad 400 Invalid header name",
+    "POST /same-twice HTTP/1.1\r\nContent-Length: 2\n\r\nContent-Length: 2\r\n\r\nok␞bad 400 Invalid line ending",
+    "POST /no-size HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n \n\r\nhello\r\n0\r\n\r\n␞bad 400 Invalid line ending",
+    "POST /identity HTTP/1.\n\r\nTransfer-Encoding: identity\r\nContent-Length: 1\r\n\r\nx␞bad 400 Invalid line ending"
+  )
+
 end HttpReaderSpecCases

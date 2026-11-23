@@ -1,4 +1,5 @@
 import UniSpec.HttpReader
+import UniSpec.HttpSmuggle
 
 /-!
 Writes `HttpReaderSpecCases.scala`: byte streams a client could send on one keep-alive connection,
@@ -10,6 +11,7 @@ Usage: `lake exe gen-http-reader-cases [output path]`
 -/
 
 open UniSpec.HttpReader
+open UniSpec.HttpSmuggle
 
 /-- The body-size limit the cases run with: small, so a `Content-Length` just over it is short. -/
 def maxSize : Nat := 100
@@ -166,6 +168,116 @@ def inputs : List String := [
   get "/1" ++ "BAD\r\n\r\n" ++ get "/never-read"
 ]
 
+/-! ## Smuggling checks (`UniSpec/HttpSmuggle.lean`)
+
+Every input and every variant below is checked against the lenient family: at each request the
+reader accepts and keeps the connection open after, every member must reject it or agree on the
+head length and framing. Variants change the head of an input's first request by one edit. Those the
+reader rejects or closes after, but on which the edit makes two members frame differently, are the
+inputs a lenient front proxy could smuggle with, so a selection of them become cases too.
+-/
+
+/-- The members that disagree with the reader at a kept-alive request of `s`, as messages. -/
+def disagreements (s : Bytes) : List String :=
+  go (s.length + 1) s
+where
+  go : Nat → Bytes → List String
+    | 0, _ => []
+    | fuel + 1, s =>
+      match readerFraming maxSize s with
+      | none => []
+      | some r =>
+        let here := (allOpts.filter (fun o => !agrees r o s)).map fun o =>
+          s!"{repr o}: the reader frames {repr r}, the member {repr (interp o s)}"
+        match readOne maxSize s with
+        | (.req _ _ true _, rest) => here ++ go fuel rest
+        | _ => here
+
+/-- Byte strings inserted at each position of a head. -/
+def insertions : List Bytes := ["\r", "\n", " ", "\t", ",", "\r\n", "\r\n ", "\r\n\t"].map String.toList
+
+/-- Bytes each byte of a head is replaced with. -/
+def replacements : List Char := ['\r', '\n', ' ', '\t', ',']
+
+/-- Every one-edit variant of the head of the first request in `s`: an insertion, a replaced byte,
+or a header line repeated. -/
+def variants (s : Bytes) : List Bytes :=
+  match readHead s with
+  | .fail _ => []
+  | .ok hd =>
+    let n := s.length - hd.after.length
+    let edits := (List.range n).flatMap fun i =>
+      (insertions.map fun e => s.take i ++ e ++ s.drop i) ++
+        (replacements.filterMap fun c =>
+          if s[i]? == some c then none else some (s.take i ++ [c] ++ s.drop (i + 1)))
+    -- A header line starts after a CR LF, before the head's final empty line
+    let lineStarts := (List.range n).filter fun i =>
+      2 ≤ i && i + 2 < n && s[i - 2]? == some '\r' && s[i - 1]? == some '\n'
+    let repeats := lineStarts.filterMap fun i =>
+      let rest := s.drop i
+      match (List.range rest.length).find? fun j => rest[j]? == some '\r' && rest[j + 1]? == some '\n' with
+      | some j => some (s.take i ++ rest.take (j + 2) ++ rest)
+      | none => none
+    edits ++ repeats
+
+/-- Distinct framings the members give for the head at the front of `s`, rejections left out. -/
+def memberFramings (s : Bytes) : List (Nat × Framing) :=
+  allOpts.foldl (fun acc o =>
+    match interp o s with
+    | some m => if acc.contains m then acc else acc ++ [m]
+    | none => acc) []
+
+/-- The options that matter on `s`: flipping one changes some member's answer. -/
+def flipsThatMatter (s : Bytes) : List String :=
+  (flips.filter fun (_, f) => allOpts.any fun o => interp (f o) s != interp o s).map (·.1)
+
+/-- The first outcome the reader gives for `s`, without the request target. -/
+def firstOutcomeKind (s : Bytes) : String :=
+  match readAll maxSize s with
+  | .req m _ k _ :: _ => s!"req {m} {k}"
+  | .bad c msg :: _ => s!"bad {c} {msg}"
+  | _ => "closed"
+
+/-- How many variants become cases at most. -/
+def maxSmugglingCases : Nat := 48
+
+structure SmuggleReport where
+  failures : List String
+  variantCount : Nat
+  splitting : Nat
+  cases : List String
+  flipsSeen : List String
+
+/-- Check every input and variant, and pick the variants that become cases: per kind of first
+outcome and set of options that matter, the first one met. -/
+def smuggleReport : SmuggleReport := Id.run do
+  let mut failures := []
+  let mut count := 0
+  let mut splitting := 0
+  let mut seen : List String := []
+  let mut picked : List String := []
+  let mut flipsSeen : List String := []
+  for input in inputs do
+    let s := input.toList
+    for msg in disagreements s do
+      failures := failures ++ [s!"{repr input}: {msg}"]
+    -- Only an edit that splits the family is of interest, not one of an input that already does
+    let inputSplits := (memberFramings s).length > 1
+    for v in variants s do
+      count := count + 1
+      for msg in disagreements v do
+        failures := failures ++ [s!"{repr (String.ofList v)}: {msg}"]
+      if !inputSplits && (readerFraming maxSize v).isNone && (memberFramings v).length > 1 then
+        splitting := splitting + 1
+        let fl := flipsThatMatter v
+        for f in fl do
+          if !flipsSeen.contains f then flipsSeen := flipsSeen ++ [f]
+        let key := s!"{firstOutcomeKind v} {fl}"
+        if !seen.contains key && picked.length < maxSmugglingCases then
+          seen := seen ++ [key]
+          picked := picked ++ [String.ofList v]
+  return ⟨failures, count, splitting, picked, flipsSeen⟩
+
 def outcomeLine : Outcome → String
   | .req m t k b => s!"req {m} {t} {if k then "keep-alive" else "close"} {String.ofList b}"
   | .bad code msg => s!"bad {code} {msg}"
@@ -191,7 +303,7 @@ def caseLine (input : String) : String :=
   s!"    {scalaString (input ++ "␞" ++ "␟".intercalate outcomes)}"
 
 -- Formatted as scalafmt would, so the Code format check passes on the generated file
-def scalaSource : String :=
+def scalaSource (smuggling : List String) : String :=
   "\n".intercalate ([
     "// Generated by `lake exe gen-http-reader-cases` in spec/lean from UniSpec/HttpReader.lean. Do not edit.",
     "package wvlet.uni.http",
@@ -204,12 +316,26 @@ def scalaSource : String :=
     "  // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,",
     "  // or `closed`.",
     "  val cases: Seq[String] = Seq("
-  ] ++ [",\n".intercalate (inputs.map caseLine), "  )", "", "end HttpReaderSpecCases", ""])
+  ] ++ [",\n".intercalate (inputs.map caseLine), "  )", "",
+    "  // Inputs a lenient front proxy could frame differently (UniSpec/HttpSmuggle.lean): one-edit",
+    "  // variants of the cases above that the reader rejects or closes the connection after.",
+    "  val smugglingCases: Seq[String] = Seq("
+  ] ++ [",\n".intercalate (smuggling.map caseLine), "  )", "", "end HttpReaderSpecCases", ""])
 
 def defaultOutput : System.FilePath :=
   "../../uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala"
 
 def main (args : List String) : IO Unit := do
   let out := args.head?.map System.FilePath.mk |>.getD defaultOutput
-  IO.FS.writeFile out scalaSource
-  IO.println s!"Wrote {inputs.length} cases to {out}"
+  let r := smuggleReport
+  if !r.failures.isEmpty then
+    IO.eprintln s!"{r.failures.length} disagreements with the lenient family (UniSpec/HttpSmuggle.lean):"
+    for f in r.failures.take 20 do IO.eprintln s!"  {f}"
+    IO.Process.exit 1
+  let missing := flips.map (·.1) |>.filter (!r.flipsSeen.contains ·)
+  if !missing.isEmpty then
+    IO.eprintln s!"No variant splits the family on these options, so they are never exercised: {missing}"
+    IO.Process.exit 1
+  IO.FS.writeFile out (scalaSource r.cases)
+  IO.println s!"Checked {inputs.length} inputs and {r.variantCount} variants against {allOpts.length} lenient parsers; {r.splitting} variants split the family"
+  IO.println s!"Wrote {inputs.length} cases and {r.cases.length} smuggling cases to {out}"

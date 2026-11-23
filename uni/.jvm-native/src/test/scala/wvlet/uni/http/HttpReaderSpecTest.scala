@@ -21,7 +21,9 @@ import java.nio.charset.StandardCharsets
   * Replays the request-framing cases generated from the Lean model in
   * `spec/lean/UniSpec/HttpReader.lean`. Each byte stream reaches the reader in reads of several
   * sizes, and every split must give the outcomes the model gives for the whole stream: where a read
-  * ends never changes where a request ends.
+  * ends never changes where a request ends. The smuggling cases come from
+  * `spec/lean/UniSpec/HttpSmuggle.lean`: inputs a lenient front proxy could frame differently,
+  * which the reader must reject or close the connection after.
   */
 class HttpReaderSpecTest extends UniTest:
 
@@ -74,17 +76,27 @@ class HttpReaderSpecTest extends UniTest:
 
   end outcomes
 
-  HttpReaderSpecCases
-    .cases
+  // The first 40 bytes, with CR, LF, and HTAB escaped so each test name stays on one line
+  private def label(input: String): String = input
+    .take(40)
+    .replace("\r", "\\r")
+    .replace("\n", "\\n")
+    .replace("\t", "\\t")
+
+  private def replay(name: String, cases: Seq[String]): Unit = cases
     .zipWithIndex
     .foreach { (c, i) =>
       val Array(input, expected) = c.split("␞", 2)
-      test(s"case ${i}: ${input.take(40).replace("\r\n", "\\r\\n")}") {
+      test(s"${name} ${i}: ${label(input)}") {
         val bytes = input.getBytes(StandardCharsets.ISO_8859_1)
         readSizes.foreach { size =>
           outcomes(bytes, size) shouldBe expected.split("␟").toSeq
         }
       }
     }
+
+  replay("case", HttpReaderSpecCases.cases)
+  // Inputs a lenient front proxy could frame differently, which the reader must reject or close after
+  replay("smuggling case", HttpReaderSpecCases.smugglingCases)
 
 end HttpReaderSpecTest

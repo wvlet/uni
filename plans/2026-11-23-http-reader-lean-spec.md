@@ -4,9 +4,10 @@
 
 `spec/lean/UniSpec/HttpReader.lean` (691 lines) models `HttpConnectionReader`
 (`uni/.jvm-native/src/main/scala/wvlet/uni/http/SocketHttpProtocol.scala`) as
-`readAll : maxSize → Bytes → List Outcome`. `GenHttpReaderCases.lean` writes 128 cases to
+`readAll : maxSize → Bytes → List Outcome`. `GenHttpReaderCases.lean` writes 127 cases to
 `HttpReaderSpecCases.scala`. `HttpReaderSpecTest` (JVM, Native) replays each case in reads of 1, 2,
-3, 5, 8, 13, 64 and 65536 bytes, and `NettyMalformedRequestTest` replays them against uni-netty.
+3, 5, 8, 13, 64 and 65536 bytes. uni-netty does not replay them; `NettyMalformedRequestTest` checks a
+few of the same statuses by hand.
 The `Lean spec` CI job runs `lake build` and checks that the generated cases are up to date. See
 `adr/2026-11-18-lean-specs.md` and `adr/2026-11-18-socket-server-netty-parity.md`.
 
@@ -85,11 +86,19 @@ as h5i does. Examples: a parser that compares names case-sensitively, or one tha
 
 Do this in two stages, so the theorem has evidence before the proof is done:
 
-- **2a (checked, not proven).** `GenHttpReaderCases` evaluates every member on every input and on
-  a generated set of variants: each input with one byte changed to CR, LF, SP, HTAB or `,`, and one
-  header repeated or folded. The generator fails if a member disagrees with the reader on an
-  input the reader accepts. It writes the inputs where members disagree with each other as new
-  cases, all of which the reader must reject.
+- **2a (checked, not proven). Done.** `UniSpec/HttpSmuggle.lean` defines the family (64 members,
+  the six options above; `leadingZeros` was dropped, since a member that rejects leading zeros
+  cannot smuggle). `GenHttpReaderCases` checks every input and 67,191 one-edit variants of each
+  input's first head: an insertion of CR, LF, SP, HTAB, `,`, CRLF, or CRLF plus SP or HTAB at each
+  position, a byte replaced with one of the first five, or a header line repeated. It fails if a
+  member frames a request the reader keeps the connection open after differently. A member that
+  rejects counts as agreeing, because a proxy that rejects forwards nothing. Uni's reader trims
+  trailing whitespace from values, where h5i's rejects it, so the members that keep it reject
+  `Content-Length: 2 `. It also fails if some option never splits the family. Variants that the
+  reader rejects (or closes after), where the edit makes two members frame differently, become
+  `smugglingCases`: the first per kind of outcome and set of options that matter, 8 today. A
+  planted bug in the model (whitespace before the colon stripped from names) gave 1,216
+  disagreements.
 - **2b (proven).** `no_smuggling` itself. Chunked bodies get a separate theorem over a smaller
   family: bare LF in a size line, and extensions containing CR.
 
