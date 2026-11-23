@@ -13,7 +13,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | `UniSpec/RxLive.lean`, `UniSpec/RxLiveFanIn.lean` | `flatMap`/`transformRx` switching, `recoverWith`, `split`, `zip`/`join`, `merge`, `parFlatMap` permits, `take`, and cancel over live `RxVar`s, under `RxRunner`'s single semantics | `uni/src/test/scala/wvlet/uni/rx/RxLiveSpecCases.scala` | `RxLiveSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxR3.lean`, `UniSpec/RxR3Ops.lean` | The target event model (`OnError` never ends a stream, `OnCompletion` with a result does), proofs that the old default and continuous modes are projections of it, and `flatMap`, `take`, `recoverWith` under it (see `plans/2026-11-21-rx-r3-event-model.md`) | `uni/src/test/scala/wvlet/uni/rx/RxR3SpecCases.scala` (`map`, `filter`, `take`, `recover`, `flatMap`, `recoverWith`) | `RxR3SpecTest` (JVM, JS, Native), through `run` and `runContinuously` |
 | `UniSpec/MsgPack.lean` | MessagePack integer, str/bin/array/map/ext header, float, and timestamp bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
-| `UniSpec/HttpReader.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
+| `UniSpec/HttpReader.lean`, `UniSpec/HttpSmuggle.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers), and agreement with a family of lenient parsers on every request it keeps the connection open after (no request smuggling) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
 | `UniSpec/DomRender.lean` | Where `DomRenderer` places `Rx` sections, keyed lists (`each`), and `RxElement`s, and which nodes it keeps | `uni-dom-test/src/test/scala/wvlet/uni/dom/DomRenderSpecCases.scala` | `DomRenderSpecTest` (Chromium) |
 
 You need Lean only to change a model. `./sbt test` runs the checked-in cases without it.
@@ -31,7 +31,7 @@ lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
 lake exe gen-rx-nested-cases # rewrite RxNestedSpecCases.scala from the nested-stream Rx model
 lake exe gen-rx-r3-cases     # rewrite RxR3SpecCases.scala from the R3 event model
 lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
-lake exe gen-http-reader-cases # rewrite HttpReaderSpecCases.scala from the request-framing model
+lake exe gen-http-reader-cases # rewrite HttpReaderSpecCases.scala from the request-framing model; fails if a lenient parser frames a request differently
 lake exe gen-rx-live-cases   # rewrite RxLiveSpecCases.scala from the live-RxVar models
 lake exe gen-dom-render-cases  # rewrite DomRenderSpecCases.scala; fails if the model's renderer disagrees with its spec
 ```
