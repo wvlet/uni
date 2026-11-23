@@ -4,6 +4,7 @@ import UniSpec.RxNested
 import UniSpec.RxRecover
 import UniSpec.HttpReader
 import UniSpec.HttpSmuggle
+import UniSpec.HttpReaderExtend
 import UniSpec.RxLive
 import UniSpec.DomRender
 import UniSpec.RxLiveFanIn

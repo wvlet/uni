@@ -236,6 +236,7 @@ def firstOutcomeKind (s : Bytes) : String :=
   match readAll maxSize s with
   | .req m _ k _ :: _ => s!"req {m} {k}"
   | .bad c msg :: _ => s!"bad {c} {msg}"
+  | .incomplete msg :: _ => s!"bad 400 {msg}"
   | _ => "closed"
 
 /-- How many variants become cases at most. -/
@@ -281,6 +282,8 @@ def smuggleReport : SmuggleReport := Id.run do
 def outcomeLine : Outcome → String
   | .req m t k b => s!"req {m} {t} {if k then "keep-alive" else "close"} {String.ofList b}"
   | .bad code msg => s!"bad {code} {msg}"
+  -- The reader reports an incomplete request as a 400
+  | .incomplete msg => s!"bad 400 {msg}"
   | .closed => "closed"
 
 /-- A Scala string literal of `s`. -/

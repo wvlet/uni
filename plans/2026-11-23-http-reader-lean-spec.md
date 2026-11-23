@@ -104,15 +104,26 @@ Do this in two stages, so the theorem has evidence before the proof is done:
 
 ### 3. Outcomes don't depend on read splits
 
-`HttpReaderSpecTest` checks splits on 128 inputs. Prove the rule behind it:
+**Done.** `UniSpec/HttpReaderExtend.lean` proves the rule behind the read splits in
+`HttpReaderSpecTest`:
 
-- `readOne_extend`: if `readOne s = (o, rest)` and `o` is not caused by end of input, then
-  `readOne (s ++ t) = (o, rest ++ t)`. Outcomes caused by end of input are `closed`,
-  `Incomplete request` and `Incomplete request body`.
-- To make that statable, split `Outcome.bad` into end-of-input outcomes and decided ones. One way
-  is a new `Outcome.eof (code) (message)` constructor that the generator prints exactly as today,
-  so the Scala side doesn't change.
-- `readAll_extend` follows by induction, using `readAllAux_only_last`.
+- A new constructor, `Outcome.incomplete (message)`, holds `Incomplete request` and `Incomplete
+  request body`. The generator prints it as `bad 400 <message>`, so the generated cases didn't
+  change. `Outcome.atEof` is true for it and for `closed`.
+- `readOne_extend`: if `readOne s` gives an outcome `o` with `o.atEof = false`, then
+  `readOne (s ++ t)` gives `o` too. A request leaves `rest ++ t` for the next one, and a rejection
+  leaves nothing, as before.
+- `readAll_extend`: if the last outcome of `readAll s` is not `atEof`, then
+  `readAll (s ++ t) = readAll s`. The induction uses `readOne_req_shorter` for the fuel.
+- Each scanner (`scanLine`, `readFields`, `readSize`, `restOfSize`, `skipExt`, `skipChunkExt`,
+  `crlf`, `chunkTooLarge`, `readChunks`, `readHead`, `readBody`) has an `_extend` lemma: a result
+  other than `incomplete` stays the same with more input, and the extra bytes follow the rest.
+  `readFields` and `readChunks` also allow more fuel.
+- `skipChunkExt [] = ok []` would change if a `;` followed, so its lemma requires a non-empty
+  input. `readSize_rest_ne_nil` shows the bytes after a size are never empty.
+- The chunked-body code now checks the CR LF after a size line with one helper, `crlf`, instead of
+  two `'\r' :: '\n' :: _` matches. The behaviour is the same, and one lemma covers both places.
+- A concrete `example` shows the hypothesis holds for a real stream: a request, then a rejection.
 
 ### 4. Size limits
 
