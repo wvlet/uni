@@ -55,6 +55,9 @@ class MPC1File private (
   /** The values of a column, one per row, with NilValue for rows without a value */
   def readColumn(name: String): Iterator[Value] = readColumn(columnOf(name))
 
+  /** The values of the column at an index of [[columnNames]] */
+  def readColumn(index: Int): Iterator[Value] = readColumn(columnAt(index))
+
   private def columnOf(name: String): MPC1Column =
     column(name) match
       case Some(c) =>
@@ -64,6 +67,13 @@ class MPC1File private (
           s"${source.name} has no column ${name}; it has ${columnNames.mkString(", ")}"
         )
 
+  private def columnAt(index: Int): MPC1Column =
+    if index < 0 || index >= columns.size then
+      throw IndexOutOfBoundsException(
+        s"Column index ${index} is out of range: ${source.name} has ${columns.size} columns"
+      )
+    columns(index)
+
   /**
     * The type of a column's values, found by reading only the format byte of each value. It names
     * the typed reader to use: [[readLongs]], [[readDoubles]], [[readBooleans]], [[readStrings]],
@@ -71,6 +81,8 @@ class MPC1File private (
     * block read, call [[MPC1Decoder]] on [[readColumnBlock]].
     */
   def columnType(name: String): MPC1ColumnType = columnType(columnOf(name))
+
+  def columnType(index: Int): MPC1ColumnType = columnType(columnAt(index))
 
   def columnType(column: MPC1Column): MPC1ColumnType = MPC1Decoder.columnType(
     readColumnBlock(column)
@@ -82,6 +94,8 @@ class MPC1File private (
     */
   def readLongs(name: String): LongColumn = readLongs(columnOf(name))
 
+  def readLongs(index: Int): LongColumn = readLongs(columnAt(index))
+
   def readLongs(column: MPC1Column): LongColumn = MPC1Decoder.decodeLongs(
     column.name,
     readColumnBlock(column),
@@ -90,6 +104,8 @@ class MPC1File private (
 
   /** Reads a float or integer column as unboxed doubles, with nil rows as nulls */
   def readDoubles(name: String): DoubleColumn = readDoubles(columnOf(name))
+
+  def readDoubles(index: Int): DoubleColumn = readDoubles(columnAt(index))
 
   def readDoubles(column: MPC1Column): DoubleColumn = MPC1Decoder.decodeDoubles(
     column.name,
@@ -100,6 +116,8 @@ class MPC1File private (
   /** Reads a boolean column, with nil rows as nulls */
   def readBooleans(name: String): BooleanColumn = readBooleans(columnOf(name))
 
+  def readBooleans(index: Int): BooleanColumn = readBooleans(columnAt(index))
+
   def readBooleans(column: MPC1Column): BooleanColumn = MPC1Decoder.decodeBooleans(
     column.name,
     readColumnBlock(column),
@@ -109,6 +127,8 @@ class MPC1File private (
   /** Reads a string column as UTF-8 bytes (`getString(i)` returns a row), with nil rows as nulls */
   def readStrings(name: String): BinaryColumn = readStrings(columnOf(name))
 
+  def readStrings(index: Int): BinaryColumn = readStrings(columnAt(index))
+
   def readStrings(column: MPC1Column): BinaryColumn = MPC1Decoder.decodeStrings(
     column.name,
     readColumnBlock(column),
@@ -117,6 +137,8 @@ class MPC1File private (
 
   /** Reads a binary or string column as bytes, with nil rows as nulls */
   def readBinaries(name: String): BinaryColumn = readBinaries(columnOf(name))
+
+  def readBinaries(index: Int): BinaryColumn = readBinaries(columnAt(index))
 
   def readBinaries(column: MPC1Column): BinaryColumn = MPC1Decoder.decodeBinaries(
     column.name,

@@ -573,6 +573,7 @@ val times = file.readColumn("time").toSeq            // one value per row, NilVa
 file.columnType("time") // MPC1ColumnType.LONG; DOUBLE, BOOLEAN, STRING, BINARY, NIL, or ANY
 val longs = file.readLongs("time")     // longs.values: Array[Long]; longs.isNull(i) for nil rows
 val names = file.readStrings("user")   // names.getString(i); also readDoubles, readBooleans, readBinaries
+val byIdx = file.readLongs(file.columnNames.indexOf("time")) // every reader also takes a column index
 file.close()
 ```
 

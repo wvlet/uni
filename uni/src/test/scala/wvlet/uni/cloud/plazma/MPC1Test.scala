@@ -210,6 +210,19 @@ class MPC1Test extends UniTest:
     intercept[IllegalArgumentException] {
       file.readLongs("no_such_column")
     }
+
+    val id = file.columnNames.indexOf("id")
+    file.columnType(id) shouldBe MPC1ColumnType.LONG
+    file.readLongs(id).getValue(0) shouldBe 1L
+    file.readColumn(id).toSeq shouldBe Seq(LongValue(1), NilValue)
+    file.readStrings(file.columnNames.indexOf("name")).getString(0) shouldBe "a"
+    file.readDoubles(file.columnNames.indexOf("score")).getValue(1) shouldBe 0.5
+    intercept[IndexOutOfBoundsException] {
+      file.readLongs(file.columnNames.size)
+    }
+    intercept[IndexOutOfBoundsException] {
+      file.columnType(-1)
+    }
   }
 
   test("encode and decode block sizes") {

@@ -81,6 +81,11 @@ val prices  = file.readDoubles("price")  // floats, and integers widened to doub
 val active  = file.readBooleans("active")
 val userCol = file.readStrings("user")   // userCol.getString(i)
 val blobs   = file.readBinaries("blob")  // binaries, and strings as UTF-8 bytes
+
+// Every reader also takes a column index, in columnNames order
+val first = file.readLongs(0)
+file.columnType(0)
+file.readColumn(0)
 ```
 
 MPC1 has no schema, so `columnType` finds the type from the values. It reads only the format byte
