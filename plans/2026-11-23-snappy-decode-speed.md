@@ -1,33 +1,39 @@
-# Faster Snappy decoding for Parquet pages
+# Snappy decoding and Parquet string buffers
 
 ## Goals
 
-- Cut the CPU that wvlet's Parquet scans spend in Snappy decoding. On TPC-H SF1 the scan is 47% of engine CPU, and about 40% of the scan is `Snappy.decompressInto` and its copy helpers.
-- Keep the decoder pure Scala and shared across JVM, Scala.js, and Scala Native, with the same output and the same errors on corrupt input.
+- Cut the CPU that wvlet's Parquet scans spend in Snappy decoding and Parquet decoding. On TPC-H SF1 the scan is 47% of engine CPU: about 40% of the scan is `Snappy.decompressInto` and its copy helpers, and about 50% is Parquet decoding.
+- Keep the code pure Scala and shared across JVM, Scala.js, and Scala Native, with the same output and the same errors on corrupt input.
 
 ## Background
 
-- Measured on the real pages of TPC-H SF1 `lineitem.parquet` (1,372 pages, 389 MB raw): uni decodes at 1.77 GB/s (220 ms), and snappy-java (native C++) at 3.6 GB/s (108 ms). TPC-DS `store_sales` shows the same 2x gap.
-- The pages hold about 60 M tags for 389 MB, about 6.5 output bytes per tag. Most copies are 1 to 8 bytes long (37 M of 43 M), most literals are 1 to 8 bytes long (17 M, 1.6 bytes on average), and most copy offsets are over 64. A few 65+ byte literals hold 14% of the bytes.
-- So the cost is per tag (decode, checks, call dispatch), not per byte. The 16-byte wide copies from earlier PRs already cover short runs. Copies with offsets under 8 still go byte by byte, and copies of 17 to 64 bytes go through `System.arraycopy` or byte loops.
+- On the real pages of TPC-H SF1 `lineitem.parquet` (1,372 pages, 389 MB raw), uni decodes at 1.77 GB/s (220 ms) and snappy-java at 3.6 GB/s (108 ms).
+- The pages hold about 60 M tags, about 6.5 output bytes per tag. Most copies and most literals are 1 to 8 bytes long, and most copy offsets are over 64. So the cost is per tag, not per byte.
+- A lineitem scan allocates 1.84 GB for 945 MB of output vectors. Most of the gap is string buffers that double as values arrive: each doubling zero-fills a new array and copies the old one. DuckDB-written chunks hold about one data page each, so the cursor's per-page projection never kicks in.
 
 ## Design
 
-- Lane: **Express**. An internal speedup with unchanged output and error behaviour; it touches no always-gate area. The launch prompt authorizes auto-merge once CI is green.
-- Restructure the fast loop around one guard: it runs while the tag and its extra bytes fit in the input and at least 80 bytes remain before `expectedSize`. Inside it, every copy can write whole 8-byte words with no per-copy space checks. The checked tail loop handles the rest, as it does today.
-- Never write past `expectedSize`, as the `decompressInto` doc promises for reused page buffers. Today's 16-byte moves check only `out.length`, so they can spill past it; `WideCopy` takes the write limit as a parameter. ZSTD and the Snappy compressor keep `out.length`, since their contracts allow the spill.
-- The new copy paths (64-byte matches, short-offset doubling) stay in Snappy's fast loop; ZSTD keeps its current copies, so its output and speed don't change.
-- Decode a tag's length, offset high bits, and extra-byte count from one 256-entry table, like the reference Snappy's `char_table`, so literals and the three copy kinds share one branch-light path.
-- Fold each tag's corruption checks (offset range, input and output overrun) into one sign test, so the common case costs one predictable branch.
-- Copy lengths of up to 64 bytes as 8-byte words. For offsets under 8, expand the pattern by doubling (each 8-byte move doubles the repeated span) instead of copying byte by byte.
-- The JVM keeps `Word8`'s VarHandle loads, as ADR 2026-11-20-pure-scala-parquet-reader decided: no `Unsafe`, no native code.
-- Scala.js keeps `System.arraycopy` and byte loops through its own `WideCopy`; the shared loop shape still helps it.
-- Add `SnappyPageBench` to `examples/parquet-bench/.jvm` (snappy-java is a JVM-only dependency), which decodes the compressed pages of given Parquet files and compares against snappy-java, plus a `--stats` mode that prints the tag histogram above.
-- Tests: round trips for every offset from 1 to 64 at every copy length, long literals, and copies and literals that end at the last bytes of the output and the input.
-- Compare before and after on the decoder alone and on full scans of `lineitem` and `store_sales` (`ScanProbe`).
-- After the uni release, bump wvlet's `UNI_VERSION` if its process allows it, otherwise report the version it needs; then measure `EngineTPCHBench` at SF1 against wvlet's origin/main in alternating rounds.
+- Lane: **Standard** after the user chose to add the buffer fix to this PR. The launch prompt authorizes auto-merge once CI is green.
+- Snappy: keep the decoder loop as it is. Every rewrite measured slower on C2 or no faster (details below), so this PR changes only correctness and tooling there.
+- Snappy: never write past `expectedSize`, as the `decompressInto` doc promises for reused page buffers. The 16-byte moves checked only `out.length`, so they could spill past it. `WideCopy` now takes the write limit. ZSTD and the Snappy compressor pass `out.length`, since their contracts allow the spill.
+- String data: reserve it once, from what the page says, instead of doubling.
+  - A PLAIN page reserves its values' bytes (the page bytes less 4 per value) up front.
+  - A dictionary block sums its entries' lengths and grows once for the values the cursor reserved, at that block's bytes per value.
+  - On later pages, the cursor projects the data from the bytes per value so far whenever the next page may not fit. Before, it did this only when the value capacity grew, which happened once.
+- Dictionary indices: allocate them at the reserved value capacity instead of doubling, and hand the array to the vector when it fits exactly, instead of copying it.
+- Dictionary appends copy values in one loop with no per-value capacity checks, through `WideCopy.literal` (two 8-byte moves for values of up to 16 bytes).
+- Add `SnappyPageBench` to `examples/parquet-bench/.jvm`: it decodes the compressed pages of given Parquet files against snappy-java, and `--stats` prints the tag histogram.
+- Tests: round trips for every offset from 1 to 64 at every copy length in each copy form, every literal length form, streams at the end of their array and inside a longer one, a sentinel check past `expectedSize`, and corrupt streams.
+- wvlet: the scan gain is a few percent on string-heavy tables, under the TPC-H suite's noise. The `UNI_VERSION` bump can ride the next release that wvlet picks up.
 
 ## Alternatives and Why Not?
 
-- Write the JVM decoder loop in Java with VarHandles: faster loads, but a second copy of the decoder per platform. Keep it in Scala unless the Scala loop stalls well short of the target.
-- Call snappy-java on the JVM: Uni avoids native dependencies.
+Each was measured A/B against origin/main on lineitem pages (decoder alone, origin/main at about 220 ms):
+
+- A 256-entry tag table, like the reference `char_table`: 370 ms. The table load sits on the tag-to-tag dependency chain, while branches let the CPU run ahead.
+- One branch-free step for literals and copies: 345 ms.
+- A port of google/snappy's `kLengthMinusOffset` loop: 266 ms.
+- Parsing tags without branches, copies stubbed out: 223 ms; with branches: 180 ms. Forcing C2's conditional moves didn't help.
+- Pattern doubling for offsets under 8, 64-byte copies, and 16-byte moves that load before they store: equal on lineitem, but 35% slower on `orders` pages.
+- Write the JVM decoder loop in Java: the loop compiles to the same bytecode, so there's nothing to gain.
+- A 32-byte step in `WideCopy.literal` for strings: no gain on lineitem, and a bigger method on Snappy's hot path.
