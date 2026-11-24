@@ -199,7 +199,8 @@ const moduleGroups = [
       { text: 'Parquet', link: '/cloud/parquet' },
       { text: 'Iceberg Tables', link: '/cloud/iceberg' },
       { text: 'Delta Lake Tables', link: '/cloud/delta' },
-      { text: 'Arrow IPC', link: '/cloud/arrow' }
+      { text: 'Arrow IPC', link: '/cloud/arrow' },
+      { text: 'MPC1 Files', link: '/cloud/plazma' }
     ]
   },
   {
