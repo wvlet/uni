@@ -176,7 +176,7 @@ addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
 
 // Cross-build one source tree for JVM, Scala.js, and Scala Native
 addSbtPlugin("org.scala-js"     % "sbt-scalajs"          % "1.22.0")
-addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.12")
+addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.13")
 addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "<version>")
 
 // Run Scala.js tests in a real browser

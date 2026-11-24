@@ -124,7 +124,7 @@ lazy val sbtUni = project
 // ScalaJSPlugin / ScalaNativePlugin on the JS / Native platform projects, so it compiles against
 // these and consumers get them transitively.
 val CROSSPROJECT_SCALAJS_VERSION = "1.22.0"
-val SCALA_NATIVE_VERSION         = "0.5.12"
+val SCALA_NATIVE_VERSION         = "0.5.13"
 
 lazy val sbtUniCrossProject = project
   .in(file("sbt-uni-crossproject"))
