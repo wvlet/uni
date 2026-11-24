@@ -7,9 +7,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
   * Runs the independent tasks of a write (columns, or partition files) on a shared pool of daemon
-  * threads (JVM). The calling thread takes tasks too, and a helper that hasn't started when the
-  * tasks run out is cancelled rather than awaited. So a run never waits for a free pool thread, and
-  * runs can nest: a task may start a run of its own.
+  * threads (JVM and Scala Native). The calling thread takes tasks too, and a helper that hasn't
+  * started when the tasks run out is cancelled rather than awaited. So a run never waits for a free
+  * pool thread, and runs can nest: a task may start a run of its own.
   */
 private[parquet] object WriteParallelism:
   /** The default `ParquetWriteOptions.parallelism`: the available processors, up to 8 */

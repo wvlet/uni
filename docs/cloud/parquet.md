@@ -436,7 +436,7 @@ finally ds.close()
 - **Order and memory.** Files are read in path order, then row group order. Synchronous reads
   return an `Iterator` that opens one file at a time. A read fetches the footers of the selected
   files several at a time (`withPrefetch`, 4 by default), which hides object store latency: sync
-  reads do so on the JVM, and `readAllAsync`, `readAllRowsAsync`, and `readBatchesAsync`
+  reads do so on the JVM and Scala Native, and `readAllAsync`, `readAllRowsAsync`, and `readBatchesAsync`
   everywhere.
 - **Stores.** `Parquet.dataset(uri)` creates the store with its default config and closes it with
   the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
@@ -781,12 +781,12 @@ files 10-25% smaller than level 3, at about a seventh of the speed. Levels 1-3 c
 take no level. GZIP uses the
 platform's zlib, so browsers cannot write it. BROTLI files can be read but not written.
 
-On the JVM, writes use several threads: the columns of each batch from `newBatchWriter` and the
+On the JVM and Scala Native, writes use several threads: the columns of each batch from `newBatchWriter` and the
 dataset batch writer are encoded and compressed in parallel, so are the partitions of a batch the
 dataset writer splits, and so is every row group's final compression. `withParallelism(n)` sets the
 thread count (the available processors, up to 8, by default), and `withParallelism(1)` keeps a
 write on the calling thread. The file is the same at every setting. Case-class and record writers
-encode rows on the calling thread. Scala.js and Scala Native write on one thread.
+encode rows on the calling thread. Scala.js writes on one thread.
 
 The writer holds one row group in memory, as compressed pages, and writes it when it reaches the
 row group size. On the JVM and Scala Native, each row group goes to the file as soon as it is

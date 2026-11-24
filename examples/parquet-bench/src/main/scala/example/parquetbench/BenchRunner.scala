@@ -89,8 +89,9 @@ object BenchRunner:
   end uniWriteCases
 
   /**
-    * The batch writer over batches read from `path`, and over the same batches rebuilt without the
-    * reader's dictionary entries. Back to back, so the pair compares well on a busy machine.
+    * The batch writer over batches read from `path`, over the same batches rebuilt without the
+    * reader's dictionary entries, and on one thread (`withParallelism(1)`) to show what parallel
+    * column encoding gains. Back to back, so they compare well on a busy machine.
     */
   private def batchCases(
       path: String,
@@ -99,7 +100,12 @@ object BenchRunner:
       codec: String
   ): Seq[BenchCase] = Seq(
     BenchCase("write uni batch", path, () => UniWriters.batches(data(), out, codec)),
-    BenchCase("write uni batch, rebuilt", path, () => UniWriters.batches(data().rebuilt, out, codec))
+    BenchCase("write uni batch, rebuilt", path, () => UniWriters.batches(data().rebuilt, out, codec)),
+    BenchCase(
+      "write uni batch, 1 thread",
+      path,
+      () => UniWriters.batches(data(), out, codec, parallelism = 1)
+    )
   )
 
   /** Uncompressed bytes of the column data, from the footer, so MB/s is comparable across codecs */

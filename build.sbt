@@ -495,6 +495,9 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
         // (scala-native#5046, #5160) that kept this example on Boehm (adr/2026-10-30). Set
         // UNI_NATIVE_GC=boehm (or commix) to benchmark another collector, as rpc-bench.yml does.
         .withGC(scala.scalanative.build.GC(sys.env.getOrElse("UNI_NATIVE_GC", "immix")))
+        // Cap the heap, as docs/http/server.md recommends: uncapped, Immix grew to 266 MB RSS on
+        // 18 cores where the server's live data fits in a few MB (GC_MAXIMUM_HEAP_SIZE overrides)
+        .withGarbageCollectorConfig(_.withMaxHeapSize(scala.scalanative.build.MemorySize.mb(256)))
         // nativeBuildSettings links libcurl and zlib for every Native project in this repo. A
         // server-only binary needs only zlib (request decompression and response compression):
         // dead-code elimination drops the HTTP client, so leave libcurl out to build what a user's
