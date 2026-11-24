@@ -22,6 +22,13 @@ private[parquet] sealed abstract class ValueBuffer:
   /** Removes values [0, n), keeping the rest at the front */
   def dropFirst(n: Int): Unit
 
+  /**
+    * Moves the values [start, start + n - m), the non-null values of `n` rows, to their row slots
+    * [start, start + n). `nulls(0)` to `nulls(m - 1)` are the null rows, in ascending order; they
+    * get the type's zero (an empty value for binary). Afterwards the buffer holds start + n values.
+    */
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit
+
   /** Appends `dict(indices(i))` for i in [0, n) */
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit
 
@@ -59,11 +66,112 @@ private[parquet] sealed abstract class ValueBuffer:
         checkIndex(indices(j), dictSize)
         j += 1
 
+  // Row slots (see beginSlots): the null rows of the page being decoded, in ascending order, the
+  // next one not yet passed, and the values written so far. slotNulls is null outside slot mode.
+  protected var slotNulls: Array[Int] = null
+  protected var slotCount             = 0
+  protected var slotNext              = 0
+  private var slotValues              = 0
+
+  /** Whether appends can write straight to row slots (see [[beginSlots]]) */
+  def writesSlots: Boolean = false
+
+  /** Whether the buffer is in slot mode */
+  final def inSlots: Boolean = slotNulls != null
+
+  /**
+    * Starts slot mode for a page: until [[endSlots]], appends write each value to its row slot,
+    * passing the rows listed in `nulls(0)` to `nulls(m - 1)` (ascending, at or after `size`), which
+    * get the type's zero. This saves moving the values out to their rows afterwards. Only buffers
+    * whose [[writesSlots]] is true support it.
+    */
+  final def beginSlots(nulls: Array[Int], m: Int): Unit =
+    slotNulls = nulls
+    slotCount = m
+    slotNext = 0
+    slotValues = 0
+
+  /**
+    * Ends slot mode: clears the null rows left after the last value, so the buffer holds `rows`
+    * values, and returns the number of values written since [[beginSlots]].
+    */
+  final def endSlots(rows: Int): Int =
+    while slotNext < slotCount do
+      clearSlot(slotNulls(slotNext))
+      slotNext += 1
+    slotNulls = null
+    setSize(rows)
+    slotValues
+
+  protected def clearSlot(row: Int): Unit = ()
+  protected def setSize(n: Int): Unit     = ()
+
+  /**
+    * Writes `k` values from row `row` on, run by run between null rows: `write(dst, i, c)` writes
+    * values i to i + c - 1 to rows dst to dst + c - 1, and each null row passed is cleared. Returns
+    * the row after the last value. The work is per run, so random nulls cost no branch per value.
+    */
+  protected final inline def writeRuns(row: Int, k: Int)(
+      inline write: (Int, Int, Int) => Unit
+  ): Int =
+    var r  = row
+    var i  = 0
+    var t  = slotNext
+    var np =
+      if t < slotCount then
+        slotNulls(t)
+      else
+        Int.MaxValue
+    while i < k do
+      if r == np then
+        clearSlot(r)
+        r += 1
+        t += 1
+        np =
+          if t < slotCount then
+            slotNulls(t)
+          else
+            Int.MaxValue
+      else
+        val c = math.min(np - r, k - i)
+        write(r, i, c)
+        r += c
+        i += c
+    slotNext = t
+    slotValues += k
+    r
+
 end ValueBuffer
 
 private[parquet] object ValueBuffer:
   // The largest array every platform allocates; the JVM refuses lengths close to Int.MaxValue
   final val MaxArrayLength = Int.MaxValue - 8
+
+  /**
+    * Calls `shift(from, until, k)` to move the values of rows [from, until) down by `k` slots, for
+    * each run of rows between nulls, and `clear(row, k)` for each null, `k` counting it and the
+    * nulls below, from the last row back, so a value never lands on one not yet moved. Rows below
+    * the first null stay in place. The work is per run, not per row, so random nulls cost no branch
+    * mispredictions on the rows with values.
+    */
+  private[column] inline def spreadRuns(start: Int, n: Int, nulls: Array[Int], m: Int)(
+      inline shift: (Int, Int, Int) => Unit,
+      inline clear: (Int, Int) => Unit
+  ): Unit =
+    var end = start + n
+    var t   = m - 1
+    while t >= 0 do
+      val p = nulls(t)
+      shift(p + 1, end, t + 1)
+      clear(p, t + 1)
+      end = p
+      t -= 1
+
+  /**
+    * Runs shorter than this move or fill in a loop: System.arraycopy and Arrays.fill have a fixed
+    * cost per call
+    */
+  private[column] final val ShortRun = 8
 
   private[column] def grow(current: Int, needed: Int): Int =
     if needed < 0 || needed > MaxArrayLength then
@@ -78,6 +186,8 @@ private[parquet] object ValueBuffer:
         else
           n << 1
     n
+
+end ValueBuffer
 
 private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffer:
   var values: Array[Boolean] = new Array[Boolean](math.max(initial, 1))
@@ -109,6 +219,24 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
     ensure(1)
     values(size) = v
     size += 1
+
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n > values.length then
+      values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, start + n))
+    val v = values
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        if until - from < ValueBuffer.ShortRun then
+          var r = until - 1
+          while r >= from do
+            v(r) = v(r - k)
+            r -= 1
+        else
+          System.arraycopy(v, from - k, v, from, until - from)
+      ,
+      (r, _) => v(r) = false
+    )
+    size = start + n
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[BooleanBuffer]
@@ -163,25 +291,73 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
     values(size) = v
     size += 1
 
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n > values.length then
+      values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, start + n))
+    val v = values
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        if until - from < ValueBuffer.ShortRun then
+          var r = until - 1
+          while r >= from do
+            v(r) = v(r - k)
+            r -= 1
+        else
+          System.arraycopy(v, from - k, v, from, until - from)
+      ,
+      (r, _) => v(r) = 0
+    )
+    size = start + n
+
+  override def writesSlots: Boolean = true
+
+  override protected def clearSlot(row: Int): Unit = values(row) = 0
+  override protected def setSize(n: Int): Unit     = size = n
+
+  /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
+  private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    size = writeRuns(size, n)(copy)
+
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[IntBuffer]
     checkIndices(indices, n, d.size)
     ensure(n)
     val dv = d.values
     val v  = values
-    val s  = size
-    var i  = 0
-    while i < n do
-      v(s + i) = dv(indices(i))
-      i += 1
-    size += n
+    if slotNulls != null then
+      appendRuns(n) { (dst, i, c) =>
+        var q = 0
+        while q < c do
+          v(dst + q) = dv(indices(i + q))
+          q += 1
+      }
+    else
+      val s = size
+      var i = 0
+      while i < n do
+        v(s + i) = dv(indices(i))
+        i += 1
+      size += n
 
   override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
     val d = dict.asInstanceOf[IntBuffer]
     checkIndex(index, d.size)
     ensure(n)
-    java.util.Arrays.fill(values, size, size + n, d.values(index))
-    size += n
+    val x = d.values(index)
+    if slotNulls != null then
+      val v = values
+      appendRuns(n) { (dst, _, c) =>
+        if c < ValueBuffer.ShortRun then
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        else
+          java.util.Arrays.fill(v, dst, dst + c, x)
+      }
+    else
+      java.util.Arrays.fill(values, size, size + n, x)
+      size += n
 
 end IntBuffer
 
@@ -216,25 +392,73 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
     values(size) = v
     size += 1
 
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n > values.length then
+      values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, start + n))
+    val v = values
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        if until - from < ValueBuffer.ShortRun then
+          var r = until - 1
+          while r >= from do
+            v(r) = v(r - k)
+            r -= 1
+        else
+          System.arraycopy(v, from - k, v, from, until - from)
+      ,
+      (r, _) => v(r) = 0L
+    )
+    size = start + n
+
+  override def writesSlots: Boolean = true
+
+  override protected def clearSlot(row: Int): Unit = values(row) = 0L
+  override protected def setSize(n: Int): Unit     = size = n
+
+  /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
+  private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    size = writeRuns(size, n)(copy)
+
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[LongBuffer]
     checkIndices(indices, n, d.size)
     ensure(n)
     val dv = d.values
     val v  = values
-    val s  = size
-    var i  = 0
-    while i < n do
-      v(s + i) = dv(indices(i))
-      i += 1
-    size += n
+    if slotNulls != null then
+      appendRuns(n) { (dst, i, c) =>
+        var q = 0
+        while q < c do
+          v(dst + q) = dv(indices(i + q))
+          q += 1
+      }
+    else
+      val s = size
+      var i = 0
+      while i < n do
+        v(s + i) = dv(indices(i))
+        i += 1
+      size += n
 
   override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
     val d = dict.asInstanceOf[LongBuffer]
     checkIndex(index, d.size)
     ensure(n)
-    java.util.Arrays.fill(values, size, size + n, d.values(index))
-    size += n
+    val x = d.values(index)
+    if slotNulls != null then
+      val v = values
+      appendRuns(n) { (dst, _, c) =>
+        if c < ValueBuffer.ShortRun then
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        else
+          java.util.Arrays.fill(v, dst, dst + c, x)
+      }
+    else
+      java.util.Arrays.fill(values, size, size + n, x)
+      size += n
 
 end LongBuffer
 
@@ -269,25 +493,73 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
     values(size) = v
     size += 1
 
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n > values.length then
+      values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, start + n))
+    val v = values
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        if until - from < ValueBuffer.ShortRun then
+          var r = until - 1
+          while r >= from do
+            v(r) = v(r - k)
+            r -= 1
+        else
+          System.arraycopy(v, from - k, v, from, until - from)
+      ,
+      (r, _) => v(r) = 0f
+    )
+    size = start + n
+
+  override def writesSlots: Boolean = true
+
+  override protected def clearSlot(row: Int): Unit = values(row) = 0f
+  override protected def setSize(n: Int): Unit     = size = n
+
+  /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
+  private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    size = writeRuns(size, n)(copy)
+
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[FloatBuffer]
     checkIndices(indices, n, d.size)
     ensure(n)
     val dv = d.values
     val v  = values
-    val s  = size
-    var i  = 0
-    while i < n do
-      v(s + i) = dv(indices(i))
-      i += 1
-    size += n
+    if slotNulls != null then
+      appendRuns(n) { (dst, i, c) =>
+        var q = 0
+        while q < c do
+          v(dst + q) = dv(indices(i + q))
+          q += 1
+      }
+    else
+      val s = size
+      var i = 0
+      while i < n do
+        v(s + i) = dv(indices(i))
+        i += 1
+      size += n
 
   override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
     val d = dict.asInstanceOf[FloatBuffer]
     checkIndex(index, d.size)
     ensure(n)
-    java.util.Arrays.fill(values, size, size + n, d.values(index))
-    size += n
+    val x = d.values(index)
+    if slotNulls != null then
+      val v = values
+      appendRuns(n) { (dst, _, c) =>
+        if c < ValueBuffer.ShortRun then
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        else
+          java.util.Arrays.fill(v, dst, dst + c, x)
+      }
+    else
+      java.util.Arrays.fill(values, size, size + n, x)
+      size += n
 
 end FloatBuffer
 
@@ -322,25 +594,73 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
     values(size) = v
     size += 1
 
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n > values.length then
+      values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, start + n))
+    val v = values
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        if until - from < ValueBuffer.ShortRun then
+          var r = until - 1
+          while r >= from do
+            v(r) = v(r - k)
+            r -= 1
+        else
+          System.arraycopy(v, from - k, v, from, until - from)
+      ,
+      (r, _) => v(r) = 0d
+    )
+    size = start + n
+
+  override def writesSlots: Boolean = true
+
+  override protected def clearSlot(row: Int): Unit = values(row) = 0d
+  override protected def setSize(n: Int): Unit     = size = n
+
+  /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
+  private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    size = writeRuns(size, n)(copy)
+
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[DoubleBuffer]
     checkIndices(indices, n, d.size)
     ensure(n)
     val dv = d.values
     val v  = values
-    val s  = size
-    var i  = 0
-    while i < n do
-      v(s + i) = dv(indices(i))
-      i += 1
-    size += n
+    if slotNulls != null then
+      appendRuns(n) { (dst, i, c) =>
+        var q = 0
+        while q < c do
+          v(dst + q) = dv(indices(i + q))
+          q += 1
+      }
+    else
+      val s = size
+      var i = 0
+      while i < n do
+        v(s + i) = dv(indices(i))
+        i += 1
+      size += n
 
   override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
     val d = dict.asInstanceOf[DoubleBuffer]
     checkIndex(index, d.size)
     ensure(n)
-    java.util.Arrays.fill(values, size, size + n, d.values(index))
-    size += n
+    val x = d.values(index)
+    if slotNulls != null then
+      val v = values
+      appendRuns(n) { (dst, _, c) =>
+        if c < ValueBuffer.ShortRun then
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        else
+          java.util.Arrays.fill(v, dst, dst + c, x)
+      }
+    else
+      java.util.Arrays.fill(values, size, size + n, x)
+      size += n
 
 end DoubleBuffer
 
@@ -445,12 +765,51 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       offsets(i) = offsets(i + n) - base
       i += 1
     size -= n
-    if dict != null then
-      if n < dictCount then
+    if n < dictCount then
+      if dictIdx != null then
         System.arraycopy(dictIdx, n, dictIdx, 0, dictCount - n)
-        dictCount -= n
+      dictCount -= n
+    else
+      dictCount = 0
+
+  def spreadToRows(start: Int, n: Int, nulls: Array[Int], m: Int): Unit =
+    if start + n + 1 > offsets.length then
+      offsets = java.util.Arrays.copyOf(offsets, ValueBuffer.grow(offsets.length, start + n + 1))
+    // The dictionary entries cover these rows when they covered every value so far (also when
+    // there is no dictionary yet, as after pages of nulls only): null rows get -1
+    val withIndices = !noDict && dictCount == start + n - m
+    if withIndices && dictIdx != null && dictIdx.length < start + n then
+      dictIdx = java.util.Arrays.copyOf(dictIdx, math.max(start + n, capacity))
+    val idx =
+      if withIndices then
+        dictIdx
       else
-        dictCount = 0
+        null
+    // Row r ends where value r - k ends, k being the nulls at or below r, for a null row (empty,
+    // so it ends where the value before it ends) and a non-null one alike
+    val o = offsets
+    ValueBuffer.spreadRuns(start, n, nulls, m)(
+      (from, until, k) =>
+        var r = until - 1
+        while r >= from do
+          o(r + 1) = o(r + 1 - k)
+          r -= 1
+        if idx != null then
+          r = until - 1
+          while r >= from do
+            idx(r) = idx(r - k)
+            r -= 1
+      ,
+      (r, k) =>
+        o(r + 1) = o(r + 1 - k)
+        if idx != null then
+          idx(r) = -1
+    )
+    size = start + n
+    if withIndices then
+      dictCount = size
+
+  end spreadToRows
 
   def bytes(i: Int): Array[Byte] = java.util.Arrays.copyOfRange(data, offsets(i), offsets(i + 1))
 
@@ -504,6 +863,9 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
           val next = new Array[Int](math.max(size + n, capacity))
           if dictIdx != null then
             System.arraycopy(dictIdx, 0, next, 0, size)
+          else
+            // Rows before the first dictionary page can only be nulls, which have no entry
+            java.util.Arrays.fill(next, 0, size, -1)
           dictIdx = next
         System.arraycopy(indices, 0, dictIdx, size, n)
         dictCount += n

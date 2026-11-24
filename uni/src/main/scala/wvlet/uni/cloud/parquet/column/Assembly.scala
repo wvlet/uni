@@ -20,14 +20,20 @@ import wvlet.uni.cloud.parquet.format.PhysicalType
 private[cloud] object Assembly:
 
   private final class Leaf(val data: ColumnData):
-    val m: Int                = data.numLevels
-    private val defs          = data.definitionLevels
-    private val reps          = data.repetitionLevels
+    val m: Int         = data.numLevels
+    private val defs   = data.definitionLevels
+    private val reps   = data.repetitionLevels
+    private val nulls  = data.nulls
+    private val maxDef = data.field.maxDefinitionLevel
+    // Without levels, an entry is at the maximum level (0 for required columns) unless the null
+    // mask of a rowSlots column flags it
     inline def d(i: Int): Int =
-      if defs == null then
+      if defs != null then
+        defs(i)
+      else if nulls != null && nulls(i) then
         0
       else
-        defs(i)
+        maxDef
 
     inline def r(i: Int): Int =
       if reps == null then
@@ -35,7 +41,6 @@ private[cloud] object Assembly:
       else
         reps(i)
 
-    private val maxDef = data.field.maxDefinitionLevel
     // valueIndex(i): the number of non-null values before entry i
     lazy val valueIndex: Array[Int] =
       val a = new Array[Int](m + 1)
@@ -48,6 +53,8 @@ private[cloud] object Assembly:
         i += 1
       a(m) = c
       a
+
+  end Leaf
 
   /**
     * Instance ranges of one node for one leaf. The arrays are sized for the most instances the leaf
@@ -312,7 +319,24 @@ private[cloud] object Assembly:
   ): ColumnVector =
     // Every entry holds a value (no nulls at this leaf) and instance k is entry k: true for flat
     // required columns and for required leaves of lists. The decoded buffer is then the vector.
-    if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
+    if leaf.data.rowSlots then
+      // A flat column whose values are already in row slots, and whose mask is the vector's nulls
+      if n != leaf.m || leaf.data.values.size != n || !(ranges eq identity) then
+        throw ParquetException.corrupt(
+          s"column ${p.pathString} has ${leaf.data.values.size} values for ${n} rows"
+        )
+      val nulls = leaf.data.nulls
+      directLeaf(
+        p,
+        leaf.data.values,
+        n,
+        asLong,
+        if nulls == null then
+          null
+        else
+          exact(nulls, n)(java.util.Arrays.copyOf(nulls, n))
+      )
+    else if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
       directLeaf(p, leaf.data.values, n, asLong)
     else if n == leaf.m && (ranges eq identity) then
       // A flat leaf with nulls: entry k is row k, and its values are in row order
@@ -332,7 +356,8 @@ private[cloud] object Assembly:
       p: ParquetField.Primitive,
       values: ValueBuffer,
       n: Int,
-      asLong: Boolean = false
+      asLong: Boolean = false,
+      nulls: Array[Boolean] = null
   ): ColumnVector =
     import java.util.Arrays.copyOf
     // A buffer whose array is exactly the vector is handed over; the cursor does not reuse it
@@ -343,17 +368,17 @@ private[cloud] object Assembly:
         while i < n do
           out(i) = b.values(i)
           i += 1
-        LongColumn(p, out, null)
+        LongColumn(p, out, nulls)
       case b: BooleanBuffer =>
-        BooleanColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
+        BooleanColumn(p, exact(b.values, n)(copyOf(b.values, n)), nulls)
       case b: IntBuffer =>
-        IntColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
+        IntColumn(p, exact(b.values, n)(copyOf(b.values, n)), nulls)
       case b: LongBuffer =>
-        LongColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
+        LongColumn(p, exact(b.values, n)(copyOf(b.values, n)), nulls)
       case b: FloatBuffer =>
-        FloatColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
+        FloatColumn(p, exact(b.values, n)(copyOf(b.values, n)), nulls)
       case b: DoubleBuffer =>
-        DoubleColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
+        DoubleColumn(p, exact(b.values, n)(copyOf(b.values, n)), nulls)
       case b: BinaryBuffer =>
         // The buffer's offsets start at 0; its data array is shared
         val indices =
@@ -364,7 +389,7 @@ private[cloud] object Assembly:
             b.dictIdx
           else
             dictIndices(b, n, i => i)
-        BinaryColumn(p, exact(b.offsets, n + 1)(copyOf(b.offsets, n + 1)), b.data, null)
+        BinaryColumn(p, exact(b.offsets, n + 1)(copyOf(b.offsets, n + 1)), b.data, nulls)
           .withDictionary(b.dict, indices)
     end match
 

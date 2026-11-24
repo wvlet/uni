@@ -7,6 +7,9 @@ import wvlet.uni.weaver.Weaver
 
 case class FlatInner(a: Option[Int], b: Long) derives Weaver
 
+// Null for the first rows, then dictionary-encoded strings
+case class LateRow(id: Long, tag: Option[String]) derives Weaver
+
 case class FlatRow(
     id: Long,
     qty: Int,
@@ -205,6 +208,41 @@ class FlatColumnTest extends UniTest:
       checkVectors(f.readBatches().toSeq)
     finally
       f.close()
+  }
+
+  test("keep dictionary indices when pages of nulls come before the dictionary values") {
+    val late = (0 until 2000).map(i => LateRow(i.toLong, Option.when(i >= 700)(s"tag-${i % 5}")))
+    val data = Parquet.writeBytes(late, ParquetWriteOptions.default.withPageSize(256))
+    Seq(ParquetReadOptions.default, ParquetReadOptions.default.withBatchSize(300)).foreach { opts =>
+      val f = Parquet.open(data)
+      try
+        var row = 0
+        f.readBatches(opts)
+          .foreach { b =>
+            val expected = late.slice(row, row + b.numRows).map(_.tag)
+            b.column("tag") match
+              case c: BinaryColumn =>
+                nulls(c) shouldBe expected.map(_.isEmpty)
+                (0 until c.size).map(i => String(c.getBytes(i), "UTF-8")) shouldBe
+                  expected.map(_.getOrElse(""))
+                if expected.exists(_.isDefined) then
+                  // Every value came from the dictionary, so every non-null row points into it
+                  (c.dictIndices != null) shouldBe true
+                  (0 until c.size).foreach { i =>
+                    expected(i) match
+                      case Some(v) =>
+                        String(c.dictionary.bytes(c.dictIndices(i)), "UTF-8") shouldBe v
+                      case None =>
+                        c.dictIndices(i) shouldBe -1
+                  }
+              case other =>
+                unexpected(other)
+            row += b.numRows
+          }
+        row shouldBe late.size
+      finally
+        f.close()
+    }
   }
 
 end FlatColumnTest

@@ -46,6 +46,8 @@ private[parquet] final class RowGroupBatches(
     if remaining == 0 then
       cursors.foreach(_.checkDone())
     val vectors = Assembly.build(fields, columns, rows, int32DecimalAsLong)
+    // The vectors keep none of the levels
+    columns.values.foreach(_.releaseLevels())
     ColumnBatch(
       rows,
       if binaryAsString then

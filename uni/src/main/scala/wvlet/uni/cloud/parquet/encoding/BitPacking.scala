@@ -1,6 +1,7 @@
 package wvlet.uni.cloud.parquet.encoding
 
 import wvlet.uni.cloud.parquet.ParquetException
+import wvlet.uni.cloud.parquet.column.LevelBuffers
 import wvlet.uni.cloud.parquet.column.ValueBuffer
 import wvlet.uni.io.codec.Bytes
 
@@ -312,6 +313,92 @@ private[parquet] final class RleBitPackedDecoder(
   end readLevels
 
   /**
+    * Reads `n` 1-bit definition levels as nulls: for each 0 level, entry `offset + i` of
+    * `mask.array` becomes true and is added to `mask`'s null positions. Returns how many levels are
+    * 1 (rows with a value). Entries with a value are not written, so the mask must be false there
+    * beforehand, and `mask.array` is asked for only when a null shows up. Throws when a level
+    * exceeds 1 or the data ends first.
+    */
+  def readNulls(mask: NullMask, offset: Int, n: Int): Int =
+    if bitWidth != 1 then
+      throw ParquetException.corrupt(s"null flags need 1-bit levels, not ${bitWidth} bits")
+    var count = 0
+    var i     = 0
+    while i < n do
+      if bitRemaining > 0 then
+        val k = math.min(bitRemaining, n - i)
+        count += nullBits(mask, offset + i, k)
+        bitIndex += k
+        bitRemaining -= k
+        i += k
+      else if rleRemaining > 0 then
+        val k = math.min(rleRemaining, n - i)
+        if rleValue == 1 then
+          count += k
+        else if rleValue == 0 then
+          val a = mask.array
+          var e = offset + i
+          while e < offset + i + k do
+            a(e) = true
+            mask.add(e)
+            e += 1
+        else
+          RleBitPackedDecoder.levelOutOfRange(rleValue, 1)
+        rleRemaining -= k
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun()
+    end while
+    count
+
+  end readNulls
+
+  /**
+    * Flags the 0 bits of the next `k` bits of the 1-bit run as nulls, and returns how many are 1.
+    * Bits go 32 at a time, visiting only the 0 bits, so rows with a value cost no branch; missing
+    * bytes at the end of the data read as 0.
+    */
+  private def nullBits(mask: NullMask, offset: Int, k: Int): Int =
+    // Asked for at the first null: writers may bit-pack levels that are all 1
+    var a: Array[Boolean] = null
+    var count             = 0
+    var t                 = 0
+    while t < k do
+      val bi = bitIndex + t
+      val p  = bitStart + (bi >>> 3)
+      if (bi & 7) == 0 && k - t >= 32 && p + 3 < end then
+        val w =
+          (buf(p) & 0xff) | (buf(p + 1) & 0xff) << 8 | (buf(p + 2) & 0xff) << 16 | buf(p + 3) << 24
+        count += Integer.bitCount(w)
+        var z = ~w
+        while z != 0 do
+          val e = offset + t + Integer.numberOfTrailingZeros(z)
+          if a == null then
+            a = mask.array
+          a(e) = true
+          mask.add(e)
+          z &= z - 1
+        t += 32
+      else
+        val v =
+          if p < end then
+            (buf(p) >>> (bi & 7)) & 1
+          else
+            0
+        if v == 0 then
+          if a == null then
+            a = mask.array
+          a(offset + t) = true
+          mask.add(offset + t)
+        count += v
+        t += 1
+    count
+
+  end nullBits
+
+  /**
     * Writes the next `k` bits of the 1-bit run to `dst` as bytes, and returns how many are 1. Whole
     * bytes go 8 bits at a time; missing bytes at the end of the data read as 0.
     */
@@ -348,6 +435,36 @@ private[parquet] final class RleBitPackedDecoder(
   end expandBits
 
 end RleBitPackedDecoder
+
+/**
+  * Where [[RleBitPackedDecoder.readNulls]] flags nulls: the null mask, from `array`, which may
+  * allocate on first use so a column with no nulls needs no mask, and the positions of the nulls
+  * read since `count` was last reset, in ascending order.
+  */
+private[parquet] abstract class NullMask:
+  var positions: Array[Int] = Array.emptyIntArray
+  var count: Int            = 0
+
+  def array: Array[Boolean]
+
+  inline final def add(e: Int): Unit =
+    if count == positions.length then
+      grow()
+    positions(count) = e
+    count += 1
+
+  // Grown by the nulls read, not by the page size, from arrays pooled per thread
+  private def grow(): Unit =
+    val a = LevelBuffers.ints.borrow(math.max(64, positions.length * 2))
+    System.arraycopy(positions, 0, a, 0, count)
+    release()
+    positions = a
+
+  /** Returns the positions array to the pool, once no page's nulls are pending */
+  final def release(): Unit =
+    if positions.length > 0 then
+      LevelBuffers.ints.release(positions)
+    positions = Array.emptyIntArray
 
 private[parquet] object RleBitPackedDecoder:
 
@@ -391,6 +508,25 @@ private[parquet] object RleBitPackedDecoder:
     count
 
   end copyLevels
+
+  /**
+    * Flags the 0 levels of `src` as nulls in `mask` (see [[RleBitPackedDecoder.readNulls]]), and
+    * returns how many are 1. Throws when a level exceeds 1.
+    */
+  def copyNulls(src: Array[Int], mask: NullMask, offset: Int, n: Int): Int =
+    var count = 0
+    var j     = 0
+    while j < n do
+      val v = src(j)
+      if v == 1 then
+        count += 1
+      else if v == 0 then
+        mask.array(offset + j) = true
+        mask.add(offset + j)
+      else
+        levelOutOfRange(v, 1)
+      j += 1
+    count
 
   private def levelOutOfRangeIf(v: Int, maxLevel: Int): Unit =
     if Integer.compareUnsigned(v, maxLevel) > 0 then
