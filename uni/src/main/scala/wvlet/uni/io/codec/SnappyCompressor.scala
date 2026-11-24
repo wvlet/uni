@@ -110,7 +110,7 @@ private[uni] object SnappyCompressor:
         op += 1
         if n <= ShortLiteral then
           // The output has slack for 16 bytes, and the next tag overwrites what lands past n
-          WideCopy.literal(src, from, out, op, n)
+          WideCopy.literal(src, from, out, op, n, out.length)
           return op + n
       else if l < (1 << 8) then
         out(op) = (60 << 2).toByte

@@ -177,14 +177,14 @@ private[codec] object ZstdSequences:
       // Copy literals, then the match
       if ll > regenSize - litPos || ll > out.length - op then
         Zstd.fail("literal length is out of range")
-      WideCopy.literal(literals, litPos, out, op, ll)
+      WideCopy.literal(literals, litPos, out, op, ll, out.length)
       litPos += ll
       op += ll
       if offset <= 0 || offset > op - frameStart then
         Zstd.fail(s"match offset ${offset} is out of range")
       if ml > out.length - op then
         Zstd.fail("match exceeds the expected output")
-      WideCopy.matchCopy(out, op, offset, ml)
+      WideCopy.matchCopy(out, op, offset, ml, out.length)
       op += ml
       s += 1
     end while

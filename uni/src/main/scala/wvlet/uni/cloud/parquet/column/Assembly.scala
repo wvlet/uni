@@ -356,8 +356,17 @@ private[cloud] object Assembly:
         DoubleColumn(p, exact(b.values, n)(copyOf(b.values, n)), null)
       case b: BinaryBuffer =>
         // The buffer's offsets start at 0; its data array is shared
+        val indices =
+          if b.dict != null && b.dictCount == n && b.dictIdx.length == n &&
+            b.offsets.length == n + 1
+          then
+            // Every value came from the dictionary, and the buffer is handed over with its offsets
+            b.dictIdx
+          else
+            dictIndices(b, n, i => i)
         BinaryColumn(p, exact(b.offsets, n + 1)(copyOf(b.offsets, n + 1)), b.data, null)
-          .withDictionary(b.dict, dictIndices(b, n, i => i))
+          .withDictionary(b.dict, indices)
+    end match
 
   end directLeaf
 

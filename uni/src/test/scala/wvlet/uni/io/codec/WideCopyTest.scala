@@ -82,14 +82,14 @@ class WideCopyTest extends UniTest:
     for (isMatch, len, offset) <- program(size) do
       if isMatch then
         if wide then
-          WideCopy.matchCopy(out, op, offset, len)
+          WideCopy.matchCopy(out, op, offset, len, out.length)
         else
           var i = 0
           while i < len do
             out(op + i) = out(op - offset + i)
             i += 1
       else if wide then
-        WideCopy.literal(src, sp, out, op, len)
+        WideCopy.literal(src, sp, out, op, len, out.length)
         sp += len
       else
         System.arraycopy(src, sp, out, op, len)

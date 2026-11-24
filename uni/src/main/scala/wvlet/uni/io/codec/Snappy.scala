@@ -66,7 +66,7 @@ private[uni] object Snappy:
           ip += n
         if len <= 0 || len > end - ip || len > expectedSize - op then
           fail("literal runs past the end of the buffer")
-        WideCopy.literal(src, ip, out, op, len)
+        WideCopy.literal(src, ip, out, op, len, expectedSize)
         ip += len
         op += len
       else
@@ -88,7 +88,7 @@ private[uni] object Snappy:
           fail(s"copy offset ${offset} is out of range")
         if len > expectedSize - op then
           fail("copy runs past the end of the output")
-        WideCopy.matchCopy(out, op, offset, len)
+        WideCopy.matchCopy(out, op, offset, len, expectedSize)
         op += len
       end if
     end while
@@ -111,7 +111,7 @@ private[uni] object Snappy:
           len += 1
           if len <= 0 || len > end - ip || len > expectedSize - op then
             fail("literal runs past the end of the buffer")
-          WideCopy.literal(src, ip, out, op, len)
+          WideCopy.literal(src, ip, out, op, len, expectedSize)
           ip += len
           op += len
         case kind =>
@@ -134,7 +134,7 @@ private[uni] object Snappy:
             fail(s"copy offset ${offset} is out of range")
           if len > expectedSize - op then
             fail("copy runs past the end of the output")
-          WideCopy.matchCopy(out, op, offset, len)
+          WideCopy.matchCopy(out, op, offset, len, expectedSize)
           op += len
       end match
     end while

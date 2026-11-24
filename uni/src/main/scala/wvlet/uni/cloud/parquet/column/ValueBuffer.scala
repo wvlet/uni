@@ -1,6 +1,7 @@
 package wvlet.uni.cloud.parquet.column
 
 import wvlet.uni.cloud.parquet.ParquetException
+import wvlet.uni.io.codec.WideCopy
 
 /** Growable typed storage for the non-null values of one column */
 private[parquet] sealed abstract class ValueBuffer:
@@ -397,7 +398,9 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
     ensureValues(1)
     ensureData(len)
     val start = dataSize
-    System.arraycopy(src, off, data, start, len)
+    // Values are short in most columns, where System.arraycopy's fixed cost per call dominates. A
+    // wide copy may write past the value, into data no value holds yet
+    WideCopy.literal(src, off, data, start, len, data.length)
     offsets(size + 1) = start + len
     size += 1
 
@@ -453,14 +456,40 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[BinaryBuffer]
+    checkIndices(indices, n, d.size)
     ensureValues(n)
     recordIndices(d, indices, n)
-    var i = 0
+    var bytes = 0L
+    var i     = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      add(d.data, d.offsets(k), d.length(k))
+      bytes += d.length(indices(i))
       i += 1
+    if dataSize + bytes > data.length && n > 0 then
+      // Grow once for the values the cursor reserved, at this block's bytes per value, instead of
+      // doubling block by block: each doubling zero-fills a new array and copies the old one
+      val rest = math.max(0, capacity - size - n)
+      val want = dataSize + bytes + bytes.toDouble / n * rest
+      reserveData(math.min(want, ValueBuffer.MaxArrayLength.toDouble).toInt)
+    ensureData(math.min(bytes, Int.MaxValue.toLong).toInt)
+    // The values and their bytes fit now, so the loop needs no capacity checks
+    val src = d.data
+    val so  = d.offsets
+    val out = data
+    var pos = dataSize
+    var v   = size
+    i = 0
+    while i < n do
+      val k     = indices(i)
+      val start = so(k)
+      val len   = so(k + 1) - start
+      WideCopy.literal(src, start, out, pos, len, out.length)
+      pos += len
+      v += 1
+      offsets(v) = pos
+      i += 1
+    size = v
+
+  end appendFromDictionary
 
   private def recordIndices(d: BinaryBuffer, indices: Array[Int], n: Int): Unit =
     if !noDict then
@@ -470,24 +499,12 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       else
         dict = d
         if dictIdx == null || dictIdx.length < size + n then
-          dictIdx = java
-            .util
-            .Arrays
-            .copyOf(
-              if dictIdx == null then
-                new Array[Int](0)
-              else
-                dictIdx
-              ,
-              ValueBuffer.grow(
-                if dictIdx == null then
-                  0
-                else
-                  dictIdx.length
-                ,
-                size + n
-              )
-            )
+          // Sized like the offsets, which the cursor reserves for the batch, so the indices grow
+          // with them instead of doubling on their own, and the vector can take the array
+          val next = new Array[Int](math.max(size + n, capacity))
+          if dictIdx != null then
+            System.arraycopy(dictIdx, 0, next, 0, size)
+          dictIdx = next
         System.arraycopy(indices, 0, dictIdx, size, n)
         dictCount += n
 

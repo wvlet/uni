@@ -161,6 +161,14 @@ private[parquet] object ValueDecoder:
       case PhysicalType.BYTE_ARRAY =>
         val b = out.asInstanceOf[BinaryBuffer]
         b.ensureValues(n)
+        // The values' bytes are the page's bytes less a 4-byte length per value. Reserving them
+        // up front saves doubling the data array as the values arrive; an empty buffer gets
+        // exactly that, so a one-page chunk's data needs no trimming or regrowth
+        val bytes = math.max(0, end - start - 4 * n)
+        if b.size == 0 then
+          b.reserveData(bytes)
+        else
+          b.ensureData(bytes)
         var i = 0
         while i < n do
           val len = r.readIntLE()
