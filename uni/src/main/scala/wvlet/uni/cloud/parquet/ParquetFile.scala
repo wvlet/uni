@@ -601,10 +601,13 @@ object ParquetFile:
     * and `lastModified` of [[wvlet.uni.io.FileSystem.info]] with it. The returned file owns the
     * source and closes it on `close()`. Synchronous reads need a [[ByteSource]].
     */
-  def open(source: AsyncByteSource, metadata: FileMetaData): ParquetFile = ParquetFile(
-    source,
-    metadata
-  )
+  def open(source: AsyncByteSource, metadata: FileMetaData): ParquetFile =
+    try
+      ParquetFile(source, metadata)
+    catch
+      case e: Throwable =>
+        source.close()
+        throw e
 
   def openAsync(source: AsyncByteSource): Rx[ParquetFile] = source
     .readTailAsync(TailReadSize)
