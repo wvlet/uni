@@ -8,6 +8,7 @@ import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.msgpack.impl.PureScalaBufferPacker
+import wvlet.uni.cloud.parquet.format.FileMetaData
 import wvlet.uni.cloud.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
@@ -38,6 +39,17 @@ object Parquet:
   /** Opens a local file (JVM, Scala Native, and Node.js) */
   def open(path: IOPath): ParquetFile = ParquetFile.open(ByteSource.ofFile(path))
   def open(path: String): ParquetFile = open(IOPath.parse(path))
+
+  /**
+    * Opens a local file with a footer parsed earlier (`file.metadata`), skipping the footer read.
+    * See `ParquetFile.open(source, metadata)` for when a cached footer is safe to reuse.
+    */
+  def open(path: IOPath, metadata: FileMetaData): ParquetFile = ParquetFile.open(
+    ByteSource.ofFile(path),
+    metadata
+  )
+
+  def open(path: String, metadata: FileMetaData): ParquetFile = open(IOPath.parse(path), metadata)
 
   /** Opens a file held in memory */
   def open(bytes: Array[Byte]): ParquetFile = ParquetFile.open(ByteSource.ofBytes(bytes))

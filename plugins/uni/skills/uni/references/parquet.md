@@ -89,6 +89,21 @@ passes 2 GiB.
 `batch.row(i)` gives the same `Map[String, Any]` as `readRows`; `vector.getValue(i)` applies the
 logical type.
 
+To open the same file many times without parsing its footer again, keep `file.metadata` and pass
+it to `Parquet.open(path, metadata)` (or `ParquetFile.open(source, metadata)` for any byte
+source). Uni keeps no cache: key yours on `FileSystem.info(path)`'s `size` and `lastModified`.
+
+```scala
+import wvlet.uni.cloud.parquet.ParquetFile
+import wvlet.uni.cloud.parquet.format.FileMetaData
+
+// Parse the footer once, then reopen the file without parsing it again
+def openCached(path: String, cached: Option[FileMetaData]): ParquetFile =
+  cached match
+    case Some(footer) => Parquet.open(path, footer)
+    case None         => Parquet.open(path)
+```
+
 ## Over HTTP, and in browsers
 
 ```scala

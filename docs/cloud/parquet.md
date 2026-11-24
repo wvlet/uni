@@ -184,6 +184,29 @@ as `readRows` (for example an `Instant`). They are `None` when a row group has n
 when the column's type has no order that statistics can be trusted for, such as DECIMAL. Writers
 may truncate long strings, so for strings treat min and max as bounds.
 
+### Reusing a Parsed Footer
+
+A file with many row groups has a large footer, and parsing it again on every `Parquet.open` adds
+up when an application opens the same file many times. Keep `file.metadata` and pass it to
+`Parquet.open(path, metadata)`, or to `ParquetFile.open(source, metadata)` for any byte source,
+including async ones. The file then opens with no read and no footer parsing:
+
+```scala
+import wvlet.uni.cloud.parquet.ParquetFile
+import wvlet.uni.cloud.parquet.format.FileMetaData
+
+// Parse the footer once, then reopen the file without parsing it again
+def openCached(path: String, cached: Option[FileMetaData]): ParquetFile =
+  cached match
+    case Some(footer) => Parquet.open(path, footer)
+    case None         => Parquet.open(path)
+```
+
+The footer must come from the same file. Uni keeps no cache, so the caller decides when an entry is
+stale, for example by storing `size` and `lastModified` from `FileSystem.info(path)` with it and
+dropping the entry when either changes (`lastModified` can be `None`; don't cache such files). A
+stale footer reads wrong data or fails.
+
 ## Reading Column Vectors
 
 `readRowGroup(i)` returns row group `i` as one `ColumnBatch`, and `readBatches` returns the
