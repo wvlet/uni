@@ -18,7 +18,8 @@ The native server is built with Immix. Set `UNI_NATIVE_GC=boehm` (or `commix`) f
 build it with another collector, as the `gc` input of `rpc-bench.yml` does. The servers start with
 `GC_INITIAL_HEAP_SIZE=64m` (see the example README, "Garbage collector"), as does the container image
 (`ENV` in `Dockerfile.native`; `--native-image` runs keep it). Set it, `GC_MAXIMUM_HEAP_SIZE`, or
-Boehm's `GC_MARKERS` yourself to override.
+Boehm's `GC_MARKERS` yourself to override. `RPC_WORKERS=n` sets the native server's worker
+threads (the `workers` input of `rpc-bench.yml`); unset, it keeps NativeServer's default.
 
 ## Run locally
 

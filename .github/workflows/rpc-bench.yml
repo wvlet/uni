@@ -39,6 +39,9 @@ on:
         type: choice
         options: [immix, boehm, commix]
         default: immix
+      workers:
+        description: 'NativeServer worker threads (RPC_WORKERS); empty keeps the default, about one per core'
+        default: ''
   schedule:
     # Mondays 03:17 UTC
     - cron: '17 3 * * 1'
@@ -70,6 +73,7 @@ jobs:
       SOAK: ${{ inputs.soak || '10m' }}
       SAMPLE: ${{ inputs.sample || '15s' }}
       UNI_NATIVE_GC: ${{ inputs.gc || 'immix' }}
+      RPC_WORKERS: ${{ inputs.workers || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
