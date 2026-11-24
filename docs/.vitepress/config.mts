@@ -59,7 +59,7 @@ const SITE_URL = 'https://wvlet.org/uni/'
 const SITE_TITLE = 'Uni - One Scala 3 Library for the Whole Stack'
 // Keep in sync with the hero and `description` in docs/index.md and the README intro
 const SITE_DESCRIPTION =
-  'Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native.'
+  'Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, Parquet and Iceberg on object storage, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native.'
 
 // Structured data so search engines and AI answer engines can identify Uni as a software library.
 const structuredData = {
@@ -178,9 +178,7 @@ const moduleGroups = [
       { text: 'YAML', link: '/text/yaml' },
       { text: 'Markdown', link: '/text/markdown' },
       { text: 'Cron', link: '/text/cron' },
-      { text: 'CSV and TSV', link: '/text/csv' },
-      { text: 'Parquet', link: '/text/parquet' },
-      { text: 'Arrow IPC', link: '/text/arrow' }
+      { text: 'CSV and TSV', link: '/text/csv' }
     ]
   },
   {
@@ -189,8 +187,19 @@ const moduleGroups = [
     items: [
       { text: 'IO', link: '/core/io' },
       { text: 'FileSystem', link: '/core/filesystem' },
-      { text: 'Object Storage', link: '/core/object-storage' },
       { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' }
+    ]
+  },
+  {
+    text: 'Cloud Data',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/cloud/' },
+      { text: 'Object Storage', link: '/cloud/storage' },
+      { text: 'Parquet', link: '/cloud/parquet' },
+      { text: 'Iceberg Tables', link: '/cloud/iceberg' },
+      { text: 'Delta Lake Tables', link: '/cloud/delta' },
+      { text: 'Arrow IPC', link: '/cloud/arrow' }
     ]
   },
   {

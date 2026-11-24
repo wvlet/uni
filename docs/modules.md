@@ -1,5 +1,5 @@
 ---
-description: Every Uni module page in one place, grouped by task — core, data and serialization, files, Rx, control flow, HTTP and RPC, AI, CLI, testing and build, and web UI.
+description: Every Uni module page in one place, grouped by task — core, data and serialization, files, cloud data, Rx, control flow, HTTP and RPC, AI, CLI, testing and build, and web UI.
 ---
 
 # All Modules
@@ -29,8 +29,6 @@ available unless a row says otherwise.
 | [YAML](./text/yaml) | YAML 1.2 parser with Weaver decoding and frontmatter |
 | [Markdown](./text/markdown) | CommonMark + GFM parser and safe HTML renderer |
 | [Cron](./text/cron) | Cron expressions with next-run times and English descriptions |
-| [Parquet](./text/parquet) | Pure-Scala Apache Parquet reader and writer: files, bytes, and HTTP ranges, from and to case classes |
-| [Arrow IPC](./text/arrow) | Pure-Scala Apache Arrow IPC writer: stream and file formats from column batches, for pyarrow, polars, and Arrow JS clients |
 
 ## Files & Memory
 
@@ -38,8 +36,18 @@ available unless a row says otherwise.
 |------|-------------|
 | [IO](./core/io) | One entry point for file operations and subprocesses |
 | [FileSystem](./core/filesystem) | Cross-platform file I/O with `IOPath` |
-| [Object Storage](./core/object-storage) | Read and write S3, R2, MinIO, Google Cloud Storage, and Azure Blob objects without the AWS, Google, or Azure SDKs |
 | [Canvas (Off-Heap Memory)](./core/canvas) | Memory buffers larger than 2 GB, addressed by `Long` offsets |
+
+## Cloud Data
+
+| Page | Description |
+|------|-------------|
+| [Overview](./cloud/) | Object storage, Parquet, Iceberg, Delta Lake, and Arrow in pure Scala, and which platforms each runs on |
+| [Object Storage](./cloud/storage) | Read and write S3, R2, MinIO, Google Cloud Storage, and Azure Blob objects without the AWS, Google, or Azure SDKs |
+| [Parquet](./cloud/parquet) | Pure-Scala Apache Parquet reader and writer: files, datasets, bytes, and HTTP ranges, from and to case classes |
+| [Iceberg Tables](./cloud/iceberg) | Read, write, update, delete, compact, and alter Apache Iceberg tables |
+| [Delta Lake Tables](./cloud/delta) | Read Delta Lake tables with time travel |
+| [Arrow IPC](./cloud/arrow) | Pure-Scala Apache Arrow IPC writer: stream and file formats from column batches, for pyarrow, polars, and Arrow JS clients |
 
 ## Reactive Streams (Rx)
 

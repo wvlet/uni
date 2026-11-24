@@ -1,7 +1,7 @@
 ---
 layout: home
 title: Uni - One Scala 3 Library for the Whole Stack
-description: "Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native."
+description: "Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, Parquet and Iceberg on object storage, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native."
 
 hero:
   name: Uni
@@ -58,6 +58,9 @@ features:
     link: /gallery/index.html
     linkText: Open the gallery
     target: _self
+  - title: Cloud Data
+    details: Read and write Parquet files and Iceberg tables in S3, GCS, and Azure Blob, and read Delta Lake tables, in pure Scala with no Hadoop or cloud SDKs.
+    link: /cloud/
   - title: MCP Servers
     details: Turn a Scala trait into an MCP server whose methods AI agents can call as tools.
     link: /mcp/
@@ -75,8 +78,8 @@ features:
 ## What is Uni?
 
 **Uni is a Scala 3 library that gives you object wiring (Design), logging,
-JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one
-project, with minimal dependencies, and the same code runs on JVM, Scala.js, and
+JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, Parquet and Iceberg
+tables on object storage, and testing from one project, with minimal dependencies, and the same code runs on JVM, Scala.js, and
 Scala Native.** It is the
 Scala 3 successor of [Airframe](https://github.com/wvlet/airframe), for people
 who build services, CLIs, and tools in Scala 3 and want one consistent set of

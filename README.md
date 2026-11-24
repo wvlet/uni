@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://img.shields.io/badge/DeepWiki-wvlet%2Funi-blue)](https://deepwiki.com/wvlet/uni)
 
-**One Scala 3 library for the whole stack.** Uni gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one project, with minimal dependencies, and the same code runs on JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe.
+**One Scala 3 library for the whole stack.** Uni gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, Parquet and Iceberg tables on object storage, and testing from one project, with minimal dependencies, and the same code runs on JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe.
 
 ## Documentation
 
@@ -47,7 +47,7 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 
 | Module | Description |
 |--------|-------------|
-| `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client and server, RPC, control flow, object storage, and a pure-Scala Apache Parquet reader and writer |
+| `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client and server, RPC, control flow, and cloud data: S3, GCS, and Azure Blob objects, Apache Parquet, Iceberg, and Delta Lake tables, and Arrow IPC, all in pure Scala |
 | `uni-netty` | Optional Netty backend for the HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
 

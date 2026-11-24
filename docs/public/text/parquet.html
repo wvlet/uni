@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Moved</title>
+<meta name="robots" content="noindex">
+<link rel="canonical" href="https://wvlet.org/uni/cloud/parquet">
+<meta http-equiv="refresh" content="0; url=/uni/cloud/parquet">
+<script>
+  // This page moved to the Cloud Data section. Keep the #anchor; sections that moved to
+  // another page go to their new place.
+  var moved = {
+    'delta-lake-tables': '/uni/cloud/delta',
+    'apache-iceberg-tables': '/uni/cloud/iceberg#reading-iceberg-tables',
+    'writing-apache-iceberg-tables': '/uni/cloud/iceberg#writing-iceberg-tables',
+    'deleting-rows-merge-on-read': '/uni/cloud/iceberg#deleting-rows-merge-on-read',
+    'updating-rows-merge-on-read': '/uni/cloud/iceberg#updating-rows-merge-on-read',
+    'replacing-data-files-copy-on-write': '/uni/cloud/iceberg#replacing-data-files-copy-on-write',
+    'compacting-tables': '/uni/cloud/iceberg#compacting-tables',
+    'changing-and-dropping-tables': '/uni/cloud/iceberg#changing-and-dropping-tables'
+  };
+  var hash = location.hash.slice(1);
+  location.replace(moved[hash] || '/uni/cloud/parquet' + location.hash);
+</script>
+</head>
+<body><p>This page moved to <a href="/uni/cloud/parquet">/uni/cloud/parquet</a>.</p></body>
+</html>

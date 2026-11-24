@@ -79,7 +79,6 @@ how APIs map between them.
 | [Logging](/core/logging) | Logging with source-location tracking |
 | [Surface](/core/surface) | Compile-time type introspection |
 | [FileSystem](/core/filesystem) | Cross-platform file I/O with `IOPath` |
-| [Object Storage](/core/object-storage) | Read and write S3, R2, MinIO, Google Cloud Storage, and Azure Blob objects without the AWS, Google, or Azure SDKs |
 
 #### Data & Serialization
 
@@ -88,6 +87,16 @@ how APIs map between them.
 | [JSON](/core/json) | Pure-Scala JSON parser and DSL |
 | [MessagePack](/core/msgpack) | Compact binary serialization |
 | [Weaver](/core/weaver) | Derivation-based codecs — JSON / MessagePack / `Map` from one `derives Weaver` |
+
+#### Cloud Data
+
+| Module | Description |
+|--------|-------------|
+| [Object Storage](/cloud/storage) | Read and write S3, R2, MinIO, Google Cloud Storage, and Azure Blob objects without the AWS, Google, or Azure SDKs |
+| [Parquet](/cloud/parquet) | Read and write Parquet files and partitioned datasets |
+| [Iceberg Tables](/cloud/iceberg) | Read, write, update, and compact Apache Iceberg tables |
+| [Delta Lake Tables](/cloud/delta) | Read Delta Lake tables |
+| [Arrow IPC](/cloud/arrow) | Send column batches to pyarrow, polars, and Arrow JS |
 
 #### Async & Control Flow
 
