@@ -24,9 +24,41 @@ private[parquet] sealed abstract class ValueBuffer:
   /** Appends `dict(indices(i))` for i in [0, n) */
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit
 
+  /**
+    * Appends `dict(index)` `n` times, for an RLE run of dictionary indices. Fixed-size buffers fill
+    * the value once; others expand the run into `indices` (a block-sized scratch array).
+    */
+  def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    var done = 0
+    while done < n do
+      val k = math.min(indices.length, n - done)
+      java.util.Arrays.fill(indices, 0, k, index)
+      appendFromDictionary(dict, indices, k)
+      done += k
+
   protected final def checkIndex(i: Int, dictSize: Int): Unit =
     if i < 0 || i >= dictSize then
       throw ParquetException.corrupt(s"dictionary index ${i} is out of range (size ${dictSize})")
+
+  /**
+    * Fails unless every index of `indices(0)` to `indices(n - 1)` is in a dictionary of `dictSize`
+    * entries. One branch-free pass, so the lookup loop that follows needs no check per value.
+    */
+  protected final def checkIndices(indices: Array[Int], n: Int, dictSize: Int): Unit =
+    var bad = 0
+    var i   = 0
+    while i < n do
+      val k = indices(i)
+      // Negative when k < 0 or k >= dictSize
+      bad |= k | (dictSize - 1 - k)
+      i += 1
+    if bad < 0 then
+      var j = 0
+      while j < n do
+        checkIndex(indices(j), dictSize)
+        j += 1
+
+end ValueBuffer
 
 private[parquet] object ValueBuffer:
   // The largest array every platform allocates; the JVM refuses lengths close to Int.MaxValue
@@ -79,13 +111,22 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[BooleanBuffer]
+    checkIndices(indices, n, d.size)
     ensure(n)
-    var i = 0
+    val dv = d.values
+    val v  = values
+    val s  = size
+    var i  = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      values(size + i) = d.values(k)
+      v(s + i) = dv(indices(i))
       i += 1
+    size += n
+
+  override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    val d = dict.asInstanceOf[BooleanBuffer]
+    checkIndex(index, d.size)
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
 end BooleanBuffer
@@ -123,13 +164,22 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[IntBuffer]
+    checkIndices(indices, n, d.size)
     ensure(n)
-    var i = 0
+    val dv = d.values
+    val v  = values
+    val s  = size
+    var i  = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      values(size + i) = d.values(k)
+      v(s + i) = dv(indices(i))
       i += 1
+    size += n
+
+  override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    val d = dict.asInstanceOf[IntBuffer]
+    checkIndex(index, d.size)
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
 end IntBuffer
@@ -167,13 +217,22 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[LongBuffer]
+    checkIndices(indices, n, d.size)
     ensure(n)
-    var i = 0
+    val dv = d.values
+    val v  = values
+    val s  = size
+    var i  = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      values(size + i) = d.values(k)
+      v(s + i) = dv(indices(i))
       i += 1
+    size += n
+
+  override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    val d = dict.asInstanceOf[LongBuffer]
+    checkIndex(index, d.size)
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
 end LongBuffer
@@ -211,13 +270,22 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[FloatBuffer]
+    checkIndices(indices, n, d.size)
     ensure(n)
-    var i = 0
+    val dv = d.values
+    val v  = values
+    val s  = size
+    var i  = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      values(size + i) = d.values(k)
+      v(s + i) = dv(indices(i))
       i += 1
+    size += n
+
+  override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    val d = dict.asInstanceOf[FloatBuffer]
+    checkIndex(index, d.size)
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
 end FloatBuffer
@@ -255,13 +323,22 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[DoubleBuffer]
+    checkIndices(indices, n, d.size)
     ensure(n)
-    var i = 0
+    val dv = d.values
+    val v  = values
+    val s  = size
+    var i  = 0
     while i < n do
-      val k = indices(i)
-      checkIndex(k, d.size)
-      values(size + i) = d.values(k)
+      v(s + i) = dv(indices(i))
       i += 1
+    size += n
+
+  override def appendRepeated(dict: ValueBuffer, index: Int, n: Int, indices: Array[Int]): Unit =
+    val d = dict.asInstanceOf[DoubleBuffer]
+    checkIndex(index, d.size)
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
 end DoubleBuffer

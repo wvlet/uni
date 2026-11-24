@@ -81,13 +81,7 @@ private[parquet] object ValueDecoder:
               scratch
             else
               new Array[Int](block)
-          val dec  = RleBitPackedDecoder(buf, start + 1, end, bitWidth)
-          var done = 0
-          while done < n do
-            val k = math.min(block, n - done)
-            dec.read(indices, 0, k)
-            out.appendFromDictionary(dict, indices, k)
-            done += k
+          RleBitPackedDecoder(buf, start + 1, end, bitWidth).readDictionary(out, dict, n, indices)
         case Encoding.RLE if tpe == PhysicalType.BOOLEAN =>
           // A 4-byte length, then RLE with bit width 1
           val r   = ByteReader(buf, start, end)
