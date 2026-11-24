@@ -4,6 +4,7 @@ import wvlet.uni.cloud.parquet.ParquetException
 import wvlet.uni.cloud.parquet.ParquetField
 import wvlet.uni.cloud.parquet.codec.Codecs
 import wvlet.uni.cloud.parquet.encoding.BitPacking
+import wvlet.uni.cloud.parquet.encoding.NullMask
 import wvlet.uni.cloud.parquet.encoding.RleBitPackedDecoder
 import wvlet.uni.cloud.parquet.encoding.ValueDecoder
 import wvlet.uni.cloud.parquet.format.*
@@ -13,14 +14,24 @@ import wvlet.uni.cloud.parquet.thrift.CompactProtocol
 /**
   * The decoded levels and non-null values of a range of rows of one column. Levels are null when
   * the column's maximum level is 0. The level arrays may be longer than `numLevels`.
+  *
+  * With `rowSlots` (a flat column with one definition level), `values` has a slot for every row,
+  * null rows included, and `nulls` flags the null rows in place of definition levels; `nulls` is
+  * null when no row is null. `nulls` may be longer than `numLevels`.
   */
 private[parquet] final class ColumnData(
     val field: ParquetField.Primitive,
     val values: ValueBuffer,
     val definitionLevels: Array[Byte],
     val repetitionLevels: Array[Byte],
-    val numLevels: Int
-)
+    val numLevels: Int,
+    val nulls: Array[Boolean] = null,
+    val rowSlots: Boolean = false
+):
+  /** Returns the level arrays to [[LevelBuffers]], once the batch's vectors are built */
+  def releaseLevels(): Unit =
+    LevelBuffers.bytes.release(definitionLevels)
+    LevelBuffers.bytes.release(repetitionLevels)
 
 /**
   * Reads the pages of a column chunk in batches of rows.
@@ -45,6 +56,10 @@ private[parquet] final class ColumnChunkCursor(
 
   private val maxDef = field.maxDefinitionLevel
   private val maxRep = field.maxRepetitionLevel
+  // A flat column with one definition level, the level of every top-level OPTIONAL column. Its
+  // levels say only whether each row is null, so they decode straight into a null mask, and each
+  // page's values move to their row slots as the page is decoded (see ColumnData)
+  private val rowSlots = maxRep == 0 && maxDef == 1
   // Levels are kept one byte per entry: a quarter of the memory of Int levels
   if maxDef > Byte.MaxValue || maxRep > Byte.MaxValue then
     throw ParquetException.unsupported(
@@ -71,10 +86,29 @@ private[parquet] final class ColumnChunkCursor(
   // [committed, levelEnd) belong to the held page; values [0, valueBase) are handed out. Handed-out
   // entries are dropped when the next page loads, not on every take, so small batches stay linear.
   // The arrays grow page by page, so a corrupt value count cannot force a huge allocation.
-  private var defLevels: Array[Byte] = newLevels(1024)
+  private var defLevels: Array[Byte] =
+    if rowSlots then
+      null
+    else
+      newLevels(1024)
+
+  // With rowSlots: the null mask, true for null entries, allocated when the first null shows up.
+  // It holds levelCap entries, and is false past levelEnd, so pages only flag their nulls.
+  // nullMask also keeps the held page's null positions, for moving its values to their rows.
+  private var nulls: Array[Boolean] = null
+  private var levelCap              = initialLevels(1024)
+  // With rowSlots: the null entries in [base, committed)
+  private var committedNulls = 0
+  private val nullMask       =
+    new NullMask:
+      def array: Array[Boolean] =
+        if nulls == null then
+          nulls = new Array[Boolean](levelCap)
+        nulls
+
   private var repLevels: Array[Byte] =
     if maxRep > 0 then
-      new Array[Byte](initialLevels(1024))
+      LevelBuffers.bytes.borrow(initialLevels(1024))
     else
       null
 
@@ -114,9 +148,18 @@ private[parquet] final class ColumnChunkCursor(
         case _ =>
           0L
 
+  /**
+    * The values a page adds to the buffer: a slot per entry with rowSlots, else its non-null ones
+    */
+  private def slotsOf(h: HeldPage): Int =
+    if rowSlots then
+      h.numValues
+    else
+      h.nonNull
+
   /** Whether decoding the held page would push an array past the hard limit (elements or bytes) */
   private def overflows(h: HeldPage): Boolean =
-    values.size.toLong + h.nonNull > hardLimit || (
+    values.size.toLong + slotsOf(h) > hardLimit || (
       values match
         case b: BinaryBuffer =>
           b.dataSize.toLong + h.dataBytes > hardLimit
@@ -134,13 +177,13 @@ private[parquet] final class ColumnChunkCursor(
 
   private def newLevels(n: Int): Array[Byte] =
     if maxDef > 0 then
-      new Array[Byte](initialLevels(n))
+      LevelBuffers.bytes.borrow(initialLevels(n))
     else
       null
 
   private def levelArrays: Int =
     (
-      if defLevels != null then
+      if defLevels != null || nulls != null then
         1
       else
         0
@@ -211,7 +254,7 @@ private[parquet] final class ColumnChunkCursor(
           i += 1
         i - 1
     val v =
-      if maxDef == 0 then
+      if maxDef == 0 || rowSlots then
         e - base
       else if e == committed then
         // Every committed entry goes out, so does every decoded value: no need to count them
@@ -230,11 +273,26 @@ private[parquet] final class ColumnChunkCursor(
         // sized like this batch so the next one does not grow from scratch
         val tail = levelEnd - e
         val left = total - levelsRead + tail
-        val data = ColumnData(field, values, defLevels, repLevels, e)
+        val data = ColumnData(
+          field,
+          values,
+          defLevels,
+          repLevels,
+          e,
+          if committedNulls == 0 then
+            null
+          else
+            nulls
+          ,
+          rowSlots
+        )
+        committedNulls = 0
         values = newValues(math.min(math.max(v, 1024).toLong, left).toInt)
         val levels = math.max(tail.toLong, math.min(math.max(e, 1024).toLong, left)).toInt
         defLevels = moveLevels(defLevels, e, tail, levels)
         repLevels = moveLevels(repLevels, e, tail, levels)
+        nulls = moveNulls(e, tail, levels)
+        levelCap = levels
         committed -= e
         levelEnd = tail
         valueBase = 0
@@ -245,7 +303,9 @@ private[parquet] final class ColumnChunkCursor(
           values.slice(valueBase, valueBase + v),
           slice(defLevels, base, e),
           slice(repLevels, base, e),
-          e - base
+          e - base,
+          sliceNulls(base, e),
+          rowSlots
         )
         base = e
         valueBase += v
@@ -261,6 +321,10 @@ private[parquet] final class ColumnChunkCursor(
       val n = levelEnd - base
       shiftLevels(defLevels, base, n)
       shiftLevels(repLevels, base, n)
+      if nulls != null then
+        System.arraycopy(nulls, base, nulls, 0, n)
+        // Keep the mask false past the entries, so later pages only flag their nulls
+        java.util.Arrays.fill(nulls, n, levelEnd, false)
       values.dropFirst(valueBase)
       committed -= base
       levelEnd = n
@@ -275,19 +339,66 @@ private[parquet] final class ColumnChunkCursor(
       throw ParquetException.corrupt(
         s"column ${field.pathString} has more values than the row group has rows"
       )
+    // Every row is handed out: the cursor's own level arrays go back to the pool
+    LevelBuffers.bytes.release(defLevels)
+    LevelBuffers.bytes.release(repLevels)
+    defLevels = null
+    repLevels = null
 
-  private def slice(levels: Array[Byte], from: Int, until: Int): Array[Byte] =
-    if levels == null then
-      null
-    else
-      java.util.Arrays.copyOfRange(levels, from, until)
+  // Level arrays come from LevelBuffers, and are released by ColumnData.releaseLevels once handed
+  // out, or when the chunk ends
+  private def slice(levels: Array[Byte], from: Int, until: Int): Array[Byte] = moveLevels(
+    levels,
+    from,
+    until - from,
+    until - from
+  )
 
   private def moveLevels(levels: Array[Byte], from: Int, n: Int, capacity: Int): Array[Byte] =
     if levels == null then
       null
     else
-      val a = new Array[Byte](math.max(n, capacity))
+      val a = LevelBuffers.bytes.borrow(math.max(n, capacity))
       System.arraycopy(levels, from, a, 0, n)
+      a
+
+  /** A level array of `size` entries with the first `n` of `levels`, which goes back to the pool */
+  private def growLevels(levels: Array[Byte], n: Int, size: Int): Array[Byte] =
+    val a = moveLevels(levels, 0, n, size)
+    LevelBuffers.bytes.release(levels)
+    a
+
+  /** The mask of entries [from, until), or null when none of them is null */
+  private def sliceNulls(from: Int, until: Int): Array[Boolean] =
+    if committedNulls == 0 then
+      null
+    else
+      var c = 0
+      var i = from
+      while i < until do
+        if nulls(i) then
+          c += 1
+        i += 1
+      committedNulls -= c
+      if c == 0 then
+        null
+      else
+        java.util.Arrays.copyOfRange(nulls, from, until)
+
+  /**
+    * The mask for the `n` entries from `from`, those of the held page, at `capacity`, or null when
+    * none of them is null. The held page's null positions move with its entries.
+    */
+  private def moveNulls(from: Int, n: Int, capacity: Int): Array[Boolean] =
+    if nulls == null || nullMask.count == 0 then
+      null
+    else
+      val a = new Array[Boolean](math.max(n, capacity))
+      System.arraycopy(nulls, from, a, 0, n)
+      var i = 0
+      while i < nullMask.count do
+        nullMask.positions(i) -= from
+        i += 1
       a
 
   private def shiftLevels(levels: Array[Byte], from: Int, n: Int): Unit =
@@ -338,20 +449,27 @@ private[parquet] final class ColumnChunkCursor(
         s"a batch with more than ${ValueBuffer.MaxArrayLength} values in column ${field.pathString}"
       )
     if (defLevels != null && defLevels.length < needed) ||
-      (repLevels != null && repLevels.length < needed)
+      (repLevels != null && repLevels.length < needed) ||
+      (rowSlots && levelCap < needed)
     then
       val ahead = entriesAhead(n)
       val left  = entriesLeft(n)
+      if rowSlots && levelCap < needed then
+        levelCap = grownSize(levelCap, needed, ahead, left)
+        if nulls != null then
+          nulls = java.util.Arrays.copyOf(nulls, levelCap)
       if defLevels != null && defLevels.length < needed then
-        defLevels = java
-          .util
-          .Arrays
-          .copyOf(defLevels, grownSize(defLevels.length, needed, ahead, left))
+        defLevels = growLevels(
+          defLevels,
+          levelEnd,
+          grownSize(defLevels.length, needed, ahead, left)
+        )
       if repLevels != null && repLevels.length < needed then
-        repLevels = java
-          .util
-          .Arrays
-          .copyOf(repLevels, grownSize(repLevels.length, needed, ahead, left))
+        repLevels = growLevels(
+          repLevels,
+          levelEnd,
+          grownSize(repLevels.length, needed, ahead, left)
+        )
 
   /**
     * When the batch takes the rest of the chunk, sizes the value buffer for it before the held
@@ -360,10 +478,11 @@ private[parquet] final class ColumnChunkCursor(
     * in place.
     */
   private def reserveValues(h: HeldPage): Unit =
-    val needed   = values.size.toLong + h.nonNull
-    val slotted  = maxRep == 0 && maxDef > 0 && !values.isInstanceOf[BinaryBuffer]
+    val needed = values.size.toLong + slotsOf(h)
+    // Deeper flat columns of fixed-size values get a slot per entry too, which Assembly fills
+    val slotted  = rowSlots || (maxRep == 0 && maxDef > 0 && !values.isInstanceOf[BinaryBuffer])
     val capacity =
-      if slotted then
+      if slotted && !rowSlots then
         math.max(needed, valueBase.toLong + levelEnd - base)
       else
         needed
@@ -379,6 +498,9 @@ private[parquet] final class ColumnChunkCursor(
         (ahead.toDouble * nonNull / (levelEnd - base)).toLong + 1
     if toChunkEnd && capacity > values.capacity && capacity <= ValueBuffer.MaxArrayLength then
       values.reserve(grownSize(values.capacity, capacity, projectedAhead(), entriesLeft(0)))
+    else if rowSlots && capacity > values.capacity then
+      // Room for the slots now, so neither the decoder nor the spread grows the buffer
+      values.reserve(ValueBuffer.grow(values.capacity, capacity.toInt))
     values match
       case b: BinaryBuffer if toChunkEnd && b.size > valueBase =>
         // Size the data for the rest of the chunk from the bytes per value so far, once this page
@@ -403,6 +525,20 @@ private[parquet] final class ColumnChunkCursor(
     then
       // Indices are decoded one block at a time, so a block-sized array serves every page
       indices = new Array[Int](math.min(total, ValueDecoder.DictionaryBlock.toLong).toInt)
+    val m = nullMask.count
+    if rowSlots && m != h.numValues - h.nonNull then
+      throw ParquetException.corrupt(
+        s"column ${field.pathString} has ${m} nulls in a page of ${h.numValues} values with ${h
+            .nonNull} non-null"
+      )
+    // Dictionary pages of fixed-size values decode straight into their row slots. Other pages
+    // decode their values packed, which then move out to their rows: PLAIN pages decode in bulk,
+    // which costs more per call than moving the values afterwards
+    val inSlots =
+      rowSlots && m > 0 && values.writesSlots &&
+        (h.encoding == Encoding.RLE_DICTIONARY || h.encoding == Encoding.PLAIN_DICTIONARY)
+    if inSlots then
+      values.beginSlots(nullMask.positions, m)
     ValueDecoder.decode(
       h.encoding,
       field.physicalType,
@@ -415,6 +551,21 @@ private[parquet] final class ColumnChunkCursor(
       dictionary,
       indices
     )
+    if rowSlots then
+      val written =
+        if inSlots then
+          values.endSlots(committed + h.numValues)
+        else
+          values.size - committed
+      if written != h.nonNull then
+        throw ParquetException.corrupt(
+          s"a page of column ${field.pathString} has ${written} values for ${h
+              .nonNull} non-null rows"
+        )
+      if !inSlots then
+        values.spreadToRows(committed, h.numValues, nullMask.positions, m)
+      nullMask.count = 0
+      committedNulls += m
     if maxRep > 0 then
       var i = committed
       while i < levelEnd do
@@ -493,7 +644,9 @@ private[parquet] final class ColumnChunkCursor(
           if maxRep > 0 then
             readLevelsV1(pr, h.repetitionLevelEncoding, maxRep, repLevels, levelEnd, h.numValues)
           val nonNull =
-            if maxDef > 0 then
+            if rowSlots then
+              readNullsV1(pr, h.definitionLevelEncoding, h.numValues)
+            else if maxDef > 0 then
               readLevelsV1(pr, h.definitionLevelEncoding, maxDef, defLevels, levelEnd, h.numValues)
             else
               h.numValues
@@ -512,7 +665,10 @@ private[parquet] final class ColumnChunkCursor(
             RleBitPackedDecoder(chunk, pageStart, pageStart + repLen, BitPacking.bitWidthOf(maxRep))
               .readLevels(repLevels, levelEnd, h.numValues, maxRep)
           val nonNull =
-            if maxDef > 0 then
+            if rowSlots then
+              RleBitPackedDecoder(chunk, pageStart + repLen, pageStart + repLen + defLen, 1)
+                .readNulls(nullMask, levelEnd, h.numValues)
+            else if maxDef > 0 then
               RleBitPackedDecoder(
                 chunk,
                 pageStart + repLen,
@@ -543,6 +699,8 @@ private[parquet] final class ColumnChunkCursor(
       // The chunk has ended, and its last page's values are committed
       PageBuffers.release(pageBuffer)
       pageBuffer = null
+    if held == null then
+      nullMask.release()
 
   end loadNextPage
 
@@ -604,6 +762,25 @@ private[parquet] final class ColumnChunkCursor(
         s"a page of column ${field
             .pathString} has ${n} values, more than the chunk's remaining ${total - levelsRead}"
       )
+
+  /** Reads a page's 1-bit definition levels into the null mask; returns the non-null count */
+  private def readNullsV1(r: ByteReader, encoding: Encoding, n: Int): Int =
+    encoding match
+      case Encoding.RLE =>
+        val len = r.readIntLE()
+        r.ensure(len)
+        val c = RleBitPackedDecoder(r.buf, r.pos, r.pos + len, 1).readNulls(nullMask, levelEnd, n)
+        r.pos += len
+        c
+      case Encoding.BIT_PACKED =>
+        val len = (n + 7) / 8
+        r.ensure(len)
+        val tmp = new Array[Int](n)
+        BitPacking.unpackIntsMsbFirst(r.buf, r.pos, r.pos + len, 1, tmp, n)
+        r.pos += len
+        RleBitPackedDecoder.copyNulls(tmp, nullMask, levelEnd, n)
+      case other =>
+        throw ParquetException.unsupported(s"${other} encoding for levels")
 
   private def readLevelsV1(
       r: ByteReader,
