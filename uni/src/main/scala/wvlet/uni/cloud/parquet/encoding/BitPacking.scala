@@ -1,13 +1,19 @@
 package wvlet.uni.cloud.parquet.encoding
 
 import wvlet.uni.cloud.parquet.ParquetException
+import wvlet.uni.cloud.parquet.column.ValueBuffer
+import wvlet.uni.io.codec.Bytes
 
 private[parquet] object BitPacking:
 
   /**
     * Unpacks `n` values of `bitWidth` bits (at most 32), packed least-significant bit first, from
-    * `src` starting at byte `offset`. Missing trailing bytes read as zero, since the last group of
-    * a page may be cut short.
+    * `src` starting `firstBit` bits after byte `offset`. Missing trailing bytes read as zero, since
+    * the last group of a page may be cut short.
+    *
+    * Values whose 8 bytes from their first byte lie before `limit` are read with one 64-bit load
+    * each (a value starts at most 7 bits into its first byte, so it fits in the load); the last few
+    * values go bit by bit.
     */
   def unpackInts(
       src: Array[Byte],
@@ -16,33 +22,47 @@ private[parquet] object BitPacking:
       bitWidth: Int,
       dst: Array[Int],
       dstOffset: Int,
-      n: Int
+      n: Int,
+      firstBit: Long = 0L
   ): Unit =
     if bitWidth == 0 then
       java.util.Arrays.fill(dst, dstOffset, dstOffset + n, 0)
     else
       val mask =
         if bitWidth == 32 then
-          -1L & 0xffffffffL
+          0xffffffffL
         else
           (1L << bitWidth) - 1
-      var acc  = 0L
-      var bits = 0
-      var ip   = offset
-      var i    = 0
+      // Values [0, fast) have their 8 bytes in range: byte offset + (bit >>> 3) + 8 <= limit
+      val lastByte = limit.toLong - 8 - offset
+      val fast     =
+        if lastByte < 0 || firstBit > lastByte * 8 + 7 then
+          0
+        else
+          math.min(n.toLong, (lastByte * 8 + 7 - firstBit) / bitWidth + 1).toInt
+      var bit = firstBit
+      var i   = 0
+      while i < fast do
+        val w = Bytes.wordLE(src, offset + (bit >>> 3).toInt)
+        dst(dstOffset + i) = ((w >>> (bit & 7).toInt) & mask).toInt
+        bit += bitWidth
+        i += 1
       while i < n do
-        while bits < bitWidth do
-          val b =
-            if ip < limit then
-              src(ip) & 0xffL
+        var v   = 0L
+        var got = 0
+        while got < bitWidth do
+          val byteIdx = offset + (bit >>> 3)
+          val inByte  = (bit & 7).toInt
+          val take    = math.min(8 - inByte, bitWidth - got)
+          val b       =
+            if byteIdx < limit then
+              src(byteIdx.toInt) & 0xff
             else
-              0L
-          acc |= b << bits
-          bits += 8
-          ip += 1
-        dst(dstOffset + i) = (acc & mask).toInt
-        acc >>>= bitWidth
-        bits -= bitWidth
+              0
+          v |= ((b >>> inByte) & ((1 << take) - 1)).toLong << got
+          got += take
+          bit += take
+        dst(dstOffset + i) = v.toInt
         i += 1
 
   /** Unpacks values of up to 64 bits, used by DELTA_BINARY_PACKED */
@@ -126,17 +146,17 @@ private[parquet] final class RleBitPackedDecoder(
   if bitWidth < 0 || bitWidth > 32 then
     throw ParquetException.corrupt(s"invalid RLE bit width ${bitWidth}")
 
-  private var pos             = start
-  private var rleRemaining    = 0
-  private var rleValue        = 0
-  private var packed          = new Array[Int](0)
-  private var packedPos       = 0
-  private var packedRemaining = 0
-  // A bit-packed run of 1-bit levels read straight from `buf`: its first byte, next bit, and bits left
+  private var pos          = start
+  private var rleRemaining = 0
+  private var rleValue     = 0
+  // The bit-packed run being read, left in `buf` and unpacked as it is read: its first byte, the
+  // index of its next value, and the values left
   private var bitStart     = 0
   private var bitIndex     = 0
   private var bitRemaining = 0
-  private val valueBytes   = (bitWidth + 7) / 8
+  // Unpacked levels of a run wider than 1 bit, before they are checked and copied as bytes
+  private var scratch: Array[Int] = null
+  private val valueBytes          = (bitWidth + 7) / 8
 
   private def readVarInt(): Int =
     var result = 0
@@ -157,8 +177,7 @@ private[parquet] final class RleBitPackedDecoder(
     )
     result
 
-  /** With `lazyBits`, a bit-packed run of 1-bit values is left in `buf` for [[readLevels]] */
-  private def nextRun(lazyBits: Boolean = false): Unit =
+  private def nextRun(): Unit =
     val header = readVarInt()
     if (header & 1) == 0 then
       rleRemaining = header >>> 1
@@ -183,22 +202,29 @@ private[parquet] final class RleBitPackedDecoder(
         // Zero-width values are all 0: no need to unpack them
         rleRemaining = count
         rleValue = 0
-        return
-      if lazyBits && bitWidth == 1 then
+      else
         bitStart = pos
         bitIndex = 0
         bitRemaining = count
         pos = math.min(end.toLong, pos + bytes).toInt
-        return
-      if packed.length < count then
-        packed = new Array[Int](count)
-      BitPacking.unpackInts(buf, pos, end, bitWidth, packed, 0, count)
-      pos = math.min(end.toLong, pos + bytes).toInt
-      packedPos = 0
-      packedRemaining = count
     end if
 
   end nextRun
+
+  /** Unpacks the next `k` values of the bit-packed run into `dst` */
+  private def unpack(dst: Array[Int], offset: Int, k: Int): Unit =
+    BitPacking.unpackInts(
+      buf,
+      bitStart,
+      end,
+      bitWidth,
+      dst,
+      offset,
+      k,
+      firstBit = bitIndex.toLong * bitWidth
+    )
+    bitIndex += k
+    bitRemaining -= k
 
   /** Reads `n` values into `dst`. Throws when the data ends first. */
   def read(dst: Array[Int], offset: Int, n: Int): Unit =
@@ -209,11 +235,32 @@ private[parquet] final class RleBitPackedDecoder(
         java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue)
         rleRemaining -= k
         i += k
-      else if packedRemaining > 0 then
-        val k = math.min(packedRemaining, n - i)
-        System.arraycopy(packed, packedPos, dst, offset + i, k)
-        packedPos += k
-        packedRemaining -= k
+      else if bitRemaining > 0 then
+        val k = math.min(bitRemaining, n - i)
+        unpack(dst, offset + i, k)
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun()
+
+  /**
+    * Appends `dict(index)` to `out` for the next `n` dictionary indices. An RLE run is looked up
+    * once for the whole run; bit-packed indices are unpacked into `indices`, a block at a time.
+    * Throws when the data ends first or an index is out of the dictionary.
+    */
+  def readDictionary(out: ValueBuffer, dict: ValueBuffer, n: Int, indices: Array[Int]): Unit =
+    var i = 0
+    while i < n do
+      if rleRemaining > 0 then
+        val k = math.min(rleRemaining, n - i)
+        out.appendRepeated(dict, rleValue, k, indices)
+        rleRemaining -= k
+        i += k
+      else if bitRemaining > 0 then
+        val k = math.min(math.min(bitRemaining, n - i), indices.length)
+        unpack(indices, 0, k)
+        out.appendFromDictionary(dict, indices, k)
         i += k
       else if pos >= end then
         throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
@@ -226,28 +273,25 @@ private[parquet] final class RleBitPackedDecoder(
     * counted once for the whole run, so levels need no second pass.
     */
   def readLevels(dst: Array[Byte], offset: Int, n: Int, maxLevel: Int): Int =
-    // 1-bit levels (flat optional columns) are expanded from the packed bits as they are counted
-    val lazyBits = bitWidth == 1 && maxLevel == 1
-    var count    = 0
-    var i        = 0
+    var count = 0
+    var i     = 0
     while i < n do
       if bitRemaining > 0 then
-        val k = math.min(bitRemaining, n - i)
-        var t = 0
-        while t < k do
-          val bi = bitIndex + t
-          val p  = bitStart + (bi >>> 3)
-          // The run's last group may be cut short at the end of the data: missing bits read as 0
-          val v =
-            if p < end then
-              (buf(p) >>> (bi & 7)) & 1
-            else
-              0
-          dst(offset + i + t) = v.toByte
-          count += v
-          t += 1
-        bitIndex += k
-        bitRemaining -= k
+        val k =
+          if bitWidth == 1 then
+            // 1-bit levels (flat optional columns): 0 or 1, never out of range
+            val k = math.min(bitRemaining, n - i)
+            count += expandBits(dst, offset + i, k)
+            bitIndex += k
+            bitRemaining -= k
+            k
+          else
+            if scratch == null then
+              scratch = new Array[Int](ValueDecoder.DictionaryBlock)
+            val k = math.min(math.min(bitRemaining, n - i), scratch.length)
+            unpack(scratch, 0, k)
+            count += RleBitPackedDecoder.copyLevels(scratch, 0, dst, offset + i, k, maxLevel)
+            k
         i += k
       else if rleRemaining > 0 then
         val k = math.min(rleRemaining, n - i)
@@ -258,20 +302,50 @@ private[parquet] final class RleBitPackedDecoder(
           count += k
         rleRemaining -= k
         i += k
-      else if packedRemaining > 0 then
-        val k = math.min(packedRemaining, n - i)
-        count += RleBitPackedDecoder.copyLevels(packed, packedPos, dst, offset + i, k, maxLevel)
-        packedPos += k
-        packedRemaining -= k
-        i += k
       else if pos >= end then
         throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
       else
-        nextRun(lazyBits)
+        nextRun()
     end while
     count
 
   end readLevels
+
+  /**
+    * Writes the next `k` bits of the 1-bit run to `dst` as bytes, and returns how many are 1. Whole
+    * bytes go 8 bits at a time; missing bytes at the end of the data read as 0.
+    */
+  private def expandBits(dst: Array[Byte], offset: Int, k: Int): Int =
+    var count = 0
+    var t     = 0
+    while t < k do
+      val bi = bitIndex + t
+      val p  = bitStart + (bi >>> 3)
+      if (bi & 7) == 0 && k - t >= 8 && p < end then
+        val b = buf(p) & 0xff
+        val o = offset + t
+        dst(o) = (b & 1).toByte
+        dst(o + 1) = ((b >>> 1) & 1).toByte
+        dst(o + 2) = ((b >>> 2) & 1).toByte
+        dst(o + 3) = ((b >>> 3) & 1).toByte
+        dst(o + 4) = ((b >>> 4) & 1).toByte
+        dst(o + 5) = ((b >>> 5) & 1).toByte
+        dst(o + 6) = ((b >>> 6) & 1).toByte
+        dst(o + 7) = (b >>> 7).toByte
+        count += Integer.bitCount(b)
+        t += 8
+      else
+        val v =
+          if p < end then
+            (buf(p) >>> (bi & 7)) & 1
+          else
+            0
+        dst(offset + t) = v.toByte
+        count += v
+        t += 1
+    count
+
+  end expandBits
 
 end RleBitPackedDecoder
 

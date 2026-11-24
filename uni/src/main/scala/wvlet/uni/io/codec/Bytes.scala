@@ -18,6 +18,12 @@ private[uni] object Bytes:
       k += 1
     v
 
+  /**
+    * The little-endian long at `b(i)`, with one 8-byte load where the platform has one. `b(i)` to
+    * `b(i + 7)` must be inside the array: Scala Native doesn't check. A plain def, as below.
+    */
+  def wordLE(b: Array[Byte], i: Int): Long = Word8.le64(b, i)
+
   // Bulk reads of n little-endian values at src(off) into dst(dstOff), through the platform's
   // fastest copy. Plain defs, not inline: an inline forwarder to the JVM's Java class crashes
   // scalac.
