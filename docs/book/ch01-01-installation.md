@@ -106,7 +106,7 @@ portable-scala plugins are not published for sbt 2.x):
 ```scala
 // project/plugins.sbt
 addSbtPlugin("org.scala-js"     % "sbt-scalajs"          % "1.22.0")
-addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.12")
+addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.13")
 addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "__UNI_VERSION__")
 ```
 

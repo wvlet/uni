@@ -20,7 +20,7 @@ Unlike upstream's three artifacts (`sbt-crossproject` + `sbt-scalajs-crossprojec
 
 ```scala
 addSbtPlugin("org.scala-js"     % "sbt-scalajs"           % "1.22.0")
-addSbtPlugin("org.scala-native" % "sbt-scala-native"      % "0.5.12")
+addSbtPlugin("org.scala-native" % "sbt-scala-native"      % "0.5.13")
 addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject"  % "<version>")
 ```
 
