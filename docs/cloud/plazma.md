@@ -61,8 +61,65 @@ val users = file.readRows(Seq("time", "user")).toSeq
 
 // One column, with NilValue for rows without a value
 val times = file.readColumn("time").toSeq
+```
+
+## Read typed columns
+
+`readColumn` builds a MessagePack `Value` per row. For columnar processing, the typed readers
+decode a column into unboxed arrays instead. They return the Parquet column vectors of
+[Parquet](./parquet) (`LongColumn`, `DoubleColumn`, `BooleanColumn`, `BinaryColumn`), so code that
+reads Parquet column batches reads MPC1 columns too:
+
+```scala
+file.columnType("time") // MPC1ColumnType.LONG
+
+val timeCol = file.readLongs("time")
+timeCol.values    // Array[Long], one per row
+timeCol.isNull(0) // true when the row is nil; timeCol.nullFlags is null when no row is nil
+
+val prices  = file.readDoubles("price")  // floats, and integers widened to doubles
+val active  = file.readBooleans("active")
+val userCol = file.readStrings("user")   // userCol.getString(i)
+val blobs   = file.readBinaries("blob")  // binaries, and strings as UTF-8 bytes
+
+// Every reader also takes a column index, in columnNames order
+val first = file.readLongs(0)
+file.columnType(0)
+file.readColumn(0)
+```
+
+MPC1 has no schema, so `columnType` finds the type from the values. It reads only the format byte
+of each value, without decoding the values:
+
+| `MPC1ColumnType` | Values | Reader |
+|---|---|---|
+| `LONG` | integers | `readLongs` |
+| `DOUBLE` | floats, or floats and integers | `readDoubles` |
+| `BOOLEAN` | booleans | `readBooleans` |
+| `STRING` | strings | `readStrings` |
+| `BINARY` | binaries, or binaries and strings | `readBinaries` |
+| `NIL` | only nils, or no rows | any reader (every row is null) |
+| `ANY` | arrays, maps, extension values such as timestamps, or other mixes | `readColumn`, or a typed reader that nulls the other values |
+
+MPC1 is schema-on-read: a reader takes the values of its type, and every other row is null, both
+nil rows and values of another type. A stray value never fails the read, so a query over a column
+with a few odd values keeps running. `readLongs` on a column of `1, "x", 3` returns `1, null, 3`.
+An unsigned 64-bit integer over `Long.MaxValue` is null for `readLongs`; `readDoubles` reads it.
+Call `columnType` to pick the reader that keeps every value, and use `readColumn` for `ANY` when you
+need the values of every type. Only a corrupt block fails, with an `MPC1Exception`.
+
+`columnType` and each reader read the column block once. To probe and decode one block read, call
+`MPC1Decoder` on the decompressed block:
+
+```scala
+val block = file.readColumnBlock(file.column("time").get)
+MPC1Decoder.columnType(block) match
+  case MPC1ColumnType.LONG => MPC1Decoder.decodeLongs("time", block)
+  case _                   => ???
 file.close()
 ```
+
+## Read remote files
 
 `MPC1.openUrl(url)` reads over HTTP range requests. `MPC1.openS3("s3://bucket/key")`,
 `MPC1.openGcs("gs://bucket/key")`, and `MPC1.openAzure("az://container/key")` read from object

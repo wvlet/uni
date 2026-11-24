@@ -1,5 +1,6 @@
 package wvlet.uni.cloud.plazma
 
+import wvlet.uni.cloud.parquet.ParquetField
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
@@ -37,6 +38,192 @@ class MPC1Test extends UniTest:
   private def row(kv: (String, Value)*): MapValue = MapValue(
     ListMap.from(kv.map((k, v) => (StringValue(k): Value) -> v))
   )
+
+  private def block(f: PureScalaBufferPacker => Unit): Array[Byte] =
+    val pk = PureScalaBufferPacker()
+    f(pk)
+    pk.toByteArray
+
+  test("typed reads match the values of every lineitem column") {
+    val file  = MPC1.open(MPC1TestFiles.bytes("lineitem.mpc1"))
+    val types = file.columnNames.map(n => n -> file.columnType(n)).toMap
+    types("time") shouldBe MPC1ColumnType.LONG
+    types("l_orderkey") shouldBe MPC1ColumnType.LONG
+    types("l_extendedprice") shouldBe MPC1ColumnType.DOUBLE
+    types("l_comment") shouldBe MPC1ColumnType.STRING
+    types("l_dummy") shouldBe MPC1ColumnType.NIL
+    for name <- file.columnNames do
+      val expected = file.readColumn(name).toIndexedSeq
+      val vector   =
+        types(name) match
+          case MPC1ColumnType.LONG | MPC1ColumnType.NIL =>
+            file.readLongs(name)
+          case MPC1ColumnType.DOUBLE =>
+            file.readDoubles(name)
+          case MPC1ColumnType.BOOLEAN =>
+            file.readBooleans(name)
+          case MPC1ColumnType.STRING =>
+            file.readStrings(name)
+          case MPC1ColumnType.BINARY =>
+            file.readBinaries(name)
+          case MPC1ColumnType.ANY =>
+            fail(s"column ${name} has mixed types")
+      vector.name shouldBe name
+      vector.size shouldBe 1876
+      for i <- expected.indices do
+        val actual = vector.getValue(i)
+        expected(i) match
+          case NilValue =>
+            vector.isNull(i) shouldBe true
+          case LongValue(x) if types(name) == MPC1ColumnType.DOUBLE =>
+            actual shouldBe x.toDouble
+          case LongValue(x) =>
+            actual shouldBe x
+          case DoubleValue(x) =>
+            actual shouldBe x
+          case BooleanValue(x) =>
+            actual shouldBe x
+          case StringValue(x) =>
+            actual shouldBe x
+          case BinaryValue(x) =>
+            actual shouldMatch { case a: Array[Byte] =>
+              a.toSeq shouldBe x.toSeq
+            }
+          case other =>
+            fail(s"unexpected value ${other} in column ${name}")
+    end for
+  }
+
+  test("probe column types from format bytes") {
+    def typeOf(f: PureScalaBufferPacker => Unit) = MPC1Decoder.columnType(block(f))
+    typeOf(_ => ()) shouldBe MPC1ColumnType.NIL
+    typeOf(_.packNil.packNil) shouldBe MPC1ColumnType.NIL
+    typeOf(_.packLong(1).packNil.packLong(Long.MaxValue)) shouldBe MPC1ColumnType.LONG
+    typeOf(_.packDouble(1.5).packNil) shouldBe MPC1ColumnType.DOUBLE
+    typeOf(_.packLong(1).packFloat(2.5f)) shouldBe MPC1ColumnType.DOUBLE
+    typeOf(_.packBoolean(true).packNil) shouldBe MPC1ColumnType.BOOLEAN
+    typeOf(_.packString("a").packNil) shouldBe MPC1ColumnType.STRING
+    typeOf(_.packBinaryHeader(1).writePayload(Array[Byte](1))) shouldBe MPC1ColumnType.BINARY
+    typeOf(_.packString("a").packBinaryHeader(0)) shouldBe MPC1ColumnType.BINARY
+    typeOf(_.packLong(1).packString("a")) shouldBe MPC1ColumnType.ANY
+    typeOf(_.packBoolean(true).packLong(1)) shouldBe MPC1ColumnType.ANY
+    typeOf(_.packLong(1).packArrayHeader(1).packLong(2)) shouldBe MPC1ColumnType.ANY
+  }
+
+  test("decode nullable typed columns") {
+    val longs = MPC1Decoder.decodeLongs("a", block(_.packLong(-1).packNil.packLong(1L << 40)))
+    longs.values.toSeq shouldBe Seq(-1L, 0L, 1L << 40)
+    longs.nullFlags.toSeq shouldBe Seq(false, true, false)
+
+    val doubles = MPC1Decoder.decodeDoubles("a", block(_.packDouble(1.5).packLong(2).packNil))
+    doubles.values.toSeq shouldBe Seq(1.5, 2.0, 0.0)
+    doubles.nullFlags.toSeq shouldBe Seq(false, false, true)
+
+    val bools = MPC1Decoder.decodeBooleans(
+      "a",
+      block(_.packBoolean(true).packNil.packBoolean(false))
+    )
+    bools.values.toSeq shouldBe Seq(true, false, false)
+    bools.nullFlags.toSeq shouldBe Seq(false, true, false)
+
+    val long = "x" * 300
+    val strs = MPC1Decoder.decodeStrings("a", block(_.packString("ab").packNil.packString(long)))
+    strs.size shouldBe 3
+    strs.getString(0) shouldBe "ab"
+    strs.isNull(1) shouldBe true
+    strs.getString(2) shouldBe long
+    strs.getValue(2) shouldBe long
+
+    val bins = MPC1Decoder.decodeBinaries(
+      "a",
+      block(_.packBinaryHeader(2).writePayload(Array[Byte](1, 2)).packString("c"))
+    )
+    bins.getBytes(0).toSeq shouldBe Seq[Byte](1, 2)
+    bins.getBytes(1).toSeq shouldBe "c".getBytes("UTF-8").toSeq
+    bins.nullFlags shouldBe null
+  }
+
+  test("no null flags without nils, and all nulls for a nil-only column") {
+    val many = MPC1Decoder.decodeLongs(
+      "a",
+      block(pk => (0 until 5000).foreach(i => pk.packLong(i)))
+    )
+    many.size shouldBe 5000
+    many.values(4999) shouldBe 4999L
+    many.nullFlags shouldBe null
+
+    val nils = MPC1Decoder.decodeStrings("a", block(pk => (0 until 3000).foreach(_ => pk.packNil)))
+    nils.size shouldBe 3000
+    (0 until 3000).forall(nils.isNull) shouldBe true
+  }
+
+  test("read values of another type as nulls") {
+    val longs = MPC1Decoder.decodeLongs(
+      "a",
+      block(
+        _.packLong(1).packString("x").packDouble(1.5).packArrayHeader(1).packLong(2).packLong(3)
+      )
+    )
+    longs.values.toSeq shouldBe Seq(1L, 0L, 0L, 0L, 3L)
+    longs.nullFlags.toSeq shouldBe Seq(false, true, true, true, false)
+
+    val strs = MPC1Decoder.decodeStrings(
+      "a",
+      block(_.packBinaryHeader(1).writePayload(Array[Byte](1)).packString("b"))
+    )
+    strs.isNull(0) shouldBe true
+    strs.getString(1) shouldBe "b"
+
+    val bools = MPC1Decoder.decodeBooleans("a", block(_.packLong(1000).packBoolean(true)))
+    bools.nullFlags.toSeq shouldBe Seq(true, false)
+    bools.values(1) shouldBe true
+
+    val doubles = MPC1Decoder.decodeDoubles("a", block(_.packBoolean(true).packFloat(0.5f)))
+    doubles.nullFlags.toSeq shouldBe Seq(true, false)
+    doubles.values(1) shouldBe 0.5
+  }
+
+  test("an unsigned 64-bit integer over Long.MaxValue") {
+    val overflow = Array[Byte](0xcf.toByte) ++ Array.fill[Byte](8)(0xff.toByte)
+    MPC1Decoder.decodeLongs("a", overflow).isNull(0) shouldBe true
+    MPC1Decoder.decodeDoubles("a", overflow).values(0) shouldBe 18446744073709551615.0
+  }
+
+  test("fail on a corrupt block") {
+    intercept[MPC1Exception] {
+      MPC1Decoder.decodeLongs("a", Array[Byte](0xc1.toByte))
+    }.getMessage shouldContain "Corrupt MPC1 data in column a"
+  }
+
+  test("typed reads by column name") {
+    val writer    = MPC1.newWriter(MPC1WriteOptions().noCompression())
+    writer.addRow("id"    -> LongValue(1), "name" -> StringValue("a"))
+    writer.addRow("score" -> DoubleValue(0.5))
+    val file      = MPC1.open(writer.toByteArray)
+    file.columnType("id") shouldBe MPC1ColumnType.LONG
+    file.readLongs("id").getValue(1) shouldBe null
+    file.readStrings("name").getString(0) shouldBe "a"
+    file.readDoubles("score").getValue(1) shouldBe 0.5
+    file.readDoubles("score").field shouldMatch { case p: ParquetField.Primitive =>
+      p.columnIndex shouldBe file.columnNames.indexOf("score")
+    }
+    intercept[IllegalArgumentException] {
+      file.readLongs("no_such_column")
+    }
+
+    val id = file.columnNames.indexOf("id")
+    file.columnType(id) shouldBe MPC1ColumnType.LONG
+    file.readLongs(id).getValue(0) shouldBe 1L
+    file.readColumn(id).toSeq shouldBe Seq(LongValue(1), NilValue)
+    file.readStrings(file.columnNames.indexOf("name")).getString(0) shouldBe "a"
+    file.readDoubles(file.columnNames.indexOf("score")).getValue(1) shouldBe 0.5
+    intercept[IndexOutOfBoundsException] {
+      file.readLongs(file.columnNames.size)
+    }
+    intercept[IndexOutOfBoundsException] {
+      file.columnType(-1)
+    }
+  }
 
   test("encode and decode block sizes") {
     val sizes = Seq(1L, 127L, 128L, 300L, 16384L, 1L << 35, Long.MaxValue)

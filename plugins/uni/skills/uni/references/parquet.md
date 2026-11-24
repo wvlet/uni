@@ -568,10 +568,21 @@ val bytes = writer.toByteArray // or writeTo(path) / writeTo(outputStream); in m
 val file  = MPC1.open(bytes) // or a path, MPC1.openS3/openGcs/openAzure/openUrl
 val rows  = file.readRows(Seq("time", "user")).toSeq // Iterator[MapValue], nil values left out
 val times = file.readColumn("time").toSeq            // one value per row, NilValue when missing
+
+// Typed reads: unboxed Parquet ColumnVectors (LongColumn, DoubleColumn, BooleanColumn, BinaryColumn)
+file.columnType("time") // MPC1ColumnType.LONG; DOUBLE, BOOLEAN, STRING, BINARY, NIL, or ANY
+val longs = file.readLongs("time")     // longs.values: Array[Long]; longs.isNull(i) for nil rows
+val names = file.readStrings("user")   // names.getString(i); also readDoubles, readBooleans, readBinaries
+val byIdx = file.readLongs(file.columnNames.indexOf("time")) // every reader also takes a column index
 file.close()
 ```
 
 Each distinct string key becomes a column; projected reads fetch only the selected column blocks.
+`columnType` reads only format bytes: int + float → DOUBLE, str + bin → BINARY, arrays, maps,
+timestamps, or other mixes → ANY (use `readColumn`). Schema-on-read: nil and values of another
+type are null for every reader (no exception; only a corrupt block throws `MPC1Exception`).
+`readDoubles` widens integers.
+`MPC1Decoder.columnType(block)` / `decodeLongs(name, block)` work on one `readColumnBlock` result.
 Gzip writes fail in browsers.
 
 ## Limits
