@@ -425,7 +425,7 @@ def environment(args):
             f"- CPU: {cpu_name()}",
             f"- JDK: {first_line([args.java, '-version'])}",
             f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}; "
-            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*GC_ENV, "GC_MAXIMUM_HEAP_SIZE", "GC_MARKERS"]
+            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*GC_ENV, "GC_MAXIMUM_HEAP_SIZE", "GC_MARKERS", "RPC_WORKERS"]
                         if k in os.environ),
             f"- JVM small heap options: `{args.jvm_small_opts}`",
             f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]

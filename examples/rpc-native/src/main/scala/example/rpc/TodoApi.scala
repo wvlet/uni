@@ -43,7 +43,7 @@ object TodoRpc:
     .newSilentDesign
     .bindImpl[TodoApi, TodoApiImpl]
     .bindProvider[TodoApi, HttpServer] { api =>
-      Http.server.withPort(port).withHost(host).withRxHandler(handler(api)).start()
+      BenchTuning(Http.server.withPort(port).withHost(host)).withRxHandler(handler(api)).start()
     }
     .onShutdown(_.stop())
 
