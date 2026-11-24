@@ -1,5 +1,3 @@
-import sbtide.Keys.ideSkipProject
-
 // `core.jvm` / `.js` / `.native` (Project) are used where a ProjectReference is expected (e.g. the
 // jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
 import scala.language.implicitConversions
@@ -139,15 +137,10 @@ val noPublish = Seq(
   crossScalaVersions := Nil,
   // Explicitly skip the doc task because protobuf related Java files causes no type found error
   Compile / doc / sources                := Seq.empty,
-  Compile / packageDoc / publishArtifact := false,
+  Compile / packageDoc / publishArtifact := false
   // Do not check binary compatibility for unpublished projects
   // mimaPreviousArtifacts := Set.empty
-  // Skip importing aggregated projects in IntelliJ IDEA
-  ideSkipProject := true
 )
-
-// Remove warning as ideSkipProject is used only for IntelliJ IDEA
-Global / excludeLintKeys ++= Set(ideSkipProject)
 
 // Root project aggregating others
 lazy val root = project
