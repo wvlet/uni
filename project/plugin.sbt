@@ -7,8 +7,7 @@ val UNI_PLUGIN_VERSION = "2026.1.41"
 // For GPG signing published artifacts
 addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.4.0")
 
-addSbtPlugin("org.scalameta"       % "sbt-scalafmt"     % "2.6.2")
-addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings" % "1.1.4")
+addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.6.2")
 
 // Cross-building for JVM / Scala.js / Scala Native (CrossType.Pure)
 addSbtPlugin("org.wvlet.uni" % "sbt-uni-crossproject" % UNI_PLUGIN_VERSION)

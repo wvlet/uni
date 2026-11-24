@@ -22,6 +22,8 @@ Move `project/build.properties` to **sbt 2.0.1** and swap the metabuild plugins:
 
 `sbt-pack` bumped `0.23` → `1.0.0`. Kept (already on sbt 2.x): `sbt-pgp`, `sbt-scalafmt`,
 `sbt-ide-settings`, `sbt-scalajs`, `sbt-scala-native`, `sbt-dynver`, `scalajs-env-nodejs`.
+(`sbt-ide-settings` was later removed: the project no longer uses an IDE, and resolving it
+caused flaky CI download failures.)
 
 Because `sbt-uni-crossproject` reproduces the exact `crossProject` / `CrossType.Pure` API, the
 `build.sbt` project definitions were unchanged — only sbt-2.x source-level adjustments were needed.
