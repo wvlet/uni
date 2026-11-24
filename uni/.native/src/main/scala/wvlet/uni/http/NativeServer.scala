@@ -298,9 +298,9 @@ end NativeServerConfig
 object NativeServerConfig:
   /**
     * The default `workerThreads`: about one worker per core, at least 4 and at most 16. More
-    * workers than cores queued on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on a
-    * 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection holds
-    * a worker there while it is open.
+    * workers than cores queued on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on
+    * a 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection
+    * holds a worker there while it is open.
     */
   private[http] def defaultWorkerThreads(cores: Int, windows: Boolean): Int =
     if windows then
