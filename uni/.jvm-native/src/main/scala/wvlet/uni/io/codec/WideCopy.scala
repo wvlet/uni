@@ -5,12 +5,12 @@ package wvlet.uni.io.codec
   * copy is at most 16 bytes, the common case in columnar data. `System.arraycopy` has a fixed setup
   * cost that dominates such short copies.
   *
-  * A wide copy always moves 16 or 32 bytes, so it may write up to 31 bytes past the end of the
-  * copy. That is safe because the decoders write their output front to back: bytes below the write
-  * position are final, and the next copy starts at the end of this one and overwrites the
-  * overshoot. The wide path runs only when all the bytes it moves stay inside the source array and
-  * before `limit`, the end of the bytes the caller lets it write: `out.length`, or the output size
-  * when the caller's buffer holds bytes past the output that must stay as they were.
+  * A wide copy always moves 16 bytes, so it may write up to 15 bytes past the end of the copy. That
+  * is safe because the decoders write their output front to back: bytes below the write position
+  * are final, and the next copy starts at the end of this one and overwrites the overshoot. The
+  * wide path runs only when all the bytes it moves stay inside the source array and before `limit`,
+  * the end of the bytes the caller lets it write: `out.length`, or the output size when the
+  * caller's buffer holds bytes past the output that must stay as they were.
   */
 private[uni] object WideCopy:
 

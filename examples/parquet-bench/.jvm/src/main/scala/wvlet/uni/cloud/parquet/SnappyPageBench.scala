@@ -33,6 +33,8 @@ object SnappyPageBench:
     )
     if args.contains("--stats") then
       tagStats(pages)
+    if pages.isEmpty then
+      sys.error("no Snappy-compressed pages in the given files")
     val out = new Array[Byte](pages.map(_.rawSize).max)
 
     // Check against snappy-java first

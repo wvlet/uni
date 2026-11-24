@@ -15,6 +15,14 @@ class SnappyDecodeTest extends UniTest:
   private class TagStream:
     val tags = ArrayBuffer.empty[Byte]
     val out  = ArrayBuffer.empty[Byte]
+    // Output bytes that raw tags claim on top of `out`, for streams the decoder must reject
+    var claimed = 0
+
+    /** Appends tags as they are, which the stream says decode to `n` more bytes */
+    def raw(bytes: Array[Byte], n: Int): TagStream =
+      tags ++= bytes
+      claimed += n
+      this
 
     def literal(bytes: Array[Byte]): TagStream =
       val n = bytes.length - 1
@@ -53,7 +61,7 @@ class SnappyDecodeTest extends UniTest:
     /** The stream: the output length as a varint, then the tags */
     def bytes: Array[Byte] =
       val b = ArrayBuffer.empty[Byte]
-      var n = out.length
+      var n = out.length + claimed
       while n >= 0x80 do
         b += ((n & 0x7f) | 0x80).toByte
         n >>>= 7
@@ -118,18 +126,21 @@ class SnappyDecodeTest extends UniTest:
   }
 
   test("rejects copies outside the output and literals past the input") {
-    def corrupt(c: Array[Byte], n: Int): Unit = intercept[CodecException] {
-      Snappy.decompress(c, 0, c.length, n)
-    }
+    def corrupt(c: Array[Byte], n: Int, message: String = ""): Unit =
+      val e = intercept[CodecException] {
+        Snappy.decompress(c, 0, c.length, n)
+      }
+      e.getMessage shouldContain message
     val base = TagStream().literal(100)
-    // A zero offset, and an offset before the start of the output
-    for offset <- Seq(0, 101, 1 << 20) do
-      val s = TagStream().literal(100)
-      val c =
-        s.bytes ++ Array[Byte](((4 - 1) << 2 | 2).toByte, offset.toByte, (offset >>> 8).toByte)
-      corrupt(c, 104)
-      // with more input after it, so the copy is in the fast loop
-      corrupt(c ++ TagStream().literal(50).bytes.drop(1), 154)
+    // A zero offset, and an offset before the start of the output: a 4-byte copy-2 tag
+    for offset <- Seq(0, 101, 0xffff) do
+      val copy = Array[Byte](((4 - 1) << 2 | 2).toByte, offset.toByte, (offset >>> 8).toByte)
+      // As the last tag, which the checked tail decodes
+      corrupt(TagStream().literal(100).raw(copy, 4).bytes, 104, s"copy offset ${offset} ")
+      // With more tags after it, so the copy is in the fast loop
+      val s = TagStream().literal(100).raw(copy, 4)
+      s.literal(100)
+      corrupt(s.bytes, 204, s"copy offset ${offset} ")
     // A literal longer than the rest of the input
     val c = base.bytes
     corrupt(c.dropRight(1), 100)
