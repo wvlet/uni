@@ -591,6 +591,24 @@ object ParquetFile:
         source.close()
         throw e
 
+  /**
+    * Opens a file with a footer parsed earlier, such as `file.metadata` of a previous open. This
+    * reads nothing and skips parsing the footer, so a caller that opens the same file many times
+    * can keep the footer in a cache.
+    *
+    * The footer must come from the same file: one rewritten since then reads wrong data or fails.
+    * Callers that cache footers decide when an entry is stale, for example by keeping the `size`
+    * and `lastModified` of [[wvlet.uni.io.FileSystem.info]] with it. The returned file owns the
+    * source and closes it on `close()`. Synchronous reads need a [[ByteSource]].
+    */
+  def open(source: AsyncByteSource, metadata: FileMetaData): ParquetFile =
+    try
+      ParquetFile(source, metadata)
+    catch
+      case e: Throwable =>
+        source.close()
+        throw e
+
   def openAsync(source: AsyncByteSource): Rx[ParquetFile] = source
     .readTailAsync(TailReadSize)
     .flatMap { case (tail, size) =>
