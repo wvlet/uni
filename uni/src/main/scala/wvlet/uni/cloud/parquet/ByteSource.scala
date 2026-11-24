@@ -39,6 +39,16 @@ trait ByteSource extends AsyncByteSource:
   def size: Long
   def read(offset: Long, length: Int): Array[Byte]
 
+  /**
+    * Whether [[readInto]] fills a caller's buffer without allocating one, so a reader gains by
+    * passing a reused buffer. A source that returns true overrides [[readInto]].
+    */
+  private[parquet] def readsInto: Boolean = false
+
+  /** Reads bytes [offset, offset + length) into `buf(0)` to `buf(length - 1)` */
+  private[parquet] def readInto(offset: Long, length: Int, buf: Array[Byte]): Unit =
+    throw UnsupportedOperationException(s"${name} doesn't read into a caller's buffer")
+
   def readTail(length: Int): (Array[Byte], Long) =
     val total = size
     val n     = math.min(total, length.toLong).toInt

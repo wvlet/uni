@@ -6,6 +6,7 @@ import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.cloud.parquet.column.Assembly
 import wvlet.uni.cloud.parquet.column.ChunkInput
 import wvlet.uni.cloud.parquet.column.ColumnChunkCursor
+import wvlet.uni.cloud.parquet.column.FetchBuffers
 import wvlet.uni.cloud.parquet.column.RowGroupBatches
 import wvlet.uni.cloud.parquet.column.ValueBuffer
 import wvlet.uni.cloud.parquet.format.*
@@ -58,7 +59,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val fl   = filtering(options)
     val opts = readOptions(options, fl)
     val plan = planRowGroup(index, opts)
-    val b    = wholeRowGroup(index, batches(plan, fetch(plan), opts, whole = true))
+    val b    = wholeRowGroup(index, fetchedBatches(plan, opts, whole = true))
     fl.fold(b)(_(b))
 
   /** Indices of the row groups to read: all of them, minus those the row group filter skips */
@@ -130,7 +131,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val fl   = filtering(options)
     val opts = readOptions(options, fl)
     val plan = planRowGroup(index, opts)
-    filtered(batches(plan, fetch(plan), opts, whole = false), fl)
+    filtered(fetchedBatches(plan, opts, whole = false), fl)
 
   /** The batches of one row group, as [[readBatches]] splits them */
   private[parquet] def rowGroupBatchesAsync(
@@ -362,16 +363,59 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
         r.offset <= c.start && c.start + c.length <= r.offset + r.length
       }
       .getOrElse(throw IllegalStateException(s"No fetched range covers ${c.field.pathString}"))
-    if bytes.length != range.length then
+    if bytes.length < range.length then
       throw ParquetException.corrupt(
         s"${source.name} ended before offset ${range.offset + range.length}"
       )
     ChunkInput.OfArray(bytes, (c.start - range.offset).toInt, c.length)
 
-  /** Reads the merged ranges now; windowed chunks read their windows while they are decoded */
-  private def fetch(plan: Plan): Map[Int, ChunkInput] =
+  /**
+    * The batches of a row group, read synchronously. When the source reads into a caller's buffer,
+    * the merged ranges go into [[FetchBuffers]], which get them back once the batches end; a caller
+    * that stops early leaves them to the GC.
+    */
+  private def fetchedBatches(
+      plan: Plan,
+      opts: ParquetReadOptions,
+      whole: Boolean
+  ): Iterator[ColumnBatch] =
+    val borrowed = IndexedSeq.newBuilder[Array[Byte]]
+    val it       = batches(plan, fetch(plan, borrowed), opts, whole)
+    val bufs     = borrowed.result()
+    if bufs.isEmpty then
+      it
+    else
+      new Iterator[ColumnBatch]:
+        private var released = false
+        def hasNext: Boolean =
+          val more = it.hasNext
+          if !more && !released then
+            released = true
+            bufs.foreach(FetchBuffers.release)
+          more
+
+        def next(): ColumnBatch = it.next()
+
+  /**
+    * Reads the merged ranges now; windowed chunks read their windows while they are decoded. Ranges
+    * read into pooled buffers are added to `borrowed`.
+    */
+  private def fetch(
+      plan: Plan,
+      borrowed: scala.collection.mutable.Builder[Array[Byte], ?]
+  ): Map[Int, ChunkInput] =
     val src  = syncSource
-    val data = plan.ranges.map(r => r -> src.read(r.offset, r.length))
+    val data = plan
+      .ranges
+      .map { r =>
+        if src.readsInto && r.length <= FetchBuffers.MaxBufferBytes then
+          val buf = FetchBuffers.borrow(r.length)
+          src.readInto(r.offset, r.length, buf)
+          borrowed += buf
+          r -> buf
+        else
+          r -> src.read(r.offset, r.length)
+      }
     plan
       .chunks
       .map { c =>

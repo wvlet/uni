@@ -113,6 +113,33 @@ private[parquet] object PageBuffers:
   def release(buf: Array[Byte]): Unit = pool.release(buf)
 
 /**
+  * Buffers that a synchronous row-group read fetches column chunks into. A buffer belongs to one
+  * row group's batches from [[borrow]] until they end: pages decode from it (uncompressed pages in
+  * place), and every decoder copies values out, so no vector points into it. Reading a file
+  * otherwise allocates, and zero-fills, a new array of a few MB for every row group. A thread keeps
+  * at most one row group's ranges of typical size; larger ranges are read into new arrays.
+  */
+private[parquet] object FetchBuffers:
+  final val MaxPooled      = 4
+  final val MaxPooledBytes = 8L * 1024 * 1024
+  final val MaxBufferBytes = 8 * 1024 * 1024
+
+  private val pool = ArrayPool[Array[Byte]](
+    MaxPooled,
+    MaxPooledBytes,
+    MaxBufferBytes,
+    1,
+    new Array[Byte](_),
+    _.length
+  )
+
+  /** A buffer of at least `size` bytes, holding what its last borrower left in it */
+  def borrow(size: Int): Array[Byte] = pool.borrow(size)
+
+  /** Returns a buffer from [[borrow]], which the caller must not use afterwards */
+  def release(buf: Array[Byte]): Unit = pool.release(buf)
+
+/**
   * Arrays that a [[ColumnChunkCursor]] decodes levels into: definition and repetition levels, and
   * the positions of a page's nulls. Assembly reads the levels of a batch and keeps none of them, so
   * [[RowGroupBatches]] releases them once the batch's vectors are built.
