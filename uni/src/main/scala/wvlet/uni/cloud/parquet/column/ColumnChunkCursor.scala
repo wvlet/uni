@@ -367,24 +367,32 @@ private[parquet] final class ColumnChunkCursor(
         math.max(needed, valueBase.toLong + levelEnd - base)
       else
         needed
-    if toChunkEnd && capacity > values.capacity && capacity <= ValueBuffer.MaxArrayLength then
-      // Non-null values per level entry so far, over the entries not handed out yet
+    // Non-null values per level entry so far, projected over the entries not handed out yet
+    def projectedAhead(): Long =
       val nonNull = values.size - valueBase + h.nonNull
       val ahead   = entriesAhead(0)
-      val more    =
-        if ahead == 0 then
-          0L
-        else if slotted then
-          ahead
-        else
-          (ahead.toDouble * nonNull / (levelEnd - base)).toLong + 1
-      values.reserve(grownSize(values.capacity, capacity, more, entriesLeft(0)))
-      values match
-        case b: BinaryBuffer if more > 0 && b.size > valueBase =>
-          val perValue = (b.dataSize - b.offsets(valueBase)).toDouble / (b.size - valueBase)
-          val bytes    = b.dataSize + perValue * (h.nonNull + more)
+      if ahead == 0 then
+        0L
+      else if slotted then
+        ahead
+      else
+        (ahead.toDouble * nonNull / (levelEnd - base)).toLong + 1
+    if toChunkEnd && capacity > values.capacity && capacity <= ValueBuffer.MaxArrayLength then
+      values.reserve(grownSize(values.capacity, capacity, projectedAhead(), entriesLeft(0)))
+    values match
+      case b: BinaryBuffer if toChunkEnd && b.size > valueBase =>
+        // Size the data for the rest of the chunk from the bytes per value so far, once this page
+        // may not fit, instead of doubling it page by page: each doubling zero-fills a new array
+        // and copies the old one
+        val perValue = (b.dataSize - b.offsets(valueBase)).toDouble / (b.size - valueBase)
+        if b.dataSize + perValue * h.nonNull > b.data.length then
+          val more = projectedAhead()
+          // A little headroom, so values slightly longer than the average don't grow it again
+          val bytes = (b.dataSize + perValue * (h.nonNull + more)) * 1.0625
           b.reserveData(math.min(bytes, ValueBuffer.MaxArrayLength.toDouble).toInt)
-        case _ =>
+      case _ =>
+
+  end reserveValues
 
   /** Decodes the held page's values */
   private def commit(): Unit =
