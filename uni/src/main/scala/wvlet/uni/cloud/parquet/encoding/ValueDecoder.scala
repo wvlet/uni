@@ -107,6 +107,62 @@ private[parquet] object ValueDecoder:
         case other =>
           throw ParquetException.unsupported(s"${other} encoding for ${tpe} values")
 
+  /**
+    * Decodes a page's `n` non-null values into the rows [out.size, to) of `out`, one slot per row:
+    * the rows `nulls` does not flag take the values in order, and the flagged rows the default
+    * value. `n` must be the number of rows not flagged.
+    */
+  def decodeInto(
+      encoding: Encoding,
+      tpe: PhysicalType,
+      typeLength: Int,
+      buf: Array[Byte],
+      start: Int,
+      end: Int,
+      n: Int,
+      out: FixedValueBuffer,
+      dictionary: Option[ValueBuffer],
+      nulls: Array[Boolean],
+      to: Int,
+      scratch: Array[Int] = null
+  ): Unit =
+    val from = out.size
+    if n == to - from then
+      // No nulls: the values are the rows
+      decode(encoding, tpe, typeLength, buf, start, end, n, out, dictionary, scratch)
+    else if n == 0 then
+      out.appendNulls(to - from)
+    else
+      encoding match
+        case Encoding.PLAIN_DICTIONARY | Encoding.RLE_DICTIONARY =>
+          val dict = dictionary.getOrElse(
+            throw ParquetException.corrupt("dictionary-encoded page without a dictionary page")
+          )
+          if start >= end then
+            throw ParquetException.corrupt("dictionary index data is empty")
+          val bitWidth = buf(start) & 0xff
+          val block    = math.min(n, DictionaryBlock)
+          val indices  =
+            if scratch != null && scratch.length >= block then
+              scratch
+            else
+              new Array[Int](block)
+          RleBitPackedDecoder(buf, start + 1, end, bitWidth).readDictionaryInto(
+            out,
+            dict,
+            n,
+            nulls,
+            to,
+            indices
+          )
+        case _ =>
+          // Decoded in bulk into the first slots, then spread out to their rows
+          decode(encoding, tpe, typeLength, buf, start, end, n, out, dictionary, scratch)
+          out.spreadSlots(from, n, to, nulls)
+    end if
+
+  end decodeInto
+
   def decodePlain(
       tpe: PhysicalType,
       typeLength: Int,

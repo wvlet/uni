@@ -78,7 +78,7 @@ private[parquet] object ValueBuffer:
           n << 1
     n
 
-private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffer:
+private[parquet] final class BooleanBuffer(initial: Int = 16) extends FixedValueBuffer:
   var values: Array[Boolean] = new Array[Boolean](math.max(initial, 1))
   var size: Int              = 0
 
@@ -129,9 +129,68 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
     java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
+  def appendNulls(n: Int): Unit =
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, false)
+    size += n
+
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit =
+    ensure(to - size)
+    val a = values
+    FixedValueBuffer.spread(from, count, to, nulls)((i, j, isNull) =>
+      val v = a(j)
+      a(i) =
+        if isNull then
+          false
+        else
+          v
+    )
+    size = to
+
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[BooleanBuffer]
+    checkIndices(indices, n, d.size)
+    val dv = d.values
+    val a  = values
+    FixedValueBuffer.place(indices, n, nulls, row, to)((i, k, isNull) =>
+      val v = dv(k)
+      a(i) =
+        if isNull then
+          false
+        else
+          v
+    )
+
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[BooleanBuffer]
+    checkIndex(index, d.size)
+    val v = d.values(index)
+    val a = values
+    FixedValueBuffer.placeEach(n, nulls, row, to)((i, isNull) =>
+      a(i) =
+        if isNull then
+          false
+        else
+          v
+    )
+
 end BooleanBuffer
 
-private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
+private[parquet] final class IntBuffer(initial: Int = 16) extends FixedValueBuffer:
   var values: Array[Int] = new Array[Int](math.max(initial, 1))
   var size: Int          = 0
 
@@ -182,9 +241,68 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
     java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
+  def appendNulls(n: Int): Unit =
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, 0)
+    size += n
+
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit =
+    ensure(to - size)
+    val a = values
+    FixedValueBuffer.spread(from, count, to, nulls)((i, j, isNull) =>
+      val v = a(j)
+      a(i) =
+        if isNull then
+          0
+        else
+          v
+    )
+    size = to
+
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[IntBuffer]
+    checkIndices(indices, n, d.size)
+    val dv = d.values
+    val a  = values
+    FixedValueBuffer.place(indices, n, nulls, row, to)((i, k, isNull) =>
+      val v = dv(k)
+      a(i) =
+        if isNull then
+          0
+        else
+          v
+    )
+
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[IntBuffer]
+    checkIndex(index, d.size)
+    val v = d.values(index)
+    val a = values
+    FixedValueBuffer.placeEach(n, nulls, row, to)((i, isNull) =>
+      a(i) =
+        if isNull then
+          0
+        else
+          v
+    )
+
 end IntBuffer
 
-private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
+private[parquet] final class LongBuffer(initial: Int = 16) extends FixedValueBuffer:
   var values: Array[Long] = new Array[Long](math.max(initial, 1))
   var size: Int           = 0
 
@@ -235,9 +353,68 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
     java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
+  def appendNulls(n: Int): Unit =
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, 0L)
+    size += n
+
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit =
+    ensure(to - size)
+    val a = values
+    FixedValueBuffer.spread(from, count, to, nulls)((i, j, isNull) =>
+      val v = a(j)
+      a(i) =
+        if isNull then
+          0L
+        else
+          v
+    )
+    size = to
+
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[LongBuffer]
+    checkIndices(indices, n, d.size)
+    val dv = d.values
+    val a  = values
+    FixedValueBuffer.place(indices, n, nulls, row, to)((i, k, isNull) =>
+      val v = dv(k)
+      a(i) =
+        if isNull then
+          0L
+        else
+          v
+    )
+
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[LongBuffer]
+    checkIndex(index, d.size)
+    val v = d.values(index)
+    val a = values
+    FixedValueBuffer.placeEach(n, nulls, row, to)((i, isNull) =>
+      a(i) =
+        if isNull then
+          0L
+        else
+          v
+    )
+
 end LongBuffer
 
-private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
+private[parquet] final class FloatBuffer(initial: Int = 16) extends FixedValueBuffer:
   var values: Array[Float] = new Array[Float](math.max(initial, 1))
   var size: Int            = 0
 
@@ -288,9 +465,68 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
     java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
+  def appendNulls(n: Int): Unit =
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, 0f)
+    size += n
+
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit =
+    ensure(to - size)
+    val a = values
+    FixedValueBuffer.spread(from, count, to, nulls)((i, j, isNull) =>
+      val v = a(j)
+      a(i) =
+        if isNull then
+          0f
+        else
+          v
+    )
+    size = to
+
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[FloatBuffer]
+    checkIndices(indices, n, d.size)
+    val dv = d.values
+    val a  = values
+    FixedValueBuffer.place(indices, n, nulls, row, to)((i, k, isNull) =>
+      val v = dv(k)
+      a(i) =
+        if isNull then
+          0f
+        else
+          v
+    )
+
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[FloatBuffer]
+    checkIndex(index, d.size)
+    val v = d.values(index)
+    val a = values
+    FixedValueBuffer.placeEach(n, nulls, row, to)((i, isNull) =>
+      a(i) =
+        if isNull then
+          0f
+        else
+          v
+    )
+
 end FloatBuffer
 
-private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer:
+private[parquet] final class DoubleBuffer(initial: Int = 16) extends FixedValueBuffer:
   var values: Array[Double] = new Array[Double](math.max(initial, 1))
   var size: Int             = 0
 
@@ -341,7 +577,194 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
     java.util.Arrays.fill(values, size, size + n, d.values(index))
     size += n
 
+  def appendNulls(n: Int): Unit =
+    ensure(n)
+    java.util.Arrays.fill(values, size, size + n, 0d)
+    size += n
+
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit =
+    ensure(to - size)
+    val a = values
+    FixedValueBuffer.spread(from, count, to, nulls)((i, j, isNull) =>
+      val v = a(j)
+      a(i) =
+        if isNull then
+          0d
+        else
+          v
+    )
+    size = to
+
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[DoubleBuffer]
+    checkIndices(indices, n, d.size)
+    val dv = d.values
+    val a  = values
+    FixedValueBuffer.place(indices, n, nulls, row, to)((i, k, isNull) =>
+      val v = dv(k)
+      a(i) =
+        if isNull then
+          0d
+        else
+          v
+    )
+
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int =
+    val d = dict.asInstanceOf[DoubleBuffer]
+    checkIndex(index, d.size)
+    val v = d.values(index)
+    val a = values
+    FixedValueBuffer.placeEach(n, nulls, row, to)((i, isNull) =>
+      a(i) =
+        if isNull then
+          0d
+        else
+          v
+    )
+
 end DoubleBuffer
+
+/**
+  * Values of a fixed-size type, which can also be held one slot per row: a flat nullable column's
+  * values decode straight into their rows, with null rows holding the type's default value.
+  */
+private[parquet] sealed abstract class FixedValueBuffer extends ValueBuffer:
+  def size_=(n: Int): Unit
+
+  /** Grows the buffer, if needed, to hold `extra` more values */
+  def ensure(extra: Int): Unit
+
+  /** Appends `n` default values, for null rows */
+  def appendNulls(n: Int): Unit
+
+  /**
+    * Moves the `count` values at [from, from + count) out to the rows [from, to) that `nulls` does
+    * not flag, in place from the last row back, and puts the default value in the flagged rows. The
+    * buffer then holds `to` values.
+    */
+  def spreadSlots(from: Int, count: Int, to: Int, nulls: Array[Boolean]): Unit
+
+  /**
+    * Puts `dict(indices(k))` for k in [0, n) in the rows from `row` on that `nulls` does not flag,
+    * in order, and the default value in the flagged rows among them. Returns the row after the one
+    * that took the last value. Rows must not pass `to`, and the buffer must have room for them; the
+    * size is left to the caller.
+    */
+  def placeFromDictionary(
+      dict: ValueBuffer,
+      indices: Array[Int],
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int
+
+  /** As [[placeFromDictionary]] for `n` values that are all `dict(index)`, an RLE run */
+  def placeRepeated(
+      dict: ValueBuffer,
+      index: Int,
+      n: Int,
+      nulls: Array[Boolean],
+      row: Int,
+      to: Int
+  ): Int
+
+end FixedValueBuffer
+
+private[parquet] object FixedValueBuffer:
+
+  /**
+    * The loop of [[FixedValueBuffer.spreadSlots]]: calls `move(i, j, isNull)` for each row i from
+    * `to - 1` down to `from`, where j is the value for row i when it is not null. `move` selects
+    * the value or the default without branching on the flag, so scattered nulls cost no
+    * mispredictions; j stays in range for null rows too.
+    */
+  inline def spread(from: Int, count: Int, to: Int, nulls: Array[Boolean])(
+      inline move: (Int, Int, Boolean) => Unit
+  ): Unit =
+    var j = from + count - 1
+    var i = to - 1
+    while i >= from do
+      val isNull = nulls(i)
+      move(i, math.max(j, from), isNull)
+      j -= (
+        if isNull then
+          0
+        else
+          1
+      )
+      i -= 1
+    if j != from - 1 then
+      throw ParquetException.corrupt(
+        s"${count} values do not match the ${to - from} rows' definition levels"
+      )
+
+  /**
+    * Calls `put(i, isNull)` for each row i from `row` until `n` rows not flagged by `nulls` are
+    * passed. Returns the row after the last of them.
+    */
+  inline def placeEach(n: Int, nulls: Array[Boolean], row: Int, to: Int)(
+      inline put: (Int, Boolean) => Unit
+  ): Int =
+    var i = row
+    var j = 0
+    while j < n do
+      if i >= to then
+        throw ParquetException.corrupt(
+          s"${n} values do not fit the rows their definition levels allow"
+        )
+      val isNull = nulls(i)
+      put(i, isNull)
+      j += (
+        if isNull then
+          0
+        else
+          1
+      )
+      i += 1
+    i
+
+  /**
+    * The loop of [[FixedValueBuffer.placeFromDictionary]]: calls `put(i, index, isNull)` for each
+    * row i from `row` until `n` values are placed, where `index` is the dictionary index of row i's
+    * value when it is not null.
+    */
+  inline def place(indices: Array[Int], n: Int, nulls: Array[Boolean], row: Int, to: Int)(
+      inline put: (Int, Int, Boolean) => Unit
+  ): Int =
+    var i = row
+    var j = 0
+    while j < n do
+      if i >= to then
+        throw ParquetException.corrupt(
+          s"${n} values do not fit the rows their definition levels allow"
+        )
+      val isNull = nulls(i)
+      put(i, indices(j), isNull)
+      j += (
+        if isNull then
+          0
+        else
+          1
+      )
+      i += 1
+    i
+
+end FixedValueBuffer
 
 /**
   * Variable-length binary values: value i is data[offsets(i), offsets(i + 1)). Fixed-length values

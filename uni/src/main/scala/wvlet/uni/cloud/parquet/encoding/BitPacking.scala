@@ -1,6 +1,7 @@
 package wvlet.uni.cloud.parquet.encoding
 
 import wvlet.uni.cloud.parquet.ParquetException
+import wvlet.uni.cloud.parquet.column.FixedValueBuffer
 import wvlet.uni.cloud.parquet.column.ValueBuffer
 import wvlet.uni.io.codec.Bytes
 
@@ -266,6 +267,110 @@ private[parquet] final class RleBitPackedDecoder(
         throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
       else
         nextRun()
+
+  /**
+    * Puts the values of the next `n` dictionary indices in the rows [out.size, to) of `out` that
+    * `nulls` does not flag, and the default value in the flagged rows. `n` must be the number of
+    * rows not flagged. As in [[readDictionary]], an RLE run is looked up once and its value put in
+    * its rows; bit-packed indices are unpacked a block at a time into `indices` and looked up
+    * straight into their rows.
+    */
+  def readDictionaryInto(
+      out: FixedValueBuffer,
+      dict: ValueBuffer,
+      n: Int,
+      nulls: Array[Boolean],
+      to: Int,
+      indices: Array[Int]
+  ): Unit =
+    out.ensure(to - out.size)
+    var row = out.size
+    var i   = 0
+    while i < n do
+      if rleRemaining > 0 then
+        // One value for the whole run, put straight into its rows
+        val k = math.min(rleRemaining, n - i)
+        row = out.placeRepeated(dict, rleValue, k, nulls, row, to)
+        rleRemaining -= k
+        i += k
+      else if bitRemaining > 0 then
+        val k = math.min(math.min(bitRemaining, n - i), indices.length)
+        unpack(indices, 0, k)
+        row = out.placeFromDictionary(dict, indices, k, nulls, row, to)
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun()
+    // The rows after the last value are null
+    out.size = row
+    out.appendNulls(to - row)
+
+  end readDictionaryInto
+
+  /**
+    * Reads `n` 1-bit definition levels as null flags into `dst`: level 0 is null, level 1 is not.
+    * Returns how many are not null. Throws when a level exceeds 1 or the data ends first.
+    */
+  def readNullFlags(dst: Array[Boolean], offset: Int, n: Int): Int =
+    if bitWidth != 1 then
+      throw ParquetException.corrupt(s"null flags need 1-bit levels, not ${bitWidth}-bit")
+    var count = 0
+    var i     = 0
+    while i < n do
+      if bitRemaining > 0 then
+        val k = math.min(bitRemaining, n - i)
+        count += expandNullFlags(dst, offset + i, k)
+        bitIndex += k
+        bitRemaining -= k
+        i += k
+      else if rleRemaining > 0 then
+        val k = math.min(rleRemaining, n - i)
+        if rleValue < 0 || rleValue > 1 then
+          RleBitPackedDecoder.levelOutOfRange(rleValue, 1)
+        java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue == 0)
+        if rleValue == 1 then
+          count += k
+        rleRemaining -= k
+        i += k
+      else if pos >= end then
+        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
+      else
+        nextRun()
+    count
+
+  /** As [[expandBits]], writing a null flag (bit 0) per bit */
+  private def expandNullFlags(dst: Array[Boolean], offset: Int, k: Int): Int =
+    var count = 0
+    var t     = 0
+    while t < k do
+      val bi = bitIndex + t
+      val p  = bitStart + (bi >>> 3)
+      if (bi & 7) == 0 && k - t >= 8 && p < end then
+        val b = buf(p) & 0xff
+        val o = offset + t
+        dst(o) = (b & 1) == 0
+        dst(o + 1) = (b & 2) == 0
+        dst(o + 2) = (b & 4) == 0
+        dst(o + 3) = (b & 8) == 0
+        dst(o + 4) = (b & 16) == 0
+        dst(o + 5) = (b & 32) == 0
+        dst(o + 6) = (b & 64) == 0
+        dst(o + 7) = (b & 128) == 0
+        count += Integer.bitCount(b)
+        t += 8
+      else
+        val v =
+          if p < end then
+            (buf(p) >>> (bi & 7)) & 1
+          else
+            0
+        dst(offset + t) = v == 0
+        count += v
+        t += 1
+    count
+
+  end expandNullFlags
 
   /**
     * Reads `n` levels into `dst` as bytes, and returns how many equal `maxLevel`. Throws when a
