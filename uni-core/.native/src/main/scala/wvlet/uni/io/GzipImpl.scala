@@ -25,9 +25,9 @@ import java.util.zip.GZIPOutputStream
   */
 trait GzipCompat extends GzipApi:
   /**
-    * The most bytes passed to one zlib call. Keep it under 64 KiB: Scala Native's javalib (0.5.12)
-    * declares zlib's `avail_in` and `avail_out` as 16-bit on Windows, where they are 32-bit, so a
-    * larger `GZIPOutputStream.write` there never returns.
+    * The most bytes passed to one zlib call. Before Scala Native 0.5.13, javalib on Windows cut
+    * zlib calls over 64 KiB, and a larger `GZIPOutputStream.write` never returned
+    * (scala-native#5269). The chunking costs nothing, so it stays.
     */
   private val BufferSize = 8192
 

@@ -28,9 +28,9 @@ private[http] object RequestDecompression:
 
   /**
     * The most bytes one Inflater call reads or writes, through both the decoder's input buffer and
-    * `readCapped`'s chunk. Keep it under 64 KiB: Scala Native's javalib (0.5.12) declares zlib's
-    * `avail_in` and `avail_out` as 16-bit on Windows, where they are 32-bit, so a larger call is
-    * cut to its size mod 65536 there and decodes the wrong bytes.
+    * `readCapped`'s chunk. Small calls keep memory per request bounded. They also kept Windows
+    * correct before Scala Native 0.5.13, whose javalib cut zlib calls over 64 KiB there
+    * (scala-native#5269; ZlibLargeCallTest now guards it).
     */
   private final val BufferSize = 8192
 
@@ -241,9 +241,9 @@ private[http] object ResponseCompression:
         c.out(1) = 0x8b.toByte
         c.out(2) = Deflater.DEFLATED.toByte
         c.out(9) = 0xff.toByte
-      // Feed the body and drain the output at most ZlibChunk bytes per call: Scala Native's javalib
-      // (0.5.12) on Windows cuts any single zlib call over 65,535 bytes to `len mod 65536`, which
-      // compressed only a prefix of larger bodies
+      // Feed the body and drain the output at most ZlibChunk bytes per call, so the pooled output
+      // buffer stays small (before Scala Native 0.5.13, larger calls also broke on Windows:
+      // scala-native#5269)
       var fed = 0
       while !d.finished do
         if d.needsInput then

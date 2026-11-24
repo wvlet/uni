@@ -30,9 +30,8 @@ private[uni] object GzipStreams:
   * Decodes each member of a gzip stream (RFC 1952) in turn and checks each trailer. As the JVM
   * does, bytes after a member that don't start a valid member are ignored.
   *
-  * Every zlib call reads or writes at most `bufferSize` bytes. Keep it under 64 KiB: Scala Native's
-  * javalib (0.5.12) declares zlib's `avail_in` and `avail_out` as 16-bit on Windows, where they are
-  * 32-bit, so larger calls are truncated there.
+  * Every zlib call reads or writes at most `bufferSize` bytes. Before Scala Native 0.5.13, javalib
+  * on Windows truncated zlib calls over 64 KiB (scala-native#5269).
   */
 private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends InputStream:
   import GzipMembersInputStream.*
