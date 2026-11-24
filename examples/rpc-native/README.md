@@ -128,7 +128,8 @@ x86_64; 1.14x and 1.08x on arm64).
 Cap the heap in production. On an 18-core M5 Pro at 64 connections, Immix grew to 266 MB RSS, against
 79 MB for Boehm. With `GC_MAXIMUM_HEAP_SIZE=64m` it stayed at 74 MB and served as many requests or
 more. Set the cap at build time with `.withGarbageCollectorConfig(_.withMaxHeapSize(...))`
-(Scala Native 0.5.13+), or at run time with `GC_MAXIMUM_HEAP_SIZE`. The container image and
+(Scala Native 0.5.13+), as this example does with 256 MB, or at run time with
+`GC_MAXIMUM_HEAP_SIZE`. The container image and
 `bench.py` start the server with `GC_INITIAL_HEAP_SIZE=64m`, which both collectors read.
 
 To build with Boehm instead, set `UNI_NATIVE_GC=boehm` and install `libgc` (`libgc-dev` on

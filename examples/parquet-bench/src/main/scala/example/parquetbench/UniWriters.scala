@@ -132,9 +132,18 @@ object UniWriters:
     finally w.close()
     (w.numRows, FileSystem.info(path).size)
 
-  def batches(data: BenchBatches, path: String, codec: String): (Long, Long) =
+  def batches(
+      data: BenchBatches,
+      path: String,
+      codec: String,
+      parallelism: Int = ParquetWriteOptions.default.parallelism
+  ): (Long, Long) =
     prepare(path)
-    val w = Parquet.newBatchWriter(path, data.schema, options(codec))
+    val w = Parquet.newBatchWriter(
+      path,
+      data.schema,
+      options(codec).withParallelism(parallelism)
+    )
     try w.writeAll(data.batches)
     finally w.close()
     (w.numRows, FileSystem.info(path).size)

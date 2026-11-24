@@ -56,7 +56,7 @@ The sources go under `src/main/scala` of a JVM or Scala Native project:
 
 ```scala
 // project/plugins.sbt (Native only)
-addSbtPlugin("org.scala-native" % "sbt-scala-native" % "0.5.12")
+addSbtPlugin("org.scala-native" % "sbt-scala-native" % "0.5.13")
 
 // build.sbt
 libraryDependencies ++= Seq(

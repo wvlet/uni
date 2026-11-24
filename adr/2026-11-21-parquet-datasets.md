@@ -55,8 +55,10 @@ built a new store for each file.
 
 - A read with many files waits for all of their footers before the first row. Both paths fetch
   `withPrefetch` footers at a time: sync reads on a short-lived thread pool on the JVM, async reads
-  with `RxParallel.parSequenceN`. Sync reads stay sequential on Scala.js (no threads) and on Scala
-  Native, whose Immix GC can still crash under concurrent allocation (scala-native#5046, #5160).
+  with `RxParallel.parSequenceN`. Sync reads stay sequential on Scala.js (no threads). Scala
+  Native shares the JVM's thread pool since Scala Native 0.5.13, which fixed the Immix crash under
+  concurrent allocation (scala-native#5046, #5160); writes run their column tasks in parallel there
+  too (`WriteParallelism` in `uni/.jvm-native`).
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
 - Partition types recorded by the writer in `_common_metadata` are read as declared types; see [dataset root files](2026-11-21-parquet-dataset-root-files.md).
