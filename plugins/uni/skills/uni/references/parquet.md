@@ -578,8 +578,9 @@ file.close()
 
 Each distinct string key becomes a column; projected reads fetch only the selected column blocks.
 `columnType` reads only format bytes: int + float → DOUBLE, str + bin → BINARY, arrays, maps,
-timestamps, or other mixes → ANY (use `readColumn`). Nil is null for every reader; a value of
-another type fails with `MPC1Exception` (column and row). `readDoubles` widens integers.
+timestamps, or other mixes → ANY (use `readColumn`). Schema-on-read: nil and values of another
+type are null for every reader (no exception; only a corrupt block throws `MPC1Exception`).
+`readDoubles` widens integers.
 `MPC1Decoder.columnType(block)` / `decodeLongs(name, block)` work on one `readColumnBlock` result.
 Gzip writes fail in browsers.
 

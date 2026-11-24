@@ -77,8 +77,8 @@ class MPC1File private (
   )
 
   /**
-    * Reads an integer column as unboxed longs, with nil rows as nulls. Fails with [[MPC1Exception]]
-    * at a row of another type; see [[MPC1Decoder]].
+    * Reads an integer column as unboxed longs. Rows that are nil or hold a value of another type
+    * are null (schema-on-read); see [[MPC1Decoder]].
     */
   def readLongs(name: String): LongColumn = readLongs(columnOf(name))
 

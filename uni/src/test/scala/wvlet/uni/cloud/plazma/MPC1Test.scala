@@ -157,29 +157,42 @@ class MPC1Test extends UniTest:
     (0 until 3000).forall(nils.isNull) shouldBe true
   }
 
-  test("fail on a value of another type") {
-    val e = intercept[MPC1Exception] {
-      MPC1Decoder.decodeLongs("a", block(_.packLong(1).packString("x")))
-    }
-    e.getMessage shouldContain "Column a, row 1"
-    e.getMessage shouldContain "string"
-    intercept[MPC1Exception] {
-      MPC1Decoder.decodeStrings("a", block(_.packBinaryHeader(0)))
-    }
-    intercept[MPC1Exception] {
-      MPC1Decoder.decodeBooleans("a", block(_.packLong(1)))
-    }
-    intercept[MPC1Exception] {
-      MPC1Decoder.decodeDoubles("a", block(_.packBoolean(true)))
-    }
+  test("read values of another type as nulls") {
+    val longs = MPC1Decoder.decodeLongs(
+      "a",
+      block(
+        _.packLong(1).packString("x").packDouble(1.5).packArrayHeader(1).packLong(2).packLong(3)
+      )
+    )
+    longs.values.toSeq shouldBe Seq(1L, 0L, 0L, 0L, 3L)
+    longs.nullFlags.toSeq shouldBe Seq(false, true, true, true, false)
+
+    val strs = MPC1Decoder.decodeStrings(
+      "a",
+      block(_.packBinaryHeader(1).writePayload(Array[Byte](1)).packString("b"))
+    )
+    strs.isNull(0) shouldBe true
+    strs.getString(1) shouldBe "b"
+
+    val bools = MPC1Decoder.decodeBooleans("a", block(_.packLong(1000).packBoolean(true)))
+    bools.nullFlags.toSeq shouldBe Seq(true, false)
+    bools.values(1) shouldBe true
+
+    val doubles = MPC1Decoder.decodeDoubles("a", block(_.packBoolean(true).packFloat(0.5f)))
+    doubles.nullFlags.toSeq shouldBe Seq(true, false)
+    doubles.values(1) shouldBe 0.5
+  }
+
+  test("an unsigned 64-bit integer over Long.MaxValue") {
+    val overflow = Array[Byte](0xcf.toByte) ++ Array.fill[Byte](8)(0xff.toByte)
+    MPC1Decoder.decodeLongs("a", overflow).isNull(0) shouldBe true
+    MPC1Decoder.decodeDoubles("a", overflow).values(0) shouldBe 18446744073709551615.0
+  }
+
+  test("fail on a corrupt block") {
     intercept[MPC1Exception] {
       MPC1Decoder.decodeLongs("a", Array[Byte](0xc1.toByte))
-    }.getMessage shouldContain "invalid byte"
-    // uint64 over Long.MaxValue
-    val overflow = Array[Byte](0xcf.toByte) ++ Array.fill[Byte](8)(0xff.toByte)
-    intercept[MPC1Exception] {
-      MPC1Decoder.decodeLongs("a", overflow)
-    }.getMessage shouldContain "row 0"
+    }.getMessage shouldContain "Corrupt MPC1 data in column a"
   }
 
   test("typed reads by column name") {

@@ -94,12 +94,14 @@ of each value, without decoding the values:
 | `STRING` | strings | `readStrings` |
 | `BINARY` | binaries, or binaries and strings | `readBinaries` |
 | `NIL` | only nils, or no rows | any reader (every row is null) |
-| `ANY` | arrays, maps, extension values such as timestamps, or other mixes | `readColumn` |
+| `ANY` | arrays, maps, extension values such as timestamps, or other mixes | `readColumn`, or a typed reader that nulls the other values |
 
-Nil is a null row for every reader. A row of another type fails the read with an `MPC1Exception`
-that names the column and the row, instead of turning into a null, so values are never dropped
-silently. An unsigned 64-bit integer over `Long.MaxValue` fails too. Call `columnType` first to
-pick the reader, and fall back to `readColumn` for `ANY`.
+MPC1 is schema-on-read: a reader takes the values of its type, and every other row is null, both
+nil rows and values of another type. A stray value never fails the read, so a query over a column
+with a few odd values keeps running. `readLongs` on a column of `1, "x", 3` returns `1, null, 3`.
+An unsigned 64-bit integer over `Long.MaxValue` is null for `readLongs`; `readDoubles` reads it.
+Call `columnType` to pick the reader that keeps every value, and use `readColumn` for `ANY` when you
+need the values of every type. Only a corrupt block fails, with an `MPC1Exception`.
 
 `columnType` and each reader read the column block once. To probe and decode one block read, call
 `MPC1Decoder` on the decompressed block:

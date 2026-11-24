@@ -20,14 +20,14 @@
 - `MPC1ColumnType`: `LONG`, `DOUBLE`, `BOOLEAN`, `STRING`, `BINARY`, `NIL` (no non-nil value, including an empty column), `ANY`.
   - Probe reads only format bytes and skips payloads; no `Value` is built.
   - int + float → `DOUBLE`; str + bin → `BINARY`; anything else mixed, arrays, maps, and ext (timestamps) → `ANY`.
-- Mismatch policy: fail with `MPC1Exception` naming the column, row, and the format found. A silent null would hide data loss; callers probe first and fall back to `readColumn` for `ANY`.
-  - Allowed widenings: `readDoubles` accepts ints; `readBinaries` accepts strings. A uint64 over `Long.MaxValue` fails `readLongs`.
+- Mismatch policy (user decision): MPC1 is schema-on-read, so a value of another type is null, like nil. An exception would break query processing. Only a corrupt block throws `MPC1Exception`.
+  - Allowed widenings: `readDoubles` accepts ints; `readBinaries` accepts strings. A uint64 over `Long.MaxValue` is null for `readLongs`.
   - Nil is valid for every type, so an all-nil column reads as an all-null vector of the requested type.
 - Decoding runs `OffsetUnpacker` on a `ReadCursor` over the block; strings and binaries copy payload bytes straight into the vector's data buffer, without building `String`s.
-- Tests cover each type on the lineitem fixture (`time`, `l_dummy`), written files with nils, widenings, and mismatch errors, on JVM, JS, and Native.
+- Tests cover each type on the lineitem fixture (`time`, `l_dummy`), written files with nils, widenings, and mismatches read as nulls, on JVM, JS, and Native.
 
 ## Alternatives and Why Not?
 
 - A new MPC1-only vector type: duplicates `ColumnVector` and forces the engine to convert again for Arrow or shared operators.
-- Null on mismatch: silently drops values; the probe already tells callers which decoder fits.
+- Fail on mismatch: one stray value would abort a whole query over schema-on-read data.
 - Return `(Array[Long], Array[Boolean])` tuples: loses the name and the string/binary offset layout that `BinaryColumn` already defines.

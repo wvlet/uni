@@ -50,11 +50,13 @@ end MPC1ColumnType
   * Decodes MPC1 column blocks (one MessagePack value per row, nil for rows without a value) into
   * unboxed column vectors, without building a MessagePack `Value` per row.
   *
-  * Each reader accepts nil (a null row) and the values of its type. A row with another type fails
-  * the read with an [[MPC1Exception]] naming the column and row; call [[columnType]] first to pick
-  * the reader. Two widenings are allowed: `decodeDoubles` reads integers, and `decodeBinaries`
-  * reads strings as their UTF-8 bytes. An unsigned 64-bit integer over `Long.MaxValue` fails
-  * `decodeLongs` and `decodeDoubles`.
+  * MPC1 is schema-on-read: each reader reads the values of its type, and every other row, nil or a
+  * value of another type, is null. A mismatched value never fails the read, so a query over a
+  * column with a stray value keeps running. Two widenings are allowed: `decodeDoubles` reads
+  * integers, and `decodeBinaries` reads strings as their UTF-8 bytes. An unsigned 64-bit integer
+  * over `Long.MaxValue` is null for `decodeLongs`. [[columnType]] tells which reader keeps every
+  * value. Only a corrupt block (truncated, or holding the never-used byte 0xc1) fails, with an
+  * [[MPC1Exception]].
   *
   * The vectors are Parquet [[wvlet.uni.cloud.parquet.ColumnVector]]s of an optional field named
   * after the column, so they work with code that reads Parquet column batches. Their `nullFlags` is
@@ -129,10 +131,19 @@ object MPC1Decoder:
       if b == Code.NIL then
         cursor.skipBytes(1)
         nulls.set(n)
+      else if b == Code.UINT64 then
+        cursor.skipBytes(1)
+        val v = cursor.readLong
+        if v < 0 then
+          // Over Long.MaxValue
+          nulls.set(n)
+        else
+          values(n) = v
       else if MessageFormat.of(b).valueType == ValueType.INTEGER then
-        values(n) = unpack(name, n)(OffsetUnpacker.unpackLong(cursor))
+        values(n) = OffsetUnpacker.unpackLong(cursor)
       else
-        mismatch(name, n, "integer", b)
+        skip(name, cursor)
+        nulls.set(n)
       cursor.proceedCursor
       n += 1
     LongColumn(field(name, PhysicalType.INT64, None, columnIndex), trim(values, n), nulls.result(n))
@@ -154,10 +165,14 @@ object MPC1Decoder:
         nulls.set(n)
       else if b == Code.FLOAT64 || b == Code.FLOAT32 then
         values(n) = OffsetUnpacker.unpackDouble(cursor)
+      else if b == Code.UINT64 then
+        cursor.skipBytes(1)
+        values(n) = unsignedToDouble(cursor.readLong)
       else if MessageFormat.of(b).valueType == ValueType.INTEGER then
-        values(n) = unpack(name, n)(OffsetUnpacker.unpackLong(cursor)).toDouble
+        values(n) = OffsetUnpacker.unpackLong(cursor).toDouble
       else
-        mismatch(name, n, "float or integer", b)
+        skip(name, cursor)
+        nulls.set(n)
       cursor.proceedCursor
       n += 1
     DoubleColumn(
@@ -171,17 +186,20 @@ object MPC1Decoder:
   def decodeBooleans(name: String, block: Array[Byte], columnIndex: Int = 0): BooleanColumn =
     val cursor = newCursor(block)
     val nulls  = Nulls()
-    // Booleans and nils take one byte each, so the block size bounds the row count
+    // Every value takes at least one byte, so the block size bounds the row count
     val values = new Array[Boolean](block.length)
     var n      = 0
     while cursor.position < block.length do
-      val b = cursor.readByte
+      val b = cursor.peekByte
       if b == Code.TRUE then
+        cursor.skipBytes(1)
         values(n) = true
-      else if b == Code.NIL then
+      else if b == Code.FALSE then
+        cursor.skipBytes(1)
+      else
+        // nil or a value of another type
+        skip(name, cursor)
         nulls.set(n)
-      else if b != Code.FALSE then
-        mismatch(name, n, "boolean", b)
       cursor.proceedCursor
       n += 1
     BooleanColumn(
@@ -216,20 +234,16 @@ object MPC1Decoder:
     while cursor.position < block.length do
       if n + 1 == offsets.length then
         offsets = java.util.Arrays.copyOf(offsets, n * 2 + 1)
-      val b = cursor.peekByte
-      if b == Code.NIL then
-        cursor.skipBytes(1)
-        nulls.set(n)
+      val b  = cursor.peekByte
+      val vt = MessageFormat.of(b).valueType
+      if vt == ValueType.STRING || (acceptBinary && vt == ValueType.BINARY) then
+        val len = OffsetUnpacker.unpackRawStringHeader(cursor)
+        cursor.readBytes(len, data, size)
+        size += len
       else
-        val vt = MessageFormat.of(b).valueType
-        if vt == ValueType.STRING || (acceptBinary && vt == ValueType.BINARY) then
-          val len = OffsetUnpacker.unpackRawStringHeader(cursor)
-          cursor.readBytes(len, data, size)
-          size += len
-        else if acceptBinary then
-          mismatch(name, n, "binary or string", b)
-        else
-          mismatch(name, n, "string", b)
+        // nil or a value of another type
+        skip(name, cursor)
+        nulls.set(n)
       cursor.proceedCursor
       n += 1
       offsets(n) = size
@@ -304,23 +318,20 @@ object MPC1Decoder:
     columnIndex = columnIndex
   )
 
-  // Wraps an integer overflow (an unsigned 64-bit value over Long.MaxValue) with the row
-  private inline def unpack[A](name: String, row: Int)(inline body: A): A =
+  /** Skips a value that is not read, failing on the never-used byte 0xc1 */
+  private def skip(name: String, cursor: ReadCursor): Unit =
     try
-      body
+      OffsetUnpacker.skipValue(cursor)
     catch
       case e: MessageException =>
-        throw MPC1Exception(s"Column ${name}, row ${row}: ${e.getMessage}", e)
+        throw MPC1Exception(s"Corrupt MPC1 data in column ${name}: ${e.getMessage}", e)
 
-  private def mismatch(name: String, row: Int, expected: String, b: Byte): Nothing =
-    // The never-used format 0xc1 has no value type
-    val found = Option(MessageFormat.of(b).valueType)
-      .map(_.name.toLowerCase)
-      .getOrElse("an invalid byte")
-    val code = (b & 0xff).toHexString
-    throw MPC1Exception(
-      s"Column ${name}, row ${row}: expected ${expected} or nil, but found ${found} (0x${code})"
-    )
+  // Code.UINT64 values over Long.MaxValue are negative as a signed long
+  private def unsignedToDouble(v: Long): Double =
+    if v >= 0 then
+      v.toDouble
+    else
+      (v >>> 1).toDouble * 2.0 + (v & 1L).toDouble
 
   /** Null flags by row, allocated at the first nil */
   private class Nulls:
