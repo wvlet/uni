@@ -16,7 +16,7 @@ The references are Garden's hyper, Netty, and Apache httpd origins, which all se
 
 The [HTTP Garden workflow](../../.github/workflows/http-garden.yml) runs it weekly on main, when dispatched (with the number of mutations and the seed as inputs), and on pull requests that change this folder. The job summary lists each finding, and `report.json` plus the server logs are uploaded as an artifact.
 
-On a Linux machine with Docker, Python 3.13+ (with `docker`, `pyyaml`, and `tqdm`), JDK 25, and libgc:
+On a Linux machine with Docker, Python 3.13+ (with `docker`, `pyyaml`, and `tqdm`), and JDK 25:
 
 ```bash
 examples/http-garden/garden/run.sh --mutations 500 --seed 1

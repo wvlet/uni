@@ -7,7 +7,7 @@
 # pinned commit into garden/out, builds and starts the reference servers in Docker, then runs
 # uni_garden.py. Prints a Markdown summary and writes out/report.json. Exits 1 on a new finding.
 #
-# Needs: Docker with compose, Python 3.13+ with docker, pyyaml, and tqdm, JDK 25, libgc.
+# Needs: Docker with compose, Python 3.13+ with docker, pyyaml, and tqdm, JDK 25.
 set -euo pipefail
 
 # HTTP Garden is GPL-3.0; it is cloned at run time and none of its code is kept in this repository

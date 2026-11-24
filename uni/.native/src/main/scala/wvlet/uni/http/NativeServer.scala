@@ -24,13 +24,13 @@ import wvlet.uni.rx.Rx
   * handler, and answered with HTTP/1.1. Between requests, a keep-alive connection waits in an
   * epoll/kqueue poller and holds no worker (on Windows it keeps its worker).
   *
-  * Build apps that use it with the Boehm GC (`GC.boehm`): Scala Native 0.5.12's default Immix GC
-  * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
-  * makes the server fail requests or abort under concurrent load. uni runs Boehm with one marker
-  * thread, since a server's small heap makes Boehm collect often and one marker per core would
-  * stall every worker each time (set `GC_MARKERS` to override). The server also starts Boehm with a
-  * 16 MB heap, so it doesn't collect constantly (set `GC_INITIAL_HEAP_SIZE` to choose another
-  * size).
+  * Build apps that use it with Scala Native 0.5.13 or later: 0.5.12's default Immix GC can corrupt
+  * live objects when several workers allocate at once (scala-native#5046, #5160); use `GC.boehm`
+  * there. Cap the Immix heap (`GC_MAXIMUM_HEAP_SIZE`), which otherwise grows far past a server's
+  * live data. For apps on Boehm, uni runs it with one marker thread, since a server's small heap
+  * makes Boehm collect often and one marker per core would stall every worker each time (set
+  * `GC_MARKERS` to override), and starts it with a 16 MB heap so it doesn't collect constantly (set
+  * `GC_INITIAL_HEAP_SIZE` to choose another size).
   */
 @deprecated(
   "Use Http.server; set Native-only options with withBackend(Native.options...)",
@@ -298,9 +298,9 @@ end NativeServerConfig
 object NativeServerConfig:
   /**
     * The default `workerThreads`: about one worker per core, at least 4 and at most 16. More
-    * workers than cores queue on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on a
-    * 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection holds
-    * a worker there while it is open.
+    * workers than cores queued on the Boehm GC's allocation lock, which showed as a 4-12 ms p99 on
+    * a 2-core server with 16 workers (0.7 ms with 2). Windows keeps 16, because each connection
+    * holds a worker there while it is open.
     */
   private[http] def defaultWorkerThreads(cores: Int, windows: Boolean): Int =
     if windows then

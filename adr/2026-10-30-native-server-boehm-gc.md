@@ -1,6 +1,6 @@
 # Build NativeServer apps with the Boehm GC
 
-- Status: Accepted
+- Status: Superseded by [`2026-11-24-native-server-immix-gc.md`](2026-11-24-native-server-immix-gc.md) (Scala Native 0.5.13 fixed Immix; the Boehm tuning below still applies to apps that choose Boehm)
 - Date: 2026-10-30
 - Plan: [`plans/2026-10-30-native-server-keepalive.md`](../plans/2026-10-30-native-server-keepalive.md)
 

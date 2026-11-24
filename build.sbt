@@ -252,12 +252,6 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     Compile / packageBin / mainClass := None
   )
   .jsSettings(jsBuildSettings, minimizeJavadoc)
-  // The test binary stays on Immix (the default). Boehm deadlocked the Parquet tests in about half
-  // the Linux CI runs: under Scala Native 0.5.12, PosixThread.park allocates while holding its
-  // mutex, Boehm runs the weak-reference finalizer inside that allocation, and the finalizer
-  // unparks the same thread, locking the mutex again (fixed upstream after 0.5.12). Immix can
-  // still crash under concurrent allocation (scala-native#5046, #5160), but rarely. Revisit both
-  // on Scala Native 0.5.13.
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(core, test % Test)
 
@@ -504,18 +498,19 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
           c.withMode(scala.scalanative.build.Mode.releaseFull)
             .withLTO(scala.scalanative.build.LTO.full)
       release
-        // Boehm GC: Scala Native 0.5.12's own GCs (immix, commix) corrupt live objects when
-        // several worker threads allocate at once (scala-native#5046, #5160), and NativeServer
-        // then fails requests or aborts under concurrent load
-        .withGC(scala.scalanative.build.GC.boehm)
+        // Immix, Scala Native's default. 0.5.13 fixed the concurrent-allocation corruption
+        // (scala-native#5046, #5160) that kept this example on Boehm (adr/2026-10-30). Set
+        // UNI_NATIVE_GC=boehm (or commix) to benchmark another collector, as rpc-bench.yml does.
+        .withGC(scala.scalanative.build.GC(sys.env.getOrElse("UNI_NATIVE_GC", "immix")))
         // nativeBuildSettings links libcurl and zlib for every Native project in this repo. A
         // server-only binary needs only zlib (request decompression and response compression):
         // dead-code elimination drops the HTTP client, so leave libcurl out to build what a user's
         // own project gets.
         .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl")))
     },
-    // Build the test binary in debug mode so it links quickly. It keeps Boehm like the release
-    // binary, except on Windows, whose CI runner has no libgc: there it falls back to Immix.
+    // Build the test binary in debug mode so it links quickly. It links Boehm, so CI still covers
+    // uni_gc_shim.c (BoehmMarkersTest, BoehmHeapTest) for apps that choose Boehm, except on
+    // Windows, whose CI runner has no libgc: there it stays on Immix.
     Test / nativeConfig ~= { c =>
       val debug = c
         .withMode(scala.scalanative.build.Mode.debug)
@@ -523,7 +518,7 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
       if scala.util.Properties.isWin then
         debug.withGC(scala.scalanative.build.GC.immix)
       else
-        debug
+        debug.withGC(scala.scalanative.build.GC.boehm)
     }
   )
   .jvmSettings(
@@ -609,9 +604,7 @@ lazy val exampleHttpGarden = crossProject(JVMPlatform, NativePlatform)
   .nativeSettings(
     nativeBuildSettings,
     nativeConfig ~= { c =>
-      // Boehm GC, as in exampleRpcNative: the server runs several worker threads
-      c.withGC(scala.scalanative.build.GC.boehm)
-        .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl")))
+      c.withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl")))
     },
     // Compile-only in the Native CI job (adr/2026-10-27-in-build-examples.md)
     Test / loadedTestFrameworks := Def.uncached(Map.empty)

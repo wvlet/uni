@@ -42,10 +42,8 @@ jobs:
           # HTTP Garden's tools need Python 3.13+
           python-version: '3.13'
       - name: Install dependencies
-        # libgc for the Native echo; Garden's Python dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y libgc-dev
-          python -m pip install --quiet docker pyyaml tqdm
+        # Garden's Python dependencies
+        run: python -m pip install --quiet docker pyyaml tqdm
       - name: Run HTTP Garden
         # bash with pipefail, so a failure in run.sh fails the step despite `| tee`
         # run.sh prints only the Markdown summary to stdout; build output goes to stderr

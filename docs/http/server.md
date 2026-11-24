@@ -222,23 +222,24 @@ Http
 ```
 :::
 
-::: warning Use the Boehm GC on Scala Native
-Build a Scala Native server app with `nativeConfig ~= (_.withGC(scala.scalanative.build.GC.boehm))`,
-and install `libgc` (`libgc-dev` on Debian/Ubuntu, `bdw-gc` on Homebrew). Scala Native 0.5.12's
-default collector, Immix, can free or overwrite live objects when several threads allocate at once
+::: tip Garbage collector on Scala Native
+Use Scala Native 0.5.13 or later with its default collector, Immix. Earlier versions of Immix could
+free or overwrite live objects when several threads allocated at once
 ([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
-[#5160](https://github.com/scala-native/scala-native/issues/5160)). The server runs handlers on
-worker threads, so under concurrent load it then fails requests or aborts.
+[#5160](https://github.com/scala-native/scala-native/issues/5160)), and the server runs handlers on
+worker threads. On 0.5.12, build with `nativeConfig ~= (_.withGC(scala.scalanative.build.GC.boehm))`
+instead.
 
-Uni runs Boehm with one marker thread. Boehm's default is one per core, and a server's small heap
-makes it collect often, so 15 marker threads (on 18 cores) would stop every worker for each
-collection. In the
-[rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) one marker
-serves 77k req/s at 16 connections against 32k with Boehm's default, at the same ~11 MB RSS. Set
-`GC_MARKERS` to choose another count, for example for an app with hundreds of MB of live data,
-where parallel marking pays off. A Native server also starts Boehm with a 16 MB heap: a server keeps little live data, so
-Boehm's heap would stay at 2–3 MB and collect constantly. Set `GC_INITIAL_HEAP_SIZE` to choose
-another size.
+Cap the heap. Immix grows its heap well past a server's live data: in the
+[rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) on 18 cores,
+RSS reached 266 MB, and with a 64 MB cap it stayed at 74 MB at the same or better throughput. Set the
+cap at build time with `.withGarbageCollectorConfig(_.withMaxHeapSize(...))`, or at run time with
+`GC_MAXIMUM_HEAP_SIZE`.
+
+Immix beat Boehm in that benchmark (24k vs 15k req/s on x86_64, 26k vs 22k on arm64, at a lower
+p99), since Boehm serves larger objects under one global lock. For apps that still choose Boehm, Uni
+runs it with one marker thread (set `GC_MARKERS` to override) and starts a Native server with a
+16 MB Boehm heap (set `GC_INITIAL_HEAP_SIZE` to choose another size).
 :::
 
 The rest of this page uses `Http.server` with the annotation router. The router, the
@@ -676,7 +677,7 @@ All three backends start with these defaults:
 
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
 
-On Scala Native, the `workerThreads` workers bound how many requests run at once. By default there is one worker per core, at least 4 and at most 16 (16 on Windows). More workers than cores make requests wait on each other for the garbage collector's allocation lock: on a 2-core server, 16 workers gave a 4–12 ms p99 where 2 workers gave 0.7 ms at the same throughput. On Linux and macOS, a keep-alive connection waiting for its next request holds no worker: it waits in an epoll/kqueue poller, so the number of open connections is limited only by the process's file descriptor limit. A request still being received does hold its worker, and the timeouts above bound how long a slow client keeps one. So raise `Native.options.withWorkerThreads(n)` for handlers that block, or for many slow clients, or put a reverse proxy in front. On Windows, each connection holds a worker while it is open. The built-in JVM server runs each connection on a virtual thread and has no such limit.
+On Scala Native, the `workerThreads` workers bound how many requests run at once. By default there is one worker per core, at least 4 and at most 16 (16 on Windows). More workers than cores make requests wait on each other for the garbage collector: on a 2-core server, 16 workers gave a 4–12 ms p99 where 2 workers gave 0.7 ms at the same throughput. On Linux and macOS, a keep-alive connection waiting for its next request holds no worker: it waits in an epoll/kqueue poller, so the number of open connections is limited only by the process's file descriptor limit. A request still being received does hold its worker, and the timeouts above bound how long a slow client keeps one. So raise `Native.options.withWorkerThreads(n)` for handlers that block, or for many slow clients, or put a reverse proxy in front. On Windows, each connection holds a worker while it is open. The built-in JVM server runs each connection on a virtual thread and has no such limit.
 
 TLS is not built in: terminate HTTPS at a reverse proxy or load balancer.
 

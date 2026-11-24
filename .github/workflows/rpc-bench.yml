@@ -34,6 +34,11 @@ on:
       sample:
         description: 'mode=soak: RSS sampling interval'
         default: '15s'
+      gc:
+        description: 'Garbage collector of the native server (UNI_NATIVE_GC)'
+        type: choice
+        options: [immix, boehm, commix]
+        default: immix
   schedule:
     # Mondays 03:17 UTC
     - cron: '17 3 * * 1'
@@ -64,6 +69,7 @@ jobs:
       SWEEP: ${{ inputs.sweep || '1,16,64,256' }}
       SOAK: ${{ inputs.soak || '10m' }}
       SAMPLE: ${{ inputs.sample || '15s' }}
+      UNI_NATIVE_GC: ${{ inputs.gc || 'immix' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -80,7 +86,7 @@ jobs:
             && chmod +x "${HOME}/.local/bin/oha" && "${HOME}/.local/bin/oha" --version \
             || (rm -f "${HOME}/.local/bin/oha" && sudo apt-get update && sudo apt-get install -y wrk)
       - name: Install libgc
-        # The example links the Boehm GC
+        if: env.UNI_NATIVE_GC == 'boehm'
         run: sudo apt-get update && sudo apt-get install -y libgc-dev
       - name: Build the native binary and the JVM classpath
         run: examples/rpc-native/bench/build.sh
