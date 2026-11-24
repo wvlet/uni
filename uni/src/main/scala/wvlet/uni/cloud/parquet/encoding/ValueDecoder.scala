@@ -139,45 +139,30 @@ private[parquet] object ValueDecoder:
           case b: LongBuffer =>
             // INT32 values read as Long (see [[newBuffer]]) are widened as they are decoded
             b.ensure(n)
-            var i = 0
-            while i < n do
-              b.values(b.size + i) = Bytes.intLE(buf, start + i * 4).toLong
-              i += 1
+            Bytes.intsAsLongsLE(buf, start, b.values, b.size, n)
             b.size += n
           case _ =>
             val b = out.asInstanceOf[IntBuffer]
             b.ensure(n)
-            var i = 0
-            while i < n do
-              b.values(b.size + i) = Bytes.intLE(buf, start + i * 4)
-              i += 1
+            Bytes.intsLE(buf, start, b.values, b.size, n)
             b.size += n
       case PhysicalType.INT64 =>
         ensureBytes(r, n.toLong * 8)
         val b = out.asInstanceOf[LongBuffer]
         b.ensure(n)
-        var i = 0
-        while i < n do
-          b.values(b.size + i) = Bytes.longLE(buf, start + i * 8)
-          i += 1
+        Bytes.longsLE(buf, start, b.values, b.size, n)
         b.size += n
       case PhysicalType.FLOAT =>
         ensureBytes(r, n.toLong * 4)
         val b = out.asInstanceOf[FloatBuffer]
         b.ensure(n)
-        var i = 0
-        while i < n do
-          b.values(b.size + i) = java.lang.Float.intBitsToFloat(Bytes.intLE(buf, start + i * 4))
-          i += 1
+        Bytes.floatsLE(buf, start, b.values, b.size, n)
         b.size += n
       case PhysicalType.DOUBLE =>
         ensureBytes(r, n.toLong * 8)
         val b = out.asInstanceOf[DoubleBuffer]
         b.ensure(n)
-        var i = 0
-        while i < n do
-          b.values(b.size + i) = java.lang.Double.longBitsToDouble(Bytes.longLE(buf, start + i * 8))
-          i += 1
+        Bytes.doublesLE(buf, start, b.values, b.size, n)
         b.size += n
       case PhysicalType.BYTE_ARRAY =>
         val b = out.asInstanceOf[BinaryBuffer]

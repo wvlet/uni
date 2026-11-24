@@ -13,6 +13,25 @@ private[uni] object Zstd:
 
   def decompress(src: Array[Byte], offset: Int, length: Int, expectedSize: Int): Array[Byte] =
     val out = new Array[Byte](expectedSize)
+    decompressInto(src, offset, length, out, expectedSize)
+    out
+
+  /**
+    * Decodes into `out(0)` to `out(expectedSize - 1)`, so a caller can reuse one buffer for many
+    * pages. `out` may be longer than `expectedSize`: frames that decode to more bytes still fail,
+    * after writing past `expectedSize`.
+    */
+  def decompressInto(
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      out: Array[Byte],
+      expectedSize: Int
+  ): Unit =
+    if out.length < expectedSize then
+      throw IllegalArgumentException(
+        s"ZSTD: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
+      )
     var ip  = offset
     val end = offset + length
     var op  = 0
@@ -37,7 +56,8 @@ private[uni] object Zstd:
         op = frame.outputPos
     if op != expectedSize then
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
-    out
+
+  end decompressInto
 
   /**
     * Decodes frames whose total size isn't known, as in Avro's zstandard blocks. Decoding fails
