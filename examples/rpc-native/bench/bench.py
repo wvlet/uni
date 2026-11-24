@@ -29,9 +29,9 @@ import time
 SERVICE = "/example.rpc.TodoApi"
 ADD_BODY = b'{"request":{"title":"hello"}}'
 LIST_BODY = b'{"request":{}}'
-# Boehm settings the example README recommends for a multi-threaded server. Set before any server
+# GC settings the example README uses for the server (Immix and Boehm both read them). Set before any server
 # starts, unless the caller's environment already sets them; the JVM ignores them.
-BOEHM_ENV = {"GC_INITIAL_HEAP_SIZE": "64m"}
+GC_ENV = {"GC_INITIAL_HEAP_SIZE": "64m"}
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
 
@@ -425,7 +425,7 @@ def environment(args):
             f"- CPU: {cpu_name()}",
             f"- JDK: {first_line([args.java, '-version'])}",
             f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}; "
-            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*BOEHM_ENV, "GC_MARKERS"]
+            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*GC_ENV, "GC_MAXIMUM_HEAP_SIZE", "GC_MARKERS"]
                         if k in os.environ),
             f"- JVM small heap options: `{args.jvm_small_opts}`",
             f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]
@@ -495,7 +495,7 @@ def main():
     p.add_argument("--sample", default="15s", help="RSS sampling interval for --soak")
     p.add_argument("--json", help="also write raw results to this file")
     args = p.parse_args()
-    for k, v in BOEHM_ENV.items():
+    for k, v in GC_ENV.items():
         os.environ.setdefault(k, v)
 
     cp = read_out("jvm.cp", None)
