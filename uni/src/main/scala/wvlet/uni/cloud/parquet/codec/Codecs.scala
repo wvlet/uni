@@ -19,6 +19,42 @@ private[parquet] object Codecs:
     decompressPage(codec, src, offset, length, uncompressedSize)
   )
 
+  /** Whether [[decompressInto]] can decode pages of `codec` into a caller's buffer */
+  def decodesInto(codec: CompressionCodec): Boolean =
+    codec match
+      case CompressionCodec.SNAPPY | CompressionCodec.LZ4_RAW | CompressionCodec.ZSTD =>
+        true
+      case _ =>
+        false
+
+  /**
+    * Decompresses a page of a codec that [[decodesInto]] covers into `out(0)` to
+    * `out(uncompressedSize - 1)`, so one buffer can serve every page of a column. `out` must hold
+    * `uncompressedSize` bytes.
+    */
+  def decompressInto(
+      codec: CompressionCodec,
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      out: Array[Byte],
+      uncompressedSize: Int
+  ): Unit = ParquetException.fromCodec {
+    if uncompressedSize < 0 then
+      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    codec match
+      case CompressionCodec.SNAPPY =>
+        Snappy.decompressInto(src, offset, length, out, uncompressedSize)
+      case CompressionCodec.LZ4_RAW =>
+        val n = Lz4.decompressInto(src, offset, length, out, 0, uncompressedSize)
+        if n != uncompressedSize then
+          throw ParquetException.corrupt(s"LZ4: decoded ${n} bytes, expected ${uncompressedSize}")
+      case CompressionCodec.ZSTD =>
+        Zstd.decompressInto(src, offset, length, out, uncompressedSize)
+      case other =>
+        throw IllegalArgumentException(s"${other} pages are not decoded into a buffer")
+  }
+
   private def decompressPage(
       codec: CompressionCodec,
       src: Array[Byte],

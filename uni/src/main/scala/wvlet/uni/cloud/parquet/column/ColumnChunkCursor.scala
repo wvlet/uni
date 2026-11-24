@@ -61,6 +61,12 @@ private[parquet] final class ColumnChunkCursor(
 
   private var dictionary: Option[ValueBuffer] = None
 
+  // The buffer that compressed pages decode into, from PageBuffers, and returned to it when the
+  // chunk ends. Every decoder copies values out of a page, so a page's buffer is free once its
+  // values are committed. pageOffset is where the last page starts in the array pageBytes returned.
+  private var pageBuffer: Array[Byte] = null
+  private var pageOffset              = 0
+
   // Level entries [0, base) are handed out, [base, committed) are committed (values decoded), and
   // [committed, levelEnd) belong to the held page; values [0, valueBase) are handed out. Handed-out
   // entries are dropped when the next page loads, not on every take, so small batches stay linear.
@@ -454,14 +460,14 @@ private[parquet] final class ColumnChunkCursor(
             .getOrElse(throw ParquetException.corrupt("dictionary page without its header"))
           if d.numValues < 0 then
             throw ParquetException.corrupt(s"dictionary has ${d.numValues} values")
-          val page = Codecs.decompress(meta.codec, chunk, pageStart, size, header.uncompressedSize)
+          val page = pageBytes(chunk, pageStart, size, header.uncompressedSize)
           val dict = newValues(math.min(d.numValues, 1 << 16))
           ValueDecoder.decodePlain(
             field.physicalType,
             field.typeLength,
             page,
-            0,
-            page.length,
+            pageOffset,
+            pageOffset + header.uncompressedSize,
             d.numValues,
             dict
           )
@@ -473,8 +479,9 @@ private[parquet] final class ColumnChunkCursor(
             .getOrElse(throw ParquetException.corrupt("data page without its header"))
           checkPageValues(h.numValues)
           ensureLevels(h.numValues)
-          val page = Codecs.decompress(meta.codec, chunk, pageStart, size, header.uncompressedSize)
-          val pr   = ByteReader(page)
+          val page    = pageBytes(chunk, pageStart, size, header.uncompressedSize)
+          val pageEnd = pageOffset + header.uncompressedSize
+          val pr      = ByteReader(page, pageOffset, pageEnd)
           if maxRep > 0 then
             readLevelsV1(pr, h.repetitionLevelEncoding, maxRep, repLevels, levelEnd, h.numValues)
           val nonNull =
@@ -482,7 +489,7 @@ private[parquet] final class ColumnChunkCursor(
               readLevelsV1(pr, h.definitionLevelEncoding, maxDef, defLevels, levelEnd, h.numValues)
             else
               h.numValues
-          hold(h.numValues, nonNull, h.encoding, page, pr.pos, page.length)
+          hold(h.numValues, nonNull, h.encoding, page, pr.pos, pageEnd)
         case PageType.DATA_PAGE_V2 =>
           val h = header
             .dataPageV2
@@ -514,8 +521,8 @@ private[parquet] final class ColumnChunkCursor(
               // An empty page: nothing to decompress
               (Array.emptyByteArray, 0, 0)
             else if h.isCompressed && meta.codec != CompressionCodec.UNCOMPRESSED then
-              val out = Codecs.decompress(meta.codec, chunk, valuesStart, valuesLen, rawLen)
-              (out, 0, out.length)
+              val out = pageBytes(chunk, valuesStart, valuesLen, rawLen)
+              (out, pageOffset, pageOffset + rawLen)
             else
               // The values stay in the chunk's bytes, which ChunkInput keeps until the next read
               (chunk, valuesStart, valuesStart + valuesLen)
@@ -524,8 +531,44 @@ private[parquet] final class ColumnChunkCursor(
         // Not used by readers
       end match
     end while
+    if held == null && pageBuffer != null then
+      // The chunk has ended, and its last page's values are committed
+      PageBuffers.release(pageBuffer)
+      pageBuffer = null
 
   end loadNextPage
+
+  /**
+    * The decompressed bytes of a page, at [pageOffset, pageOffset + uncompressedSize) of the
+    * returned array. Uncompressed pages stay in the chunk's bytes, which ChunkInput keeps until the
+    * next read; codecs that decode into a buffer use [[pageBuffer]]; others get an array of their
+    * own. Called only when no page is held, so the buffer's last page is committed.
+    */
+  private def pageBytes(
+      chunk: Array[Byte],
+      start: Int,
+      length: Int,
+      uncompressedSize: Int
+  ): Array[Byte] =
+    if uncompressedSize < 0 then
+      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    if meta.codec == CompressionCodec.UNCOMPRESSED then
+      if length != uncompressedSize then
+        throw ParquetException.corrupt(
+          s"uncompressed page has ${length} bytes, but its header says ${uncompressedSize}"
+        )
+      pageOffset = start
+      chunk
+    else if Codecs.decodesInto(meta.codec) then
+      if pageBuffer == null || pageBuffer.length < uncompressedSize then
+        PageBuffers.release(pageBuffer)
+        pageBuffer = PageBuffers.borrow(uncompressedSize)
+      Codecs.decompressInto(meta.codec, chunk, start, length, pageBuffer, uncompressedSize)
+      pageOffset = 0
+      pageBuffer
+    else
+      pageOffset = 0
+      Codecs.decompress(meta.codec, chunk, start, length, uncompressedSize)
 
   /** Holds a page of `n` level entries, `nonNull` of which have a value */
   private def hold(

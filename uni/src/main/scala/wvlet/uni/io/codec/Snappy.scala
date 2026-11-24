@@ -4,6 +4,25 @@ package wvlet.uni.io.codec
 private[uni] object Snappy:
 
   def decompress(src: Array[Byte], offset: Int, length: Int, expectedSize: Int): Array[Byte] =
+    val out = new Array[Byte](expectedSize)
+    decompressInto(src, offset, length, out, expectedSize)
+    out
+
+  /**
+    * Decodes into `out(0)` to `out(expectedSize - 1)`, so a caller can reuse one buffer for many
+    * pages. `out` may be longer than `expectedSize`; bytes past it are left as they were.
+    */
+  def decompressInto(
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      out: Array[Byte],
+      expectedSize: Int
+  ): Unit =
+    if out.length < expectedSize then
+      throw IllegalArgumentException(
+        s"Snappy: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
+      )
     val end = offset + length
     var ip  = offset
 
@@ -32,8 +51,7 @@ private[uni] object Snappy:
     if outLen != expectedSize then
       fail(s"uncompressed length ${outLen} does not match the expected ${expectedSize}")
 
-    val out = new Array[Byte](expectedSize)
-    var op  = 0
+    var op = 0
 
     // Fast loop while a tag and its extra bytes fit in the input, so they need no bounds check
     while ip <= end - 5 do
@@ -122,9 +140,8 @@ private[uni] object Snappy:
     end while
     if op != expectedSize then
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
-    out
 
-  end decompress
+  end decompressInto
 
   private val ExtraMask: Array[Int] = Array(0, 0xff, 0xffff, 0xffffff, -1)
 
