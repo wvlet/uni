@@ -128,6 +128,14 @@ end MPC1File
 
 object MPC1File:
   def open(source: ByteSource): MPC1File =
+    try
+      read(source)
+    catch
+      case e: Throwable =>
+        source.close()
+        throw e
+
+  private def read(source: ByteSource): MPC1File =
     val fileSize = source.size
     val first    = source.read(0, math.min(fileSize, MPC1Format.ExpectedMaxHeaderSize).toInt)
     val total    = MPC1Format.headerSize(first)
@@ -141,7 +149,7 @@ object MPC1File:
     val header = MPC1Format.parseHeader(headerBytes, fileSize)
 
     val nameBlockSize = header.blockSizes.head
-    if nameBlockSize > Int.MaxValue then
+    if total.toLong + nameBlockSize > Int.MaxValue then
       throw MPC1Exception.corrupt(s"column-name block has ${nameBlockSize} bytes")
     val nameEnd   = total + nameBlockSize.toInt
     val nameBlock =
@@ -185,6 +193,6 @@ object MPC1File:
           }
     new MPC1File(source, header, columns)
 
-  end open
+  end read
 
 end MPC1File

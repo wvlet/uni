@@ -119,7 +119,7 @@ private[plazma] object MPC1Format:
     var done   = false
     while !done && i < limit do
       val b = buf(i)
-      if (n >>> 57) != 0 then
+      if (n >>> 56) != 0 then
         throw MPC1Exception.corrupt("block size overflows")
       n = (n << 7) | (b & 0x7f)
       if b < 0 then
@@ -165,8 +165,8 @@ private[plazma] object MPC1Format:
     if !prefix.take(4).sameElements(ContainerMagic) then
       throw MPC1Exception.corrupt("not an MPC1 file (unknown container magic)")
     val size = getInt(prefix, 4)
-    if size < 0 then
-      throw MPC1Exception.corrupt(s"negative header size ${size}")
+    if size < 0 || size > Int.MaxValue - MagicHeaderSize then
+      throw MPC1Exception.corrupt(s"invalid header size ${size}")
     MagicHeaderSize + size
 
   /** Parses the header from the first `headerSize(...)` bytes of a file of `fileSize` bytes */

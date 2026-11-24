@@ -42,7 +42,7 @@ object MPC1WriteOptions:
   *
   * {{{
   * val writer = MPC1.newWriter()
-  * writer.add(Seq("time" -> LongValue(1700000000L), "user" -> StringValue("a")))
+  * writer.addRow("time" -> LongValue(1700000000L), "user" -> StringValue("a"))
   * writer.writeTo(IOPath.parse("part.mpc1"))
   * }}}
   *
@@ -73,8 +73,10 @@ class MPC1Writer(options: MPC1WriteOptions = MPC1WriteOptions.default):
   def add(row: Iterable[(Value, Value)]): Unit =
     checkOpen()
     val touched = mutable.ArrayBuffer.empty[ColumnBuffer]
-    row.foreach { (k, v) =>
-      val col = columnMap.getOrElseUpdate(columnName(k), ColumnBuffer())
+    // Name every column before storing values, so a rejected row leaves no partial values
+    val named = row.map((k, v) => columnName(k) -> v)
+    named.foreach { (name, v) =>
+      val col = columnMap.getOrElseUpdate(name, ColumnBuffer())
       if v != NilValue && col.lastRow != recordCount then
         col.lastRow = recordCount
         col.add(recordCount, v)

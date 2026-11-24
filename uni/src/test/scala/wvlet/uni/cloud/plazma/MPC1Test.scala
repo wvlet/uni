@@ -234,6 +234,24 @@ class MPC1Test extends UniTest:
     }
   }
 
+  test("a rejected row stores no values") {
+    val writer = MPC1.newWriter(MPC1WriteOptions().noCompression())
+    intercept[IllegalArgumentException] {
+      writer.add(
+        Seq[(Value, Value)](StringValue("a") -> LongValue(1), LongValue(7) -> LongValue(2))
+      )
+    }
+    writer.addRow("a" -> LongValue(9))
+    MPC1.open(writer.toByteArray).readColumn("a").toSeq shouldBe Seq(LongValue(9))
+  }
+
+  test("reject block sizes over 63 bits") {
+    val bytes = Array.fill[Byte](9)(0x7f) :+ 0xff.toByte
+    intercept[MPC1Exception] {
+      MPC1Format.decodeIndex(bytes, 0, bytes.length)
+    }
+  }
+
   test("accept no rows after writing") {
     val writer = MPC1.newWriter(MPC1WriteOptions().noCompression())
     writer.toByteArray
