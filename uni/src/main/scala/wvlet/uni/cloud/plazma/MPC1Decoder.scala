@@ -313,8 +313,11 @@ object MPC1Decoder:
         throw MPC1Exception(s"Column ${name}, row ${row}: ${e.getMessage}", e)
 
   private def mismatch(name: String, row: Int, expected: String, b: Byte): Nothing =
-    val found = MessageFormat.of(b).valueType.name.toLowerCase
-    val code  = (b & 0xff).toHexString
+    // The never-used format 0xc1 has no value type
+    val found = Option(MessageFormat.of(b).valueType)
+      .map(_.name.toLowerCase)
+      .getOrElse("an invalid byte")
+    val code = (b & 0xff).toHexString
     throw MPC1Exception(
       s"Column ${name}, row ${row}: expected ${expected} or nil, but found ${found} (0x${code})"
     )

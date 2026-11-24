@@ -172,6 +172,9 @@ class MPC1Test extends UniTest:
     intercept[MPC1Exception] {
       MPC1Decoder.decodeDoubles("a", block(_.packBoolean(true)))
     }
+    intercept[MPC1Exception] {
+      MPC1Decoder.decodeLongs("a", Array[Byte](0xc1.toByte))
+    }.getMessage shouldContain "invalid byte"
     // uint64 over Long.MaxValue
     val overflow = Array[Byte](0xcf.toByte) ++ Array.fill[Byte](8)(0xff.toByte)
     intercept[MPC1Exception] {
