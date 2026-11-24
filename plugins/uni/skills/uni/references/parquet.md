@@ -552,6 +552,28 @@ ds.close();
 - `newDatasetWriter(root, schema, opts)` gives `write(row)` (throws when the upload queue is over
   `maxBufferedBytes`; await `flush()`), `flush()`, `close()` (resolves to the written files), and `abort()`.
 
+## MPC1 files
+
+`wvlet.uni.cloud.plazma` reads and writes MPC1, the column-oriented MessagePack format of PlazmaDB
+partitions: schema-less map rows stored as one compressed block of MessagePack values per column.
+
+```scala reset
+import wvlet.uni.cloud.plazma.*
+import wvlet.uni.msgpack.spi.Value.*
+
+val writer = MPC1.newWriter() // GZIP; MPC1WriteOptions.default.withCompression(MPC1Compression.NONE)
+writer.addRow("time" -> LongValue(1700000000L), "user" -> StringValue("aina"))
+val bytes = writer.toByteArray // or writeTo(path) / writeTo(outputStream); in memory until written
+
+val file  = MPC1.open(bytes) // or a path, MPC1.openS3/openGcs/openAzure/openUrl
+val rows  = file.readRows(Seq("time", "user")).toSeq // Iterator[MapValue], nil values left out
+val times = file.readColumn("time").toSeq            // one value per row, NilValue when missing
+file.close()
+```
+
+Each distinct string key becomes a column; projected reads fetch only the selected column blocks.
+Gzip writes fail in browsers.
+
 ## Limits
 
 No modular encryption, LZO codec, or ALP encoding, and one row must hold under 2 GiB of values

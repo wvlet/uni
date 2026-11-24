@@ -17,6 +17,7 @@ with the same code.
 | [Iceberg Tables](./iceberg) | `wvlet.uni.cloud.iceberg` | Read, create, append to, delete and update rows in, compact, and alter Apache Iceberg tables (format versions 1 to 3) |
 | [Delta Lake Tables](./delta) | `wvlet.uni.cloud.parquet` | Read Delta Lake tables, with time travel and typed partitions |
 | [Arrow IPC](./arrow) | `wvlet.uni.cloud.arrow` | Send column batches to pyarrow, pandas, polars, Arrow JS, and ADBC clients as Arrow streams or files |
+| [MPC1 Files](./plazma) | `wvlet.uni.cloud.plazma` | Read and write MPC1 files, the column-oriented MessagePack format of PlazmaDB partitions, with column projection over range reads |
 
 ## A Table in S3, End to End
 
