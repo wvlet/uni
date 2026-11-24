@@ -7,7 +7,7 @@ Native, no AWS, Google, or Azure SDK. All stores
 implement `ObjectStore`, so code written against it works with any of them. Sync methods run on the JVM, Native, and Node.js; `...Async`
 methods (returning `Rx`) run everywhere, including browsers.
 
-Full reference: https://wvlet.org/uni/core/object-storage.md
+Full reference: https://wvlet.org/uni/cloud/storage.md
 
 ## Basic operations
 

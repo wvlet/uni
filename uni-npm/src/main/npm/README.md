@@ -43,7 +43,7 @@ for await (const batch of file.batches()) {
   files and GZIP. Vite stubs them automatically; with webpack, set
   `resolve.fallback: { os: false, path: false, zlib: false }`.
 
-Documentation: https://wvlet.org/uni/text/parquet#from-typescript. Source and issues:
+Documentation: https://wvlet.org/uni/cloud/parquet#from-typescript. Source and issues:
 https://github.com/wvlet/uni.
 
 If you need a smaller bundle for the browser, [hyparquet](https://github.com/hyparam/hyparquet) is

@@ -303,7 +303,7 @@ top.filter(_.isDirectory).foreach(d => println(d.uri))
 returns `Some(version)`, the new object's [version](#replacing-an-object-only-if-unchanged), when
 this call created the object, and `None` when one was already there. Of several writers racing for
 the same key, at most one gets a version, so it can commit a version file, such as the
-`vN.metadata.json` of an [Iceberg table](../text/parquet#writing-apache-iceberg-tables), or take a
+`vN.metadata.json` of an [Iceberg table](./iceberg#writing-iceberg-tables), or take a
 lease. S3 sends `If-None-Match: *`, GCS `ifGenerationMatch=0`, and Azure `If-None-Match: *`.
 `putIfAbsentAsync` returns an `Rx[Option[String]]`.
 
@@ -417,7 +417,7 @@ page's origin.
 
 ## Parquet Files in Object Storage
 
-[Uni's Parquet reader](../text/parquet) reads Parquet files straight from S3 or GCS with ranged reads,
+[Uni's Parquet reader](./parquet) reads Parquet files straight from S3 or GCS with ranged reads,
 fetching only the footer and the column chunks it needs:
 
 ```scala
