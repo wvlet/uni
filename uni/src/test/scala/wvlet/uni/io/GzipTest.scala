@@ -49,8 +49,8 @@ class GzipTest extends UniTest:
   }
 
   test("compress and decompress data past 64 KiB") {
-    // Pseudo-random, so the compressed form is past 64 KiB too. On Windows Native, zlib calls over
-    // 64 KiB are truncated (see GzipCompat on Native)
+    // Pseudo-random, so the compressed form is past 64 KiB too, the size where Windows Native zlib
+    // calls broke before Scala Native 0.5.13 (see GzipCompat on Native)
     Seq(70000, 300000).foreach { n =>
       val r        = scala.util.Random(n)
       val original = Array.fill(n)(r.nextInt().toByte)

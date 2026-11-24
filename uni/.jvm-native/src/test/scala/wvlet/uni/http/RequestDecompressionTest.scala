@@ -19,9 +19,9 @@ import java.io.{ByteArrayOutputStream, OutputStream}
 import java.util.zip.{Deflater, DeflaterOutputStream, GZIPOutputStream}
 
 /**
-  * Request body decoding, on every platform. The Scala Native (Windows) CI job runs it too:
-  * javalib's zlib binding there truncates any single call over 64 KiB (see RequestDecompression),
-  * so the larger bodies check that decoding keeps each call under that bound.
+  * Request body decoding, on every platform, including the Scala Native (Windows) CI job. The
+  * bodies past 64 KiB cover the size where javalib on Windows truncated zlib calls before Scala
+  * Native 0.5.13 (see RequestDecompression).
   */
 class RequestDecompressionTest extends UniTest:
   import RequestDecompressionTest.*
@@ -136,8 +136,8 @@ object RequestDecompressionTest:
   )
 
   /**
-    * Writes in 8 KiB pieces: on Windows Native, a single `write` over 64 KiB never returns, for the
-    * same javalib bug RequestDecompression avoids.
+    * Writes in 8 KiB pieces, as the server's own encoders do (single writes over 64 KiB are covered
+    * by ZlibLargeCallTest).
     */
   private def encode(open: OutputStream => DeflaterOutputStream, b: Array[Byte]): Array[Byte] =
     val out = ByteArrayOutputStream()
