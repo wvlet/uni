@@ -33,6 +33,7 @@ The pages hold about 6.5 output bytes per tag: literals are almost all 1-7 bytes
   - Tag lengths computed for every input byte, 8 at a time, then one byte load per tag: slower (205 ms).
   - A 24-byte window, a second tag decoded from the same word, and limits checked once per 16 tags: no gain.
   - aircompressor 2.0.2's pure-Java decoder (`Unsafe`): 1246 MB/s on lineitem.
+  - Two pages decoded interleaved in one loop, each with its own register window (pages paired by compressed size): 25-45% slower than one page at a time on lineitem, orders, partsupp and customer (lineitem 2378 → 1306 MB/s). The single loop is limited by instruction throughput, not by the tag chain, so a second lane only adds register pressure.
 - The 2026-11-23 ADR found table-driven and shared-step loops slower. Those loaded each tag from memory, so the next tag waited on a load; the register window is what makes the branch-free body pay.
 - C2 notes for whoever edits the loop: it spills loop invariants once the body grows, so look at the disassembly after a change; an `int` shift by 32 is a shift by 0, so the literal-length shift is a `long`; time each variant in its own JVM, on more than one table.
 - `SnappyDecodeTest` covers the loop with random runs of short tags decoded into clean and dirty buffers, and with bad copies at every position among short tags.
