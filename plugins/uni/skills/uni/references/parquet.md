@@ -193,6 +193,10 @@ val since2026 = ParquetReadOptions.default
 - Literals convert only without loss: integers (or digit strings) to INT32/INT64, `LocalDate` or
   an ISO string to DATE, `Instant` to TIMESTAMP/INT96 (exact), `String` to STRING/ENUM, numbers
   to FLOAT/DOUBLE (integers within ±2^53). `col("a.b")` names a struct field.
+- `col("k").isIn(1L, 2L)` (or an `Iterable[Long]`) is SQL `IN` on INT32/INT64/DATE (epoch
+  days) columns; nulls never match. `isIn(set)` takes a custom `ParquetFilter.IntegerSet`
+  (`contains(v: Long)`, `min`, `max`, optional `mayIntersect(lo, hi)`), such as a join's bitmap or
+  Bloom filter, without copying it.
 - An unknown column, a list or map, DECIMAL/TIME/UUID, or a wrong literal type throws
   `IllegalArgumentException` when the read starts.
 - `withRowGroupFilter(f)` only skips row groups and ignores what it can't check; rows inside are

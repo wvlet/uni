@@ -246,6 +246,69 @@ private[parquet] final class RleBitPackedDecoder(
         nextRun()
 
   /**
+    * Replaces each offset in `at(0 until c)` with the value at that offset, counted from the
+    * current position, and moves past the last one. The offsets must increase. Values between them
+    * are skipped: an RLE run in one step, a bit-packed value without unpacking it. Throws when the
+    * data ends first.
+    */
+  def readAt(at: Array[Int], c: Int): Unit =
+    var cur = 0
+    var i   = 0
+    while i < c do
+      // Skip to the offset at(i), and to a run that has values
+      var gap = at(i) - cur
+      while gap > 0 || (rleRemaining == 0 && bitRemaining == 0) do
+        if rleRemaining > 0 then
+          val k = math.min(rleRemaining, gap)
+          rleRemaining -= k
+          gap -= k
+        else if bitRemaining > 0 then
+          val k = math.min(bitRemaining, gap)
+          bitIndex += k
+          bitRemaining -= k
+          gap -= k
+        else if pos >= end then
+          throw ParquetException.corrupt(s"RLE data ends before value ${at(i)}")
+        else
+          nextRun()
+      val first = at(i)
+      // Every offset inside this run is read from it
+      var last = first
+      if rleRemaining > 0 then
+        val runEnd = first + rleRemaining
+        while i < c && at(i) < runEnd do
+          last = at(i)
+          at(i) = rleValue
+          i += 1
+        rleRemaining -= last + 1 - first
+      else
+        val runEnd = first + bitRemaining
+        while i < c && at(i) < runEnd do
+          last = at(i)
+          at(i) = bitValue(bitIndex + last - first)
+          i += 1
+        bitIndex += last + 1 - first
+        bitRemaining -= last + 1 - first
+      cur = last + 1
+    end while
+
+  end readAt
+
+  /** The value at index `idx` of the bit-packed run; missing bytes at the end read as 0 */
+  private def bitValue(idx: Int): Int =
+    val bit = idx.toLong * bitWidth
+    var p   = bitStart + (bit >>> 3).toInt
+    val sh  = (bit & 7).toInt
+    // Up to 40 bits cover a 32-bit value at any bit offset
+    var w = 0L
+    var b = 0
+    while b < 5 && p < end do
+      w |= (buf(p) & 0xffL) << (8 * b)
+      p += 1
+      b += 1
+    ((w >>> sh) & ((1L << bitWidth) - 1)).toInt
+
+  /**
     * Appends `dict(index)` to `out` for the next `n` dictionary indices. An RLE run is looked up
     * once for the whole run; bit-packed indices are unpacked into `indices`, a block at a time.
     * Throws when the data ends first or an index is out of the dictionary.

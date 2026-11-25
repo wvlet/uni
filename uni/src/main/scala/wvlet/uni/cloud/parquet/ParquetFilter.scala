@@ -24,12 +24,20 @@ import java.time.LocalDate
   * {{{
   * import wvlet.uni.cloud.parquet.ParquetFilter.*
   * val f = col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("country") === "JP"
+  * // Set membership on an integer or DATE column, such as a join's build keys
+  * val g = col("store_id").isIn(3L, 4L, 10L)
   * }}}
   */
 enum ParquetFilter:
   case Compare(column: String, op: ParquetFilter.Op, value: Any)
   case IsNull(column: String)
   case IsNotNull(column: String)
+
+  /**
+    * The rows whose value of an integer or DATE column (as epoch days) the set accepts. A null
+    * value is unknown, so its row isn't kept.
+    */
+  case In(column: String, values: ParquetFilter.IntegerSet)
   case And(left: ParquetFilter, right: ParquetFilter)
   case Or(left: ParquetFilter, right: ParquetFilter)
 
@@ -44,6 +52,8 @@ enum ParquetFilter:
       case IsNull(c) =>
         Seq(c)
       case IsNotNull(c) =>
+        Seq(c)
+      case In(c, _) =>
         Seq(c)
       case And(a, b) =>
         (a.columnNames ++ b.columnNames).distinct
@@ -70,7 +80,152 @@ object ParquetFilter:
     def isNull: ParquetFilter      = IsNull(name)
     def isNotNull: ParquetFilter   = IsNotNull(name)
 
+    /** The value is one of these integers (epoch days for a DATE column) */
+    def isIn(values: Long*): ParquetFilter = In(name, IntegerSet.of(values))
+
+    /** The value is one of these integers (epoch days for a DATE column) */
+    def isIn(values: Iterable[Long]): ParquetFilter = In(name, IntegerSet.of(values))
+
+    /** The set accepts the value, such as a join's bitmap or Bloom filter over its build keys */
+    def isIn(set: IntegerSet): ParquetFilter = In(name, set)
+
   def col(name: String): Column = Column(name)
+
+  /**
+    * A set of Long values for [[ParquetFilter.In]], tested against an INT32, INT64, or DATE (epoch
+    * days) column. Implement it to hand over a predicate without copying it, such as a hash join's
+    * bitmap or Bloom filter over its build keys. A set may accept values it doesn't hold (a Bloom
+    * filter's false positives); a filter then keeps the rows the set accepts.
+    *
+    * Scans call `contains` from several threads at once, so it must not change state.
+    */
+  trait IntegerSet:
+    /** Whether the set accepts v. Called once per row, so keep it cheap. */
+    def contains(v: Long): Boolean
+
+    /** No accepted value is below this. Long.MaxValue with max = Long.MinValue for an empty set. */
+    def min: Long
+
+    /** No accepted value is above this */
+    def max: Long
+
+    /**
+      * False only when no value in [lo, hi] is accepted, which skips a row group whose statistics
+      * lie in that range. The default checks that [lo, hi] overlaps [min, max].
+      */
+    def mayIntersect(lo: Long, hi: Long): Boolean = lo <= max && hi >= min
+
+  object IntegerSet:
+    /** An exact set of these values: a bitmap when they are dense, a hash table otherwise */
+    def of(values: Iterable[Long]): IntegerSet = SortedIntegerSet(values.toArray.sorted.distinct)
+
+    /** Values spanning up to this many bits per value use a bitmap */
+    private[parquet] final val BitmapBitsPerValue = 64L
+
+    /** Spans up to this many values always use a bitmap (8 KB) */
+    private[parquet] final val SmallBitmapSpan = 64L * 1024
+
+  /** An exact set over sorted distinct values */
+  private[parquet] final class SortedIntegerSet(sorted: Array[Long]) extends IntegerSet:
+    val min: Long =
+      if sorted.isEmpty then
+        Long.MaxValue
+      else
+        sorted(0)
+
+    val max: Long =
+      if sorted.isEmpty then
+        Long.MinValue
+      else
+        sorted(sorted.length - 1)
+
+    // A bitmap over [min, max] when it is small enough; a linear-probing hash table otherwise
+    private val bitmap: Array[Long] =
+      if sorted.isEmpty then
+        null
+      else
+        // Negative when the span overflows a Long; such sets use the hash table
+        val span = max - min
+        if span >= 0 &&
+          span < math.max(IntegerSet.SmallBitmapSpan, IntegerSet.BitmapBitsPerValue * sorted.length)
+        then
+          val b = new Array[Long]((span >>> 6).toInt + 1)
+          var i = 0
+          while i < sorted.length do
+            val d = sorted(i) - min
+            b((d >>> 6).toInt) |= 1L << d
+            i += 1
+          b
+        else
+          null
+
+    private val (table, mask, hasZero) =
+      if bitmap != null || sorted.isEmpty then
+        (null: Array[Long], 0, false)
+      else
+        // 0 marks an empty slot, so the value 0 is kept aside
+        val cap = Integer.highestOneBit(math.max(4, sorted.length * 2) * 2 - 1)
+        val t   = new Array[Long](cap)
+        var z   = false
+        var i   = 0
+        while i < sorted.length do
+          val v = sorted(i)
+          if v == 0L then
+            z = true
+          else
+            var h = SortedIntegerSet.slot(v, cap - 1)
+            while t(h) != 0L do
+              h = (h + 1) & (cap - 1)
+            t(h) = v
+          i += 1
+        (t, cap - 1, z)
+
+    def contains(v: Long): Boolean =
+      if bitmap != null then
+        v >= min && v <= max && {
+          val d = v - min
+          (bitmap((d >>> 6).toInt) & (1L << d)) != 0
+        }
+      else if table == null then
+        false
+      else if v == 0L then
+        hasZero
+      else
+        var h     = SortedIntegerSet.slot(v, mask)
+        var found = false
+        var e     = table(h)
+        while !found && e != 0L do
+          if e == v then
+            found = true
+          else
+            h = (h + 1) & mask
+            e = table(h)
+        found
+
+    override def mayIntersect(lo: Long, hi: Long): Boolean =
+      // The first value at or above lo, if any, must be at most hi
+      var l = 0
+      var r = sorted.length
+      while l < r do
+        val m = (l + r) >>> 1
+        if sorted(m) < lo then
+          l = m + 1
+        else
+          r = m
+      l < sorted.length && sorted(l) <= hi
+
+    override def toString: String =
+      if sorted.length <= 8 then
+        sorted.mkString("{", ", ", "}")
+      else
+        s"{${sorted.take(8).mkString(", ")}, ... (${sorted.length} values)}"
+
+  end SortedIntegerSet
+
+  private[parquet] object SortedIntegerSet:
+    inline def slot(v: Long, mask: Int): Int =
+      val h = v * 0x9e3779b97f4a7c15L
+      (h ^ (h >>> 32)).toInt & mask
 
   private[parquet] def both(a: Option[ParquetFilter], b: Option[ParquetFilter]) =
     (a, b) match
@@ -162,6 +317,10 @@ object ParquetFilter:
         stats(c, schema, rg).forall { case (p, s) =>
           compareMayMatch(p, s, op, v, rg.numRows, binaryAsString)
         }
+      case In(c, set) =>
+        stats(c, schema, rg).forall { case (p, s) =>
+          inMayMatch(p, s, set, rg.numRows)
+        }
 
   private def stats(
       column: String,
@@ -211,6 +370,43 @@ object ParquetFilter:
               ord.cmpKey(max, key) >= 0
         case None =>
           true
+
+  private def inMayMatch(
+      p: ParquetField.Primitive,
+      s: Statistics,
+      set: IntegerSet,
+      numRows: Long
+  ): Boolean =
+    if s.nullCount.contains(numRows) then
+      false
+    else
+      membershipOrder(p) match
+        case Right(ord) if ord.trusts(s) =>
+          (
+            for
+              minB <- s.min
+              maxB <- s.max
+              min  <- ord.decode(minB)
+              max  <- ord.decode(maxB)
+            yield set.mayIntersect(min.asInstanceOf[Long], max.asInstanceOf[Long])
+          ).getOrElse(true)
+        case _ =>
+          true
+
+  /**
+    * The order of a column [[ParquetFilter.In]] can test: INT32 and INT64 integers (unsigned up to
+    * 32 bits) and DATE, whose values are all Longs in signed order
+    */
+  private[parquet] def membershipOrder(p: ParquetField.Primitive): Either[String, IntOrder] =
+    order(p, binaryAsString = false) match
+      case Some(o: IntOrder) if o.physical != PhysicalType.BOOLEAN && !o.isUnsigned64 =>
+        Right(o)
+      case _ =>
+        Left(
+          s"isIn tests INT32, INT64, and DATE columns, and ${p.name} is ${describe(
+              p
+            )}. Combine === with || instead"
+        )
 
   // ---- Literals and column orders ----
 
@@ -632,6 +828,12 @@ object ParquetFilter:
               identity
             )
           Node.Leaf(chain.map(_.name), Test.Cmp(op, ord, key))
+        case In(c, set) =>
+          val (chain, p) = leafOf(c)
+          if set == null then
+            fail(s"Column ${c} is tested against a null set")
+          val ord = membershipOrder(p).fold(fail, identity)
+          Node.Leaf(chain.map(_.name), Test.Member(ord, set))
 
     private def leafOf(c: String): (Seq[ParquetField], ParquetField.Primitive) = leaf(schema, c)
       .fold(fail, identity)
@@ -695,6 +897,7 @@ object ParquetFilter:
       case Null
       case NotNull
       case Cmp(op: Op, order: ColumnOrder, key: Key)
+      case Member(order: IntOrder, set: IntegerSet)
 
     enum Node:
       case Leaf(path: Seq[String], test: Test)
@@ -784,6 +987,8 @@ object ParquetFilter:
                     else
                       F
                 i += 1
+            case Test.Member(ord, set) =>
+              memberAll(v, ord, set, nulls, out, path)
           end match
           out
 
@@ -820,6 +1025,59 @@ object ParquetFilter:
       (v, nulls)
 
     end vectorOf
+
+    /** Each row's state for set membership: T when accepted, F when not, U for nulls */
+    private def memberAll(
+        v: ColumnVector,
+        ord: IntOrder,
+        set: IntegerSet,
+        nulls: Array[Boolean],
+        out: Array[Byte],
+        path: Seq[String]
+    ): Unit =
+      val n = out.length
+      var i = 0
+      v match
+        case c: IntColumn =>
+          val a = c.values
+          if ord.unsignedBits == 32 then
+            while i < n do
+              out(i) =
+                if set.contains(a(i).toLong & 0xffffffffL) then
+                  T
+                else
+                  F
+              i += 1
+          else
+            while i < n do
+              out(i) =
+                if set.contains(a(i).toLong) then
+                  T
+                else
+                  F
+              i += 1
+        case c: LongColumn =>
+          val a = c.values
+          while i < n do
+            out(i) =
+              if set.contains(a(i)) then
+                T
+              else
+                F
+            i += 1
+        case _ =>
+          throw IllegalStateException(
+            s"Can't test ${v.getClass.getSimpleName} at ${path.mkString(".")} for set membership"
+          )
+      end match
+      if nulls != null then
+        i = 0
+        while i < n do
+          if nulls(i) then
+            out(i) = U
+          i += 1
+
+    end memberAll
 
     /** Each row's value compared with the key: negative, zero, positive, or Incomparable */
     private def compareAll(v: ColumnVector, ord: ColumnOrder, key: Key, path: Seq[String]) =

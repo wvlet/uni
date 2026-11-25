@@ -2319,6 +2319,19 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
                   cmp >= 0
             )
         end match
+      case In(c, set) if columns.contains(c) =>
+        membershipOrder(columns(c)).fold(msg => throw IllegalArgumentException(msg), identity)
+        values(c) match
+          case null =>
+            Left(false)
+          case i: Int =>
+            Left(set.contains(i.toLong))
+          case l: Long =>
+            Left(set.contains(l))
+          case d: LocalDate =>
+            Left(set.contains(d.toEpochDay))
+          case pv =>
+            throw IllegalStateException(s"Cannot test ${pv} for set membership")
       case other =>
         Right(other)
 
