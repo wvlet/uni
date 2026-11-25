@@ -125,6 +125,70 @@ class SnappyDecodeTest extends UniTest:
     out.drop(n).forall(_ == 0x5a.toByte) shouldBe true
   }
 
+  test("random runs of short tags decode the same into a clean and a dirty buffer") {
+    // The JVM's loop takes literals of up to 6 bytes and copies of up to 16 with an offset of 8
+    // or more, and writes up to 24 bytes ahead of the output position; the other tags here make
+    // it leave that body and come back
+    for round <- 0 until 200 do
+      val s = TagStream().literal(1 + rnd.nextInt(40))
+      for _ <- 0 until rnd.nextInt(400) do
+        rnd.nextInt(10) match
+          case 0 | 1 | 2 =>
+            s.literal(1 + rnd.nextInt(8))
+          case 3 =>
+            s.literal(1 + rnd.nextInt(70))
+          case 4 =>
+            // A close offset, which repeats a pattern
+            s.copy(1 + rnd.nextInt(s.out.length.min(16)), 1 + rnd.nextInt(64), 2)
+          case 5 =>
+            s.copy(1 + rnd.nextInt(s.out.length), 1 + rnd.nextInt(64), 4)
+          case n =>
+            val offset = 1 + rnd.nextInt(s.out.length.min(2047))
+            if n % 2 == 0 then
+              s.copy(offset, 4 + rnd.nextInt(8), 1)
+            else
+              s.copy(offset, 1 + rnd.nextInt(20), 2)
+      val c = s.bytes
+      val n = s.out.length
+      for fill <- Seq(0, 0x5a) do
+        val out = Array.fill[Byte](n + 64)(fill.toByte)
+        Snappy.decompressInto(c, 0, c.length, out, n)
+        out.take(n).toSeq shouldBe s.out.toSeq
+        out.drop(n).forall(_ == fill.toByte) shouldBe true
+  }
+
+  test("rejects a bad copy at every position among short tags") {
+    val copies = Seq[(String, Int => Array[Byte])](
+      // 4 bytes from offset 0, as a 1-byte and a 2-byte offset copy
+      "offset 0 " -> (_ => Array[Byte](1, 0)),
+      "offset 0 " -> (_ => Array[Byte](((4 - 1) << 2 | 2).toByte, 0, 0)),
+      // One byte before the start of the output
+      "is out of range" -> { n =>
+        val offset = n + 1
+        Array[Byte](((4 - 1) << 2 | 2).toByte, offset.toByte, (offset >>> 8).toByte)
+      }
+    )
+    for
+      (message, bad) <- copies
+      tagsBefore     <- 0 to 40
+    do
+      val s = TagStream().literal(30)
+      for i <- 0 until tagsBefore do
+        if i % 3 == 0 then
+          s.literal(1 + i % 6)
+        else
+          s.copy(8 + i, 4 + i % 8, 1 + i % 2)
+      s.raw(bad(s.out.length), 4)
+      // More output after it, so the bad copy is far enough from the end of the input and of the
+      // output for the JVM's loop to reach it
+      s.literal(40)
+      val c = s.bytes
+      val e = intercept[CodecException] {
+        Snappy.decompress(c, 0, c.length, s.out.length + 4)
+      }
+      e.getMessage shouldContain message
+  }
+
   test("rejects copies outside the output and literals past the input") {
     def corrupt(c: Array[Byte], n: Int, message: String = ""): Unit =
       val e = intercept[CodecException] {
