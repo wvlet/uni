@@ -43,7 +43,8 @@ object JoinFilterProbe:
   def main(args: Array[String]): Unit =
     wvlet.uni.io.FileSystemInit.init()
     val dir    = args(0)
-    val rounds = args.lift(1).map(_.toInt).getOrElse(7)
+    // Round 0 warms up and isn't timed
+    val rounds = math.max(2, args.lift(1).map(_.toInt).getOrElse(7))
     // q73's dimension predicates
     val dates = IntegerSet.of(
       keys(s"${dir}/date_dim.parquet", "d_date_sk") { r =>

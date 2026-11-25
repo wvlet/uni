@@ -2320,6 +2320,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
             )
         end match
       case In(c, set) if columns.contains(c) =>
+        if set == null then
+          throw IllegalArgumentException(s"Column ${c} is tested against a null set")
         membershipOrder(columns(c)).fold(msg => throw IllegalArgumentException(msg), identity)
         values(c) match
           case null =>

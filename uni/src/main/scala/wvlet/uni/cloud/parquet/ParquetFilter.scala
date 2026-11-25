@@ -377,7 +377,10 @@ object ParquetFilter:
       set: IntegerSet,
       numRows: Long
   ): Boolean =
-    if s.nullCount.contains(numRows) then
+    if set == null then
+      // The row filter reports a null set; row-group pruning just reads the row group
+      true
+    else if s.nullCount.contains(numRows) then
       false
     else
       membershipOrder(p) match
