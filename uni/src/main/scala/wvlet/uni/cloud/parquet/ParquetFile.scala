@@ -7,7 +7,10 @@ import wvlet.uni.cloud.parquet.column.Assembly
 import wvlet.uni.cloud.parquet.column.ChunkInput
 import wvlet.uni.cloud.parquet.column.ColumnChunkCursor
 import wvlet.uni.cloud.parquet.column.FetchBuffers
+import wvlet.uni.cloud.parquet.column.FilterStep
+import wvlet.uni.cloud.parquet.column.FilteredBatches
 import wvlet.uni.cloud.parquet.column.RowGroupBatches
+import wvlet.uni.cloud.parquet.column.SelectiveCursor
 import wvlet.uni.cloud.parquet.column.ValueBuffer
 import wvlet.uni.cloud.parquet.format.*
 import wvlet.uni.cloud.parquet.io.ByteReader
@@ -59,8 +62,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val fl   = filtering(options)
     val opts = readOptions(options, fl)
     val plan = planRowGroup(index, opts)
-    val b    = wholeRowGroup(index, fetchedBatches(plan, opts, whole = true))
-    fl.fold(b)(_(b))
+    wholeRowGroup(index, fetchedBatches(plan, opts, whole = true, fl))
 
   /** Indices of the row groups to read: all of them, minus those the row group filter skips */
   def selectRowGroups(options: ParquetReadOptions = ParquetReadOptions.default): IndexedSeq[Int] =
@@ -117,10 +119,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     }
     .flatMap { (fl, opts) =>
       val plan = planRowGroup(index, opts)
-      fetchAsync(plan).map { in =>
-        val b = wholeRowGroup(index, batches(plan, in, opts, whole = true))
-        fl.fold(b)(_(b))
-      }
+      fetchAsync(plan).map(in => wholeRowGroup(index, batches(plan, in, opts, whole = true, fl)))
     }
 
   /** The batches of one row group, as [[readBatches]] splits them */
@@ -131,7 +130,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val fl   = filtering(options)
     val opts = readOptions(options, fl)
     val plan = planRowGroup(index, opts)
-    filtered(fetchedBatches(plan, opts, whole = false), fl)
+    filtered(fetchedBatches(plan, opts, whole = false, fl), fl)
 
   /** The batches of one row group, as [[readBatches]] splits them */
   private[parquet] def rowGroupBatchesAsync(
@@ -144,7 +143,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     }
     .flatMap { (fl, opts) =>
       val plan = planRowGroup(index, opts)
-      fetchAsync(plan).map(in => filtered(batches(plan, in, opts, whole = false), fl))
+      fetchAsync(plan).map(in => filtered(batches(plan, in, opts, whole = false, fl), fl))
     }
 
   /**
@@ -201,11 +200,16 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   /**
     * A row filter and the columns to return. Columns the filter needs but the read doesn't select
     * are read too, then dropped.
+    *
+    * `steps` split the filter for filter-first decoding: each step names the top-level columns it
+    * adds to those of the steps before it, and tests the conjuncts of the filter that need no other
+    * columns.
     */
   private case class Filtering(
       rowFilter: ParquetFilter.RowFilter,
       extra: Seq[String],
-      output: Option[Seq[String]]
+      output: Option[Seq[String]],
+      steps: IndexedSeq[(Seq[String], ParquetFilter.RowFilter)]
   ):
     def apply(b: ColumnBatch): ColumnBatch =
       val kept = rowFilter(b)
@@ -222,8 +226,46 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       val rf    = ParquetFilter.RowFilter(f, schema, options.binaryAsString)
       val extra =
         options.columns.fold(Seq.empty[String])(cols => rf.topColumns.filterNot(cols.contains))
-      Filtering(rf, extra, options.columns)
+      Filtering(rf, extra, options.columns, filterSteps(f, options.binaryAsString))
     }
+
+  /**
+    * The steps of a filter: its top-level AND conjuncts in order, a conjunct joining the step
+    * before it when that step's columns already cover it
+    */
+  private def filterSteps(
+      f: ParquetFilter,
+      binaryAsString: Boolean
+  ): IndexedSeq[(Seq[String], ParquetFilter.RowFilter)] =
+    def conjuncts(f: ParquetFilter): Seq[ParquetFilter] =
+      f match
+        case ParquetFilter.And(a, b) =>
+          conjuncts(a) ++ conjuncts(b)
+        case other =>
+          Seq(other)
+    val steps   = IndexedSeq.newBuilder[(Seq[String], Seq[ParquetFilter])]
+    var current = Option.empty[(Seq[String], Seq[ParquetFilter])]
+    var decoded = Set.empty[String]
+    conjuncts(f).foreach { c =>
+      val cols  = ParquetFilter.RowFilter(c, schema, binaryAsString).topColumns
+      val added = cols.filterNot(decoded.contains)
+      current match
+        case Some((names, cs)) if added.isEmpty =>
+          current = Some((names, cs :+ c))
+        case _ =>
+          current.foreach(steps += _)
+          current = Some((added, Seq(c)))
+      decoded ++= added
+    }
+    current.foreach(steps += _)
+    steps
+      .result()
+      .map { (names, cs) =>
+        names ->
+          ParquetFilter.RowFilter(cs.reduceLeft(ParquetFilter.And(_, _)), schema, binaryAsString)
+      }
+
+  end filterSteps
 
   private def readOptions(options: ParquetReadOptions, fl: Option[Filtering]): ParquetReadOptions =
     fl match
@@ -232,12 +274,12 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       case _ =>
         options
 
+  /** Drops the batches a filter left without rows */
   private def filtered(it: Iterator[ColumnBatch], fl: Option[Filtering]): Iterator[ColumnBatch] =
-    fl match
-      case None =>
-        it
-      case Some(f) =>
-        it.map(f(_)).filter(_.numRows > 0)
+    if fl.isEmpty then
+      it
+    else
+      it.filter(_.numRows > 0)
 
   /** Checks the filter when the stream starts, even when no row group is selected */
   private def checked[A](options: ParquetReadOptions)(body: => Rx[A]): Rx[A] =
@@ -357,6 +399,12 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   /** Chunks larger than this are read in windows of this size, not in one range */
   private[parquet] var chunkWindowSize: Int = 256 * 1024 * 1024
 
+  /**
+    * Whether filtered reads decode filter columns first and the others only for matching rows.
+    * False decodes every column for every row, then filters: kept for tests and benchmarks.
+    */
+  private[parquet] var lateMaterialization: Boolean = true
+
   private def chunkInput(c: ChunkPlan, data: Seq[(FetchRange, Array[Byte])]): ChunkInput =
     val (range, bytes) = data
       .find { case (r, _) =>
@@ -377,10 +425,11 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   private def fetchedBatches(
       plan: Plan,
       opts: ParquetReadOptions,
-      whole: Boolean
+      whole: Boolean,
+      fl: Option[Filtering]
   ): Iterator[ColumnBatch] =
     val borrowed = IndexedSeq.newBuilder[Array[Byte]]
-    val it       = batches(plan, fetch(plan, borrowed), opts, whole)
+    val it       = batches(plan, fetch(plan, borrowed), opts, whole, fl)
     val bufs     = borrowed.result()
     if bufs.isEmpty then
       it
@@ -470,11 +519,16 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
 
   end fetchAsync
 
+  /**
+    * The batches of a row group, each filtered by `fl` when it is given. A filtered batch may have
+    * no rows.
+    */
   private def batches(
       plan: Plan,
       inputs: Map[Int, ChunkInput],
       options: ParquetReadOptions,
-      whole: Boolean
+      whole: Boolean,
+      fl: Option[Filtering]
   ): Iterator[ColumnBatch] =
     // A whole row group may use all the space an array has
     val soft =
@@ -494,33 +548,104 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
               p.columnIndex
           }
           .toSet
-    val cursors = plan
-      .chunks
-      .map(c =>
-        ColumnChunkCursor(
-          c.field,
-          c.meta,
-          inputs(c.field.columnIndex),
-          soft,
-          batchHardLimit,
-          int32AsLong = asLong.contains(c.field.columnIndex)
-        )
-      )
+    def cursor(c: ChunkPlan) = ColumnChunkCursor(
+      c.field,
+      c.meta,
+      inputs(c.field.columnIndex),
+      soft,
+      batchHardLimit,
+      int32AsLong = asLong.contains(c.field.columnIndex)
+    )
     val batchSize =
       if whole then
         ValueBuffer.MaxArrayLength
       else
         options.batchSize.getOrElse(ValueBuffer.MaxArrayLength)
-    RowGroupBatches(
-      plan.fields,
-      cursors,
+    fl match
+      case Some(f) if lateMaterialization =>
+        filterFirst(plan, inputs, options, f, asLong, batchSize, cursor)
+      case _ =>
+        val it = RowGroupBatches(
+          plan.fields,
+          plan.chunks.map(cursor),
+          plan.rowGroup.numRows,
+          batchSize,
+          options.binaryAsString,
+          options.int32DecimalAsLong
+        )
+        fl.fold(it)(f => it.map(f(_)))
+
+  end batches
+
+  /**
+    * Filter-first batches: the first step's columns, and those a [[SelectiveCursor]] can't read
+    * (lists, maps, and chunks too large to be sure a batch of them fits), are decoded for every
+    * row; the other columns only for the rows still selected
+    */
+  private def filterFirst(
+      plan: Plan,
+      inputs: Map[Int, ChunkInput],
+      options: ParquetReadOptions,
+      fl: Filtering,
+      asLong: Set[Int],
+      batchSize: Int,
+      cursor: ChunkPlan => ColumnChunkCursor
+  ): Iterator[ColumnBatch] =
+    val byName                               = plan.fields.map(f => f.name -> f).toMap
+    def selectable(f: ParquetField): Boolean = leaves(f).forall(p =>
+      p.maxRepetitionLevel == 0 &&
+        plan.rowGroup.columns(p.columnIndex).totalUncompressedSize <= batchSoftLimit
+    )
+    val firstNames = fl.steps.head._1.toSet
+    val eager      = plan.fields.filter(f => firstNames.contains(f.name) || !selectable(f))
+    val eagerNames = eager.map(_.name).toSet
+    val steps      = fl
+      .steps
+      .map { (names, rf) =>
+        FilterStep(
+          names.map(byName).filterNot(f => eagerNames.contains(f.name)).toIndexedSeq,
+          rf.matches
+        )
+      }
+    val stepNames = fl.steps.flatMap(_._1).toSet
+    val payload   = plan
+      .fields
+      .filterNot(f => eagerNames.contains(f.name) || stepNames.contains(f.name))
+    val eagerLeaves = eager.flatMap(leaves).map(_.columnIndex).toSet
+    val selective   =
+      plan
+        .chunks
+        .filterNot(c => eagerLeaves.contains(c.field.columnIndex))
+        .map { c =>
+          c.field.columnIndex ->
+            SelectiveCursor(
+              c.field,
+              c.meta,
+              inputs(c.field.columnIndex),
+              int32AsLong = asLong.contains(c.field.columnIndex)
+            )
+        }
+        .toMap
+    val output =
+      fl.output match
+        case Some(names) =>
+          names.map(byName).toIndexedSeq
+        case None =>
+          plan.fields
+    FilteredBatches(
+      output,
+      eager,
+      plan.chunks.filter(c => eagerLeaves.contains(c.field.columnIndex)).map(cursor),
+      steps,
+      payload,
+      selective,
       plan.rowGroup.numRows,
       batchSize,
       options.binaryAsString,
       options.int32DecimalAsLong
     )
 
-  end batches
+  end filterFirst
 
   private def wholeRowGroup(index: Int, it: Iterator[ColumnBatch]): ColumnBatch =
     val numRows = rowGroups(index).numRows

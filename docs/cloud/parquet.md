@@ -364,6 +364,13 @@ A batch from `readBatches` holds only matching rows, so it can be smaller than `
 batches with no rows are not returned. `readRowGroup` always returns its one batch, which can be
 empty.
 
+- **Decoding order.** A file read decodes the filter's columns first. The filter's top-level `&&`
+  conjuncts run one at a time, in the order written: the first conjunct's columns are decoded for
+  every row, and each later one decodes its columns only for the rows still matching. The other
+  columns are then decoded only for the rows that pass. Pages with no matching row are skipped
+  without being decompressed. Put the most selective conjunct first. Lists, maps, and very large
+  column chunks are still decoded for every row. Datasets filter after decoding every column.
+
 ### Skipping Row Groups Only
 
 `withRowGroupFilter` takes the same filter but only skips row groups (and dataset files) that
