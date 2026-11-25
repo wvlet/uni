@@ -167,4 +167,27 @@ class SelectionFilterTest extends UniTest:
     }
   }
 
+  test("turn each comparison into the range of values it accepts") {
+    val edges = Seq(Long.MinValue, Long.MinValue + 1, -1L, 0L, 1L, Long.MaxValue - 1, Long.MaxValue)
+    def near(k: Long) = Seq(k - 1, k, k + 1, Long.MinValue, Long.MaxValue, 0L)
+    for
+      op   <- ops
+      rest <- Seq(-1, 0, 1)
+      k    <- edges
+      v    <- near(k)
+    do
+      val (lo, hi) = RowFilter.longRange(op, k, rest)
+      s"${v} ${op} (${k}, ${rest}): ${v >= lo && v <= hi}" shouldBe
+        s"${v} ${op} (${k}, ${rest}): ${cmp(op, compareTime(v, k, rest))}"
+    // Unsigned 64-bit values compare as signed ones with the sign bit flipped
+    for
+      op <- ops
+      k  <- edges
+      v  <- near(k)
+    do
+      val (lo, hi) = RowFilter.longRange(op, k ^ Long.MinValue, 0)
+      val x        = v ^ Long.MinValue
+      (x >= lo && x <= hi) shouldBe cmp(op, java.lang.Long.compareUnsigned(v, k))
+  }
+
 end SelectionFilterTest
