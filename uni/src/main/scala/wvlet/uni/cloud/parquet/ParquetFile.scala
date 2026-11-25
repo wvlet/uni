@@ -328,12 +328,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
           }
           .toIndexedSeq
 
-  private def leaves(f: ParquetField): Seq[ParquetField.Primitive] =
-    f match
-      case p: ParquetField.Primitive =>
-        Seq(p)
-      case g: ParquetField.Group =>
-        g.children.flatMap(leaves)
+  private def leaves(f: ParquetField): Seq[ParquetField.Primitive] = FilteredBatches.leaves(f)
 
   private[parquet] def planRowGroup(index: Int, options: ParquetReadOptions): Plan =
     if index < 0 || index >= numRowGroups then
@@ -591,54 +586,56 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       batchSize: Int,
       cursor: ChunkPlan => ColumnChunkCursor
   ): Iterator[ColumnBatch] =
-    val byName                               = plan.fields.map(f => f.name -> f).toMap
-    def selectable(f: ParquetField): Boolean = leaves(f).forall(p =>
-      p.maxRepetitionLevel == 0 &&
-        plan.rowGroup.columns(p.columnIndex).totalUncompressedSize <= batchSoftLimit
-    )
+    // A name read twice is decoded once
+    val fields = plan.fields.distinctBy(_.name)
+    val byName = fields.map(f => f.name -> f).toMap
+    // A flat column is read selectively unless its decoded values might pass the soft limit, which
+    // only ColumnChunkCursor cuts batches at
+    val selective = scala.collection.mutable.Map.empty[Int, SelectiveCursor]
+    def selectable(f: ParquetField): Boolean = leaves(f).forall { p =>
+      p.maxRepetitionLevel == 0 && {
+        val c = plan.chunks.find(_.field.columnIndex == p.columnIndex).get
+        val s = SelectiveCursor(
+          c.field,
+          c.meta,
+          inputs(p.columnIndex),
+          int32AsLong = asLong.contains(p.columnIndex)
+        )
+        selective(p.columnIndex) = s
+        s.decodedBound <= batchSoftLimit
+      }
+    }
     val firstNames = fl.steps.head._1.toSet
-    val eager      = plan.fields.filter(f => firstNames.contains(f.name) || !selectable(f))
+    val eager      = fields.filter(f => firstNames.contains(f.name) || !selectable(f))
     val eagerNames = eager.map(_.name).toSet
     val steps      = fl
       .steps
       .map { (names, rf) =>
         FilterStep(
           names.map(byName).filterNot(f => eagerNames.contains(f.name)).toIndexedSeq,
-          rf.matches
+          rf.keptRows
         )
       }
     val stepNames = fl.steps.flatMap(_._1).toSet
-    val payload   = plan
-      .fields
-      .filterNot(f => eagerNames.contains(f.name) || stepNames.contains(f.name))
+    val payload   = fields.filterNot(f => eagerNames.contains(f.name) || stepNames.contains(f.name))
     val eagerLeaves = eager.flatMap(leaves).map(_.columnIndex).toSet
-    val selective   =
-      plan
-        .chunks
-        .filterNot(c => eagerLeaves.contains(c.field.columnIndex))
-        .map { c =>
-          c.field.columnIndex ->
-            SelectiveCursor(
-              c.field,
-              c.meta,
-              inputs(c.field.columnIndex),
-              int32AsLong = asLong.contains(c.field.columnIndex)
-            )
-        }
-        .toMap
-    val output =
+    val output      =
       fl.output match
         case Some(names) =>
           names.map(byName).toIndexedSeq
         case None =>
-          plan.fields
+          fields
     FilteredBatches(
       output,
       eager,
-      plan.chunks.filter(c => eagerLeaves.contains(c.field.columnIndex)).map(cursor),
+      plan
+        .chunks
+        .filter(c => eagerLeaves.contains(c.field.columnIndex))
+        .distinctBy(_.field.columnIndex)
+        .map(cursor),
       steps,
       payload,
-      selective,
+      selective.toMap.filterNot((i, _) => eagerLeaves.contains(i)),
       plan.rowGroup.numRows,
       batchSize,
       options.binaryAsString,

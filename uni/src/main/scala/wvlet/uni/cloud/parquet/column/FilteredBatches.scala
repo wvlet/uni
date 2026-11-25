@@ -6,12 +6,12 @@ import wvlet.uni.cloud.parquet.ParquetException
 import wvlet.uni.cloud.parquet.ParquetField
 
 /**
-  * One step of a row filter: the fields it adds to the decoded ones, and a test of the rows of a
-  * batch holding every field decoded so far
+  * One step of a row filter: the fields it adds to the decoded ones, and the numbers of the rows it
+  * keeps of a batch holding every field decoded so far
   */
 private[parquet] final class FilterStep(
     val fields: IndexedSeq[ParquetField],
-    val matches: ColumnBatch => Array[Boolean]
+    val keptRows: ColumnBatch => Array[Int]
 )
 
 /**
@@ -66,12 +66,18 @@ private[parquet] final class FilteredBatches(
     // The rows still selected, as row numbers of the batch (null for all of them), and their count
     var selected: Array[Int] = null
     var n                    = rows
+    // Every row, until a step drops one
+    lazy val all = Array.range(0, rows)
+    def current  =
+      if selected != null then
+        selected
+      else
+        all
     steps.foreach { step =>
       if step.fields.nonEmpty then
-        decoded = decoded ++ decode(step.fields, rows, selected, n)
+        decoded = decoded ++ decode(step.fields, rows, current, n)
       if n > 0 then
-        val m    = step.matches(ColumnBatch(n, decoded))
-        val kept = keptRows(m)
+        val kept = step.keptRows(ColumnBatch(n, decoded))
         if kept.length < n then
           decoded = decoded.map(ColumnVector.take(_, kept))
           selected =
@@ -81,47 +87,26 @@ private[parquet] final class FilteredBatches(
               kept.map(selected(_))
           n = kept.length
     }
-    val all = decoded ++ decode(payload, rows, selected, n)
+    val out = decoded ++ decode(payload, rows, current, n)
     if remaining == 0 then
       eager.foreach(_.checkDone())
       selective.values.foreach(_.checkDone())
-    val byName = all.map(v => v.name -> v).toMap
+    val byName = out.map(v => v.name -> v).toMap
     ColumnBatch(n, output.map(f => byName(f.name)))
 
   end next
-
-  private def keptRows(m: Array[Boolean]): Array[Int] =
-    var c = 0
-    var i = 0
-    while i < m.length do
-      if m(i) then
-        c += 1
-      i += 1
-    val out = new Array[Int](c)
-    var j   = 0
-    i = 0
-    while i < m.length do
-      if m(i) then
-        out(j) = i
-        j += 1
-      i += 1
-    out
 
   /** Decodes the fields for the `n` selected rows of the next `rows` */
   private def decode(
       fields: IndexedSeq[ParquetField],
       rows: Int,
-      selected: Array[Int],
+      selected: => Array[Int],
       n: Int
   ): IndexedSeq[ColumnVector] =
     if fields.isEmpty then
       IndexedSeq.empty
     else
-      val sel =
-        if selected != null then
-          selected
-        else
-          Array.range(0, rows)
+      val sel     = selected
       val columns =
         fields
           .flatMap(FilteredBatches.leaves)

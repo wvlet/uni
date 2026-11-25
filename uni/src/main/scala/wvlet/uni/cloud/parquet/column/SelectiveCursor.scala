@@ -240,13 +240,7 @@ private[parquet] final class SelectiveCursor(
             .getOrElse(throw ParquetException.corrupt("dictionary page without its header"))
           if d.numValues < 0 then
             throw ParquetException.corrupt(s"dictionary has ${d.numValues} values")
-          val chunk = input.bytes(pos, size)
-          val start = input.offset
-          dictPage = java.util.Arrays.copyOfRange(chunk, start, start + size)
-          dictSize = header.uncompressedSize
-          dictValues = d.numValues
-          dictionary = None
-          pos += size
+          keepDictionary(header, d.numValues)
         case PageType.DATA_PAGE | PageType.DATA_PAGE_V2 =>
           val k = pageValues(header)
           if k < 0 || k > total - levelsRead then
@@ -271,6 +265,66 @@ private[parquet] final class SelectiveCursor(
     end while
 
   end nextPage
+
+  /** Keeps the dictionary page at `pos` compressed, until a page needs its values */
+  private def keepDictionary(header: PageHeader, numValues: Int): Unit =
+    val size  = header.compressedSize
+    val chunk = input.bytes(pos, size)
+    val start = input.offset
+    dictPage = java.util.Arrays.copyOfRange(chunk, start, start + size)
+    dictSize = header.uncompressedSize
+    dictValues = numValues
+    dictionary = None
+    pos += size
+
+  /**
+    * An upper bound of the bytes the chunk's values take once decoded, like the one
+    * [[ColumnChunkCursor]] checks page by page against its limits. Binary values from a dictionary
+    * are bounded by its longest entry, so this decodes the dictionary page, which comes first.
+    * DELTA_BYTE_ARRAY values share prefixes, so theirs is unbounded.
+    */
+  def decodedBound: Long =
+    val width = ValueDecoder.fixedWidth(field.physicalType, field.typeLength)
+    field.physicalType match
+      case PhysicalType.BYTE_ARRAY | PhysicalType.FIXED_LEN_BYTE_ARRAY | PhysicalType.INT96 =>
+        if meta.encodings.contains(Encoding.DELTA_BYTE_ARRAY) then
+          Long.MaxValue
+        else
+          // PLAIN values take no more than their pages, plus an offset each
+          val plain = meta.totalUncompressedSize + 4L * total
+          if meta
+              .encodings
+              .exists(e => e == Encoding.PLAIN_DICTIONARY || e == Encoding.RLE_DICTIONARY)
+          then
+            if pos == 0 && dictPage == null && dictionary.isEmpty && input.length > 0 then
+              val header = readHeader()
+              header.dictionaryPage match
+                case Some(d) if header.pageType == PageType.DICTIONARY_PAGE =>
+                  if d.numValues < 0 then
+                    throw ParquetException.corrupt(s"dictionary has ${d.numValues} values")
+                  if header.compressedSize < 0 || header.compressedSize > input.length - pos then
+                    throw ParquetException.corrupt(
+                      s"a page of column ${field.pathString} overruns its chunk"
+                    )
+                  keepDictionary(header, d.numValues)
+                case _ =>
+                  pos = 0
+            if dictPage == null && dictionary.isEmpty then
+              plain
+            else
+              dictionaryValues() match
+                case d: BinaryBuffer =>
+                  plain + total * d.maxLength
+                case _ =>
+                  plain
+          else
+            plain
+      case _ =>
+        // Fixed-size values, or bits for booleans
+        total * math.max(width, 1)
+    end match
+
+  end decodedBound
 
   /** Decodes the levels of a data page of `k` entries, and prepares its values */
   private def load(header: PageHeader, k: Int): Unit =
@@ -495,7 +549,8 @@ private[parquet] object SelectiveCursor:
   private def outOfData(): Nothing =
     throw ParquetException.corrupt("a page has fewer values than its definition levels require")
 
-  private inline def consecutive(pos: Array[Int], c: Int): Boolean = pos(c - 1) - pos(0) == c - 1
+  /** Consecutive values from this many on are copied in bulk */
+  private final val BulkRun = 16
 
   /** PLAIN values of a fixed size, read in place */
   private final class PlainFixed(
@@ -510,55 +565,74 @@ private[parquet] object SelectiveCursor:
     def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
       if start.toLong + (pos(c - 1).toLong + 1) * width > end then
         outOfData()
-      if consecutive(pos, c) then
-        ValueDecoder.decodePlain(tpe, field.typeLength, buf, start + pos(0) * width, end, c, out)
-      else
-        inline def each(inline set: (Int, Int) => Unit): Unit =
-          var i = 0
-          while i < c do
-            set(i, start + pos(i) * width)
-            i += 1
-        out match
-          case b: LongBuffer if tpe == PhysicalType.INT32 =>
-            b.ensure(c)
-            val v = b.values
-            val s = b.size
-            each((i, p) => v(s + i) = Bytes.intLE(buf, p).toLong)
-            b.size += c
-          case b: LongBuffer =>
-            b.ensure(c)
-            val v = b.values
-            val s = b.size
-            each((i, p) => v(s + i) = Bytes.longLE(buf, p))
-            b.size += c
-          case b: IntBuffer =>
-            b.ensure(c)
-            val v = b.values
-            val s = b.size
-            each((i, p) => v(s + i) = Bytes.intLE(buf, p))
-            b.size += c
-          case b: FloatBuffer =>
-            b.ensure(c)
-            val v = b.values
-            val s = b.size
-            each((i, p) => v(s + i) = java.lang.Float.intBitsToFloat(Bytes.intLE(buf, p)))
-            b.size += c
-          case b: DoubleBuffer =>
-            b.ensure(c)
-            val v = b.values
-            val s = b.size
-            each((i, p) => v(s + i) = java.lang.Double.longBitsToDouble(Bytes.longLE(buf, p)))
-            b.size += c
-          case b: BinaryBuffer =>
-            b.ensureValues(c)
-            b.ensureData(c * width)
-            each((_, p) => b.add(buf, p, width))
-          case other =>
-            throw IllegalStateException(s"${tpe} values in ${other.getClass.getSimpleName}")
-        end match
-      end if
+      // Runs of consecutive values copy in bulk; a bulk call costs more than a few scalar reads
+      var i = 0
+      while i < c do
+        var j = i + 1
+        while j < c && pos(j) == pos(j - 1) + 1 do
+          j += 1
+        if j - i >= BulkRun then
+          ValueDecoder.decodePlain(
+            tpe,
+            field.typeLength,
+            buf,
+            start + pos(i) * width,
+            end,
+            j - i,
+            out
+          )
+        else
+          scalar(pos, i, j, out)
+        i = j
 
-    end gather
+    /** Appends the values at pos(from until until), one at a time */
+    private def scalar(pos: Array[Int], from: Int, until: Int, out: ValueBuffer): Unit =
+      val c                                                 = until - from
+      inline def each(inline set: (Int, Int) => Unit): Unit =
+        var i = 0
+        while i < c do
+          set(i, start + pos(from + i) * width)
+          i += 1
+      out match
+        case b: LongBuffer if tpe == PhysicalType.INT32 =>
+          b.ensure(c)
+          val v = b.values
+          val s = b.size
+          each((i, p) => v(s + i) = Bytes.intLE(buf, p).toLong)
+          b.size += c
+        case b: LongBuffer =>
+          b.ensure(c)
+          val v = b.values
+          val s = b.size
+          each((i, p) => v(s + i) = Bytes.wordLE(buf, p))
+          b.size += c
+        case b: IntBuffer =>
+          b.ensure(c)
+          val v = b.values
+          val s = b.size
+          each((i, p) => v(s + i) = Bytes.intLE(buf, p))
+          b.size += c
+        case b: FloatBuffer =>
+          b.ensure(c)
+          val v = b.values
+          val s = b.size
+          each((i, p) => v(s + i) = java.lang.Float.intBitsToFloat(Bytes.intLE(buf, p)))
+          b.size += c
+        case b: DoubleBuffer =>
+          b.ensure(c)
+          val v = b.values
+          val s = b.size
+          each((i, p) => v(s + i) = java.lang.Double.longBitsToDouble(Bytes.wordLE(buf, p)))
+          b.size += c
+        case b: BinaryBuffer =>
+          b.ensureValues(c)
+          b.ensureData(c * width)
+          each((_, p) => b.add(buf, p, width))
+        case other =>
+          throw IllegalStateException(s"${tpe} values in ${other.getClass.getSimpleName}")
+      end match
+
+    end scalar
 
   end PlainFixed
 

@@ -26,18 +26,26 @@ one decodes.
   them is decoded.
 - **`SelectiveCursor` reads flat columns for selected rows.** Each entry of a flat column (no
   repetition levels) is a row, so a data page header gives the page's row count. A page with no
-  selected row is skipped without being decompressed. In other pages the levels are decoded, the
-  values between selected rows are skipped, and runs of selected rows are decoded in bulk. PLAIN
-  and dictionary pages decode only the selected values (`RleBitPackedDecoder.skip` skips indices).
-  The dictionary page is kept compressed until a page needs it. Other encodings (delta,
+  selected row is skipped without being decompressed. In other pages the levels are decoded, and
+  only the selected values are read: in place for PLAIN pages, and through dictionary indices
+  expanded up to the last selected value for dictionary pages. The dictionary page is kept
+  compressed until a page needs it. Other encodings (delta,
   byte-stream-split, RLE booleans) decode the page once and copy the selected values out.
 - **A second cursor instead of a mode in `ColumnChunkCursor`.** That cursor's buffer handover, row
   slots, and soft-limit batch cuts are tuned for decoding everything. A selection mode would have
   added branches to that hot path.
 - **Some columns still decode for every row:** lists and maps (selecting rows needs their
-  repetition levels), and chunks whose uncompressed size passes the batch soft limit. A batch
-  where nearly every row is selected could otherwise overflow an array, because only
-  `ColumnChunkCursor` cuts batches at the soft limit. These columns are gathered as before.
+  repetition levels), and chunks whose decoded values might pass the batch soft limit. Only
+  `ColumnChunkCursor` cuts batches at that limit, so without the check a batch where nearly every
+  row is selected could overflow an array. The bound is the chunk's size for PLAIN values, plus
+  the longest dictionary entry times the value count for dictionary-encoded binary values (the
+  dictionary page is decoded up front for this), and unbounded for DELTA_BYTE_ARRAY. These
+  columns are gathered as before.
+- **Values are gathered once per page and batch.** The selected rows' value ordinals are
+  collected, then appended in one call: runs of 16 or more consecutive PLAIN values are copied in
+  bulk, and shorter ones value by value. Calling a bulk decoder for every short run cost more than
+  decoding every value. When no selected row is null, the column gets no definition levels, so
+  the vector takes the values without a scatter copy.
 - **Vectors are identical.** Values, nulls, and dictionary-backed `BinaryColumn`s with the same
   dictionary indices as decoding everything and calling `ColumnVector.take`. One exception: a
   batch whose selected rows of a column are all null has no dictionary attached, so its

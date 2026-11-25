@@ -154,7 +154,9 @@ class LateMaterializationTest extends UniTest:
       options       <- Seq(
         ParquetReadOptions.default.withBinaryAsString(true),
         ParquetReadOptions.default.withColumns("word", "tags", "f", "inner").withBatchSize(333),
-        ParquetReadOptions.default.withColumns("s").withBatchSize(1)
+        ParquetReadOptions.default.withColumns("s").withBatchSize(1),
+        // A column read twice
+        ParquetReadOptions.default.withColumns("word", "s", "word").withBatchSize(1000)
       )
     do
       check(bytes, filter, options)
