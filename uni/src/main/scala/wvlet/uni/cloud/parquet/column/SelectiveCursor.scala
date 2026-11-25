@@ -522,14 +522,21 @@ private[parquet] final class SelectiveCursor(
       val last = pos(c - 1)
       if last >= n then
         outOfData()
-      if expanded <= last then
-        decoder.read(pageIndices, expanded, last + 1 - expanded)
-        expanded = last + 1
       // The ordinals become dictionary indices in place: the caller is done with them
-      var i = 0
-      while i < c do
-        pos(i) = pageIndices(pos(i))
-        i += 1
+      if (last + 1 - expanded).toLong > SparseRatio.toLong * c then
+        // Few values selected: read only theirs, skipping the indices between them
+        var i = 0
+        while i < c do
+          pos(i) -= expanded
+          i += 1
+        decoder.readAt(pos, c)
+      else
+        decoder.read(pageIndices, expanded, last + 1 - expanded)
+        var i = 0
+        while i < c do
+          pos(i) = pageIndices(pos(i))
+          i += 1
+      expanded = last + 1
       out.appendFromDictionary(dict, pos, c)
 
 end SelectiveCursor
@@ -548,6 +555,12 @@ private[parquet] object SelectiveCursor:
 
   private def outOfData(): Nothing =
     throw ParquetException.corrupt("a page has fewer values than its definition levels require")
+
+  /**
+    * A dictionary page reads only the selected indices when it would otherwise expand more than
+    * this many indices per selected value
+    */
+  private final val SparseRatio = 8
 
   /** Consecutive values from this many on are copied in bulk */
   private final val BulkRun = 16

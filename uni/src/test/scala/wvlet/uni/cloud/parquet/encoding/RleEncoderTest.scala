@@ -24,6 +24,34 @@ class RleEncoderTest extends UniTest:
       decoded.toSeq shouldBe values.toSeq
   }
 
+  test("read the values at sparse offsets, skipping the others") {
+    for bitWidth <- Seq(1, 3, 8, 13, 31, 32) do
+      val values =
+        Array.tabulate(5003) { i =>
+          if i % 1000 < 400 then
+            7 & ((1 << math.min(bitWidth, 30)) - 1)
+          else if bitWidth == 32 then
+            rnd.nextInt()
+          else
+            rnd.nextInt(1 << math.min(bitWidth, 30))
+        }
+      val out = ByteBuf()
+      RleEncoder.encode(values, values.length, bitWidth, out)
+      val bytes = out.toByteArray
+      for step <- Seq(1, 2, 7, 64, 999) do
+        val dec = RleBitPackedDecoder(bytes, 0, bytes.length, bitWidth)
+        // Two calls in a row: offsets count from where the first one stopped
+        val first  = (0 until 2500 by step).toArray
+        val second = (0 until 2503 by step).toArray
+        val a      = first.clone()
+        dec.readAt(a, a.length)
+        a.toSeq shouldBe first.toSeq.map(values(_))
+        val base = first.last + 1
+        val b    = second.clone()
+        dec.readAt(b, b.length)
+        b.toSeq shouldBe second.toSeq.map(o => values(base + o))
+  }
+
   test("read levels as bytes, counting those at the maximum level") {
     for maxLevel <- Seq(1, 2, 5, 127) do
       val bitWidth = BitPacking.bitWidthOf(maxLevel)

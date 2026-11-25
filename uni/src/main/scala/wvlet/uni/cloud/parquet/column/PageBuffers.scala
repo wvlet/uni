@@ -14,7 +14,7 @@ private[parquet] final class ArrayPool[A <: AnyRef](
     maxArrayBytes: Long,
     bytesPerElement: Int,
     newArray: Int => A,
-    lengthOf: A => Int
+    lengthOf: ArrayPool.Length[A]
 ):
   private final class Pool:
     val arrays = new Array[AnyRef](maxPooled)
@@ -85,6 +85,14 @@ private[parquet] final class ArrayPool[A <: AnyRef](
         pool.bytes += size
 
 end ArrayPool
+
+private[parquet] object ArrayPool:
+  /**
+    * An array's length. A SAM type rather than `A => Int`, whose generic apply boxes the Int on
+    * every call, which showed up in profiles of `borrow`
+    */
+  trait Length[A]:
+    def apply(a: A): Int
 
 /**
   * Buffers for decompressed pages. A buffer belongs to one [[ColumnChunkCursor]] from [[borrow]]

@@ -360,6 +360,33 @@ async variants. A column the filter needs but `withColumns` leaves out is read, 
   column: an unknown column, a list or map, a type such as DECIMAL, TIME, or UUID, or a literal of
   the wrong type. Untyped binary columns compare with strings under `withBinaryAsString(true)`.
 
+### Set Membership
+
+`col("x").isIn(values)` keeps the rows whose INT32, INT64, or DATE value (as epoch days) is in a
+set, like SQL `IN`. A null value is unknown, so its row is not kept. Row groups whose min and max
+contain none of the values are skipped:
+
+```scala
+import wvlet.uni.cloud.parquet.ParquetFilter.*
+
+val stores = ParquetReadOptions.default.withFilter(col("store_id").isIn(3L, 4L, 10L))
+```
+
+An engine can pass its own `ParquetFilter.IntegerSet` instead, such as a hash join's bitmap or
+Bloom filter over its build keys, so the scan drops probe rows before decoding their other
+columns. Uni calls `contains` once per row, from several threads, and uses `min`, `max`, and
+`mayIntersect` to skip row groups. A set that accepts values it doesn't hold (a Bloom filter's
+false positives) keeps those rows too:
+
+```scala
+import wvlet.uni.cloud.parquet.ParquetFilter.*
+
+final class EvenKeys(val min: Long, val max: Long) extends IntegerSet:
+  def contains(v: Long): Boolean = v >= min && v <= max && v % 2 == 0
+
+val evens = ParquetReadOptions.default.withFilter(col("id").isIn(EvenKeys(100, 200)))
+```
+
 A batch from `readBatches` holds only matching rows, so it can be smaller than `withBatchSize`;
 batches with no rows are not returned. `readRowGroup` always returns its one batch, which can be
 empty.

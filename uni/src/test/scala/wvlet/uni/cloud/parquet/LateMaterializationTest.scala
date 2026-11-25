@@ -144,6 +144,9 @@ class LateMaterializationTest extends UniTest:
     col("s") > "v2" && (col("k") < 100 || col("inner.b") === "b1"),
     col("id") < 4000L && col("id") > 3000L && col("word") >= "w35",
     col("flag") === true && col("f") > 100.0,
+    col("k").isIn((0L until 1000L by 37L).toSeq),
+    col("s") === "v5" && col("id").isIn(5L, 15L, 25L, 4995L),
+    col("k").isIn(3L, 4L) && col("inner.a").isIn((0L until 5000L by 2L).toSeq),
     col("id") >= 0L
   )
 
