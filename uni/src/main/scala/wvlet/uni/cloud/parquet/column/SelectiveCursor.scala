@@ -16,9 +16,10 @@ import wvlet.uni.cloud.parquet.thrift.CompactProtocol
   * only, the columns a row filter does not need (late materialization).
   *
   * Each level entry of a flat column is a row, so a page header tells how many rows the page holds.
-  * A page with no selected row is skipped without being decompressed. In the others, values between
-  * selected rows are skipped, and runs of selected rows are decoded in bulk: PLAIN and dictionary
-  * pages decode only the selected values; pages of other encodings are decoded once, and the
+  * A page with no selected row is skipped without being decompressed. In the others, the values of
+  * a batch's selected rows are gathered in one call per page: PLAIN pages read them in place (in
+  * bulk when they are consecutive), dictionary pages expand indices up to the last selected value
+  * and look up only the selected ones, and pages of other encodings are decoded once and the
   * selected values copied out. The dictionary page is decoded when a page first needs it.
   *
   * [[select]] hands out values and definition levels of the selected rows only, as a [[ColumnData]]
@@ -54,15 +55,31 @@ private[parquet] final class SelectiveCursor(
   private var dictSize                        = 0
   private var dictValues                      = 0
   private var dictionary: Option[ValueBuffer] = None
-  private var indices: Array[Int]             = null
+  // A dictionary page's expanded indices, from LevelBuffers.ints like positions
+  private var pageIndices: Array[Int] = null
 
-  // The page being read: its definition levels, the entry of the next row, the entries left, and
-  // the entry up to which its values are consumed (read or skipped)
+  // The page being read: its definition levels, whether every entry has a value, the entry of the
+  // next row, and the entries left. ordinal counts the values before entry ordEntry.
   private var pageDefs: Array[Byte] = null
+  private var allValid              = true
   private var entry                 = 0
   private var pageLeft              = 0
-  private var valueEntry            = 0
+  private var ordEntry              = 0
+  private var ordinal               = 0
   private var values: PageValues    = null
+  // The value ordinals of the selected rows of one page, gathered in one call. Scratch arrays come
+  // from LevelBuffers, as a new cursor reads each row group, and go back when the chunk ends.
+  private var positions: Array[Int] = null
+
+  /** `a` when it holds `n`, else a pooled array that does, `a` going back to the pool */
+  private def borrowInts(a: Array[Int], n: Int): Array[Int] =
+    if a != null && a.length >= n then
+      a
+    else
+      if a != null then
+        LevelBuffers.ints.release(a)
+      LevelBuffers.ints.borrow(math.max(n, 64))
+
   // The buffer compressed pages decode into, from PageBuffers, and the offset of the last page in
   // the array pageBytes returned
   private var pageBuffer: Array[Byte] = null
@@ -83,49 +100,56 @@ private[parquet] final class SelectiveCursor(
     */
   def select(rows: Int, selected: Array[Int], n: Int): ColumnData =
     val out  = newValues(math.max(n, 1))
-    val defs =
+    var defs =
       if maxDef > 0 then
         LevelBuffers.bytes.borrow(math.max(n, 1))
       else
         null
-    var o = 0
-    var j = 0
+    var anyNull = false
+    var o       = 0
+    var j       = 0
     row = 0
     while row < rows do
       if pageLeft == 0 then
         nextPage(rows, selected, j, n)
       if row < rows then
         // The page's entries [entry, entry + m) are the batch's rows [row, row + m)
-        val m      = math.min(pageLeft, rows - row)
-        val segEnd = row + m
-        while j < n && selected(j) < segEnd do
-          val s = selected(j)
-          pass(s - row)
-          // A run of consecutive selected rows
-          var k = 1
-          while j + k < n && selected(j + k) == s + k && s + k < segEnd do
-            k += 1
-          val nonNull =
-            if defs == null then
-              k
+        val m     = math.min(pageLeft, rows - row)
+        val shift = entry - row
+        val most  = math.min(m, n - j)
+        if positions == null || positions.length < most then
+          positions = borrowInts(positions, most)
+        var c = 0
+        while j < n && selected(j) < row + m do
+          val e = selected(j) + shift
+          if allValid then
+            positions(c) = e
+            c += 1
+            if defs != null then
+              defs(o) = maxDef.toByte
+          else
+            val d = pageDefs(e)
+            defs(o) = d
+            if d == maxDef then
+              positions(c) = ordinalAt(e)
+              c += 1
             else
-              System.arraycopy(pageDefs, entry, defs, o, k)
-              countNonNull(entry, entry + k)
-          // A run of nulls only reads nothing, and leaves the skip to the next run with values
-          if nonNull > 0 then
-            if valueEntry < entry then
-              values.skip(countNonNull(valueEntry, entry))
-            values.read(nonNull, out)
-            valueEntry = entry + k
-          pass(k)
-          o += k
-          j += k
-        pass(segEnd - row)
+              anyNull = true
+          o += 1
+          j += 1
+        if c > 0 then
+          values.gather(positions, c, out)
+        pass(m)
         if pageLeft == 0 then
           values = null
+      end if
     end while
     if j != n then
       throw IllegalArgumentException(s"${n - j} selected rows are beyond the batch's ${rows} rows")
+    if defs != null && !anyNull then
+      // Every selected row has a value: without levels, the vector takes the values as they are
+      LevelBuffers.bytes.release(defs)
+      defs = null
     ColumnData(field, out, defs, null, n)
 
   end select
@@ -136,17 +160,17 @@ private[parquet] final class SelectiveCursor(
     pageLeft -= k
     row += k
 
-  private def countNonNull(from: Int, until: Int): Int =
-    if pageDefs == null then
-      until - from
-    else
-      var c = 0
-      var i = from
-      while i < until do
-        if pageDefs(i) == maxDef then
-          c += 1
-        i += 1
-      c
+  /** The number of values before entry `e` of the page, for entries in increasing order */
+  private def ordinalAt(e: Int): Int =
+    var c = ordinal
+    var i = ordEntry
+    while i < e do
+      if pageDefs(i) == maxDef then
+        c += 1
+      i += 1
+    ordinal = c
+    ordEntry = e
+    c
 
   /** Fails when the chunk has values beyond the row group's rows; frees the page buffer */
   def checkDone(): Unit =
@@ -165,6 +189,12 @@ private[parquet] final class SelectiveCursor(
     release()
 
   private def release(): Unit =
+    if positions != null then
+      LevelBuffers.ints.release(positions)
+      positions = null
+    if pageIndices != null then
+      LevelBuffers.ints.release(pageIndices)
+      pageIndices = null
     if pageBuffer != null then
       PageBuffers.release(pageBuffer)
       pageBuffer = null
@@ -299,8 +329,10 @@ private[parquet] final class SelectiveCursor(
           values = pageValuesOf(h.encoding, chunk, valuesStart, valuesStart + valuesLen, nonNull)
     end match
     entry = 0
-    valueEntry = 0
     pageLeft = k
+    allValid = nonNull == k
+    ordEntry = 0
+    ordinal = 0
 
   end load
 
@@ -357,9 +389,9 @@ private[parquet] final class SelectiveCursor(
         val dict = dictionaryValues()
         if start >= end then
           throw ParquetException.corrupt("dictionary index data is empty")
-        if indices == null then
-          indices = new Array[Int](ValueDecoder.DictionaryBlock)
-        DictionaryValues(RleBitPackedDecoder(buf, start + 1, end, buf(start) & 0xff), dict, indices)
+        if pageIndices == null || pageIndices.length < n then
+          pageIndices = borrowInts(pageIndices, n)
+        DictionaryValues(RleBitPackedDecoder(buf, start + 1, end, buf(start) & 0xff), dict, n)
       case _ =>
         val decoded = newValues(n)
         ValueDecoder.decode(
@@ -427,72 +459,128 @@ private[parquet] final class SelectiveCursor(
       pageOffset = 0
       Codecs.decompress(meta.codec, chunk, start, length, uncompressedSize)
 
+  /** Dictionary indices, expanded up to the last value gathered so far */
+  private final class DictionaryValues(decoder: RleBitPackedDecoder, dict: ValueBuffer, n: Int)
+      extends PageValues:
+    private var expanded = 0
+
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
+      val last = pos(c - 1)
+      if last >= n then
+        outOfData()
+      if expanded <= last then
+        decoder.read(pageIndices, expanded, last + 1 - expanded)
+        expanded = last + 1
+      // The ordinals become dictionary indices in place: the caller is done with them
+      var i = 0
+      while i < c do
+        pos(i) = pageIndices(pos(i))
+        i += 1
+      out.appendFromDictionary(dict, pos, c)
+
 end SelectiveCursor
 
 private[parquet] object SelectiveCursor:
 
-  /** The non-null values of a page, read in order: some skipped, some appended to a buffer */
-  private abstract class PageValues:
-    def skip(n: Int): Unit
-    def read(n: Int, out: ValueBuffer): Unit
+  /**
+    * The non-null values of a page. [[gather]] appends the values at the given ordinals, which
+    * increase within a page, also across calls.
+    */
+  private[column] abstract class PageValues:
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit
 
   private object NoValues extends PageValues:
-    def skip(n: Int): Unit =
-      if n > 0 then
-        fail()
-
-    def read(n: Int, out: ValueBuffer): Unit =
-      if n > 0 then
-        fail()
-
-    private def fail(): Nothing =
-      throw ParquetException.corrupt("a page has fewer values than rows")
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit = outOfData()
 
   private def outOfData(): Nothing =
     throw ParquetException.corrupt("a page has fewer values than its definition levels require")
 
-  /** PLAIN values of a fixed size */
+  private inline def consecutive(pos: Array[Int], c: Int): Boolean = pos(c - 1) - pos(0) == c - 1
+
+  /** PLAIN values of a fixed size, read in place */
   private final class PlainFixed(
       field: ParquetField.Primitive,
       buf: Array[Byte],
       start: Int,
       end: Int
   ) extends PageValues:
-    private val width = ValueDecoder.fixedWidth(field.physicalType, field.typeLength)
-    private var p     = start
+    private val tpe   = field.physicalType
+    private val width = ValueDecoder.fixedWidth(tpe, field.typeLength)
 
-    def skip(n: Int): Unit =
-      val next = p.toLong + n.toLong * width
-      if next > end then
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
+      if start.toLong + (pos(c - 1).toLong + 1) * width > end then
         outOfData()
-      p = next.toInt
+      if consecutive(pos, c) then
+        ValueDecoder.decodePlain(tpe, field.typeLength, buf, start + pos(0) * width, end, c, out)
+      else
+        inline def each(inline set: (Int, Int) => Unit): Unit =
+          var i = 0
+          while i < c do
+            set(i, start + pos(i) * width)
+            i += 1
+        out match
+          case b: LongBuffer if tpe == PhysicalType.INT32 =>
+            b.ensure(c)
+            val v = b.values
+            val s = b.size
+            each((i, p) => v(s + i) = Bytes.intLE(buf, p).toLong)
+            b.size += c
+          case b: LongBuffer =>
+            b.ensure(c)
+            val v = b.values
+            val s = b.size
+            each((i, p) => v(s + i) = Bytes.longLE(buf, p))
+            b.size += c
+          case b: IntBuffer =>
+            b.ensure(c)
+            val v = b.values
+            val s = b.size
+            each((i, p) => v(s + i) = Bytes.intLE(buf, p))
+            b.size += c
+          case b: FloatBuffer =>
+            b.ensure(c)
+            val v = b.values
+            val s = b.size
+            each((i, p) => v(s + i) = java.lang.Float.intBitsToFloat(Bytes.intLE(buf, p)))
+            b.size += c
+          case b: DoubleBuffer =>
+            b.ensure(c)
+            val v = b.values
+            val s = b.size
+            each((i, p) => v(s + i) = java.lang.Double.longBitsToDouble(Bytes.longLE(buf, p)))
+            b.size += c
+          case b: BinaryBuffer =>
+            b.ensureValues(c)
+            b.ensureData(c * width)
+            each((_, p) => b.add(buf, p, width))
+          case other =>
+            throw IllegalStateException(s"${tpe} values in ${other.getClass.getSimpleName}")
+        end match
+      end if
 
-    def read(n: Int, out: ValueBuffer): Unit =
-      ValueDecoder.decodePlain(field.physicalType, field.typeLength, buf, p, end, n, out)
-      p += n * width
+    end gather
+
+  end PlainFixed
 
   /** PLAIN booleans, one bit each */
   private final class PlainBooleans(buf: Array[Byte], start: Int, end: Int) extends PageValues:
-    private var bit = 0L
-
-    def skip(n: Int): Unit = bit += n
-
-    def read(n: Int, out: ValueBuffer): Unit =
-      if start + ((bit + n + 7) >>> 3) > end then
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
+      if start + (pos(c - 1).toLong >>> 3) >= end then
         outOfData()
       val b = out.asInstanceOf[BooleanBuffer]
-      b.ensure(n)
+      b.ensure(c)
       var i = 0
-      while i < n do
-        val k = bit + i
-        b.values(b.size + i) = ((buf(start + (k >>> 3).toInt) >>> (k & 7).toInt) & 1) != 0
+      while i < c do
+        val k = pos(i)
+        b.values(b.size + i) = ((buf(start + (k >>> 3)) >>> (k & 7)) & 1) != 0
         i += 1
-      b.size += n
-      bit += n
+      b.size += c
 
-  /** PLAIN byte arrays, each after its 4-byte length */
+  /** PLAIN byte arrays, each after its 4-byte length, scanned in order */
   private final class PlainBinary(buf: Array[Byte], start: Int, end: Int) extends PageValues:
-    private var p = start
+    // The position of the value with ordinal `next`
+    private var p    = start
+    private var next = 0
 
     private def lengthAt(): Int =
       if p + 4 > end then
@@ -502,60 +590,36 @@ private[parquet] object SelectiveCursor:
         throw ParquetException.corrupt(s"a byte array of ${len} bytes overruns its page")
       len
 
-    def skip(n: Int): Unit =
-      var i = 0
-      while i < n do
-        p += 4 + lengthAt()
-        i += 1
-
-    def read(n: Int, out: ValueBuffer): Unit =
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
       val b = out.asInstanceOf[BinaryBuffer]
-      b.ensureValues(n)
+      b.ensureValues(c)
       var i = 0
-      while i < n do
+      while i < c do
+        val target = pos(i)
+        while next < target do
+          p += 4 + lengthAt()
+          next += 1
         val len = lengthAt()
         b.add(buf, p + 4, len)
         p += 4 + len
+        next += 1
         i += 1
 
-  /** Dictionary indices, looked up for the values read */
-  private final class DictionaryValues(
-      decoder: RleBitPackedDecoder,
-      dict: ValueBuffer,
-      indices: Array[Int]
-  ) extends PageValues:
-    def skip(n: Int): Unit                   = decoder.skip(n)
-    def read(n: Int, out: ValueBuffer): Unit = decoder.readDictionary(out, dict, n, indices)
-
-  /** Values decoded beforehand, for encodings that can't skip */
+  /** Values decoded beforehand, for encodings that can't be read in place */
   private final class DecodedValues(decoded: ValueBuffer) extends PageValues:
-    private var next            = 0
-    private var idx: Array[Int] = null
-    def skip(n: Int): Unit      = next += n
-
-    def read(n: Int, out: ValueBuffer): Unit =
-      if next + n > decoded.size then
+    def gather(pos: Array[Int], c: Int, out: ValueBuffer): Unit =
+      if pos(c - 1) >= decoded.size then
         outOfData()
       decoded match
         case d: BinaryBuffer =>
           // Copied as plain values: a page of these has no dictionary entries
           val b = out.asInstanceOf[BinaryBuffer]
-          b.ensureValues(n)
+          b.ensureValues(c)
           var i = 0
-          while i < n do
-            b.add(d.data, d.offsets(next + i), d.length(next + i))
+          while i < c do
+            b.add(d.data, d.offsets(pos(i)), d.length(pos(i)))
             i += 1
         case _ =>
-          lookUp(n, out)
-      next += n
-
-    private def lookUp(n: Int, out: ValueBuffer): Unit =
-      if idx == null || idx.length < n then
-        idx = new Array[Int](n)
-      var i = 0
-      while i < n do
-        idx(i) = next + i
-        i += 1
-      out.appendFromDictionary(decoded, idx, n)
+          out.appendFromDictionary(decoded, pos, c)
 
 end SelectiveCursor

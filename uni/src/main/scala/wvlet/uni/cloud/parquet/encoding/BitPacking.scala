@@ -245,24 +245,6 @@ private[parquet] final class RleBitPackedDecoder(
       else
         nextRun()
 
-  /** Skips the next `n` values without unpacking them. Throws when the data ends first. */
-  def skip(n: Int): Unit =
-    var i = 0
-    while i < n do
-      if rleRemaining > 0 then
-        val k = math.min(rleRemaining, n - i)
-        rleRemaining -= k
-        i += k
-      else if bitRemaining > 0 then
-        val k = math.min(bitRemaining, n - i)
-        bitIndex += k
-        bitRemaining -= k
-        i += k
-      else if pos >= end then
-        throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
-      else
-        nextRun()
-
   /**
     * Appends `dict(index)` to `out` for the next `n` dictionary indices. An RLE run is looked up
     * once for the whole run; bit-packed indices are unpacked into `indices`, a block at a time.
