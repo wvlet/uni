@@ -4,14 +4,12 @@ import wvlet.uni.cloud.parquet.ColumnBatch
 import wvlet.uni.cloud.parquet.ColumnVector
 import wvlet.uni.cloud.parquet.ParquetException
 import wvlet.uni.cloud.parquet.ParquetField
+import wvlet.uni.cloud.parquet.ParquetFilter
 
-/**
-  * One step of a row filter: the fields it adds to the decoded ones, and the numbers of the rows it
-  * keeps of a batch holding every field decoded so far
-  */
+/** One step of a row filter: the fields it adds to the decoded ones, and the test of its rows */
 private[parquet] final class FilterStep(
     val fields: IndexedSeq[ParquetField],
-    val keptRows: ColumnBatch => Array[Int]
+    val filter: ParquetFilter.RowFilter
 )
 
 /**
@@ -20,9 +18,11 @@ private[parquet] final class FilterStep(
   * Each batch decodes the `eager` fields for every row with [[ColumnChunkCursor]]s, as
   * [[RowGroupBatches]] does: the first step's fields, and those a [[SelectiveCursor]] can't read.
   * The steps then run in order, each decoding its fields for the rows still selected, and dropping
-  * the rows its test rejects. The `payload` fields are decoded last, for the rows that pass every
-  * step; when none does, later fields read no values. Batches come with the `output` fields only,
-  * in their order, and may have no rows.
+  * the rows its test rejects. A step tests the decoded columns in place, through a selection
+  * vector, rather than gathering them for the rows that remain: each column is gathered once, for
+  * the output. The `payload` fields are decoded last, for the rows that pass every step; when none
+  * does, later fields read no values. Batches come with the `output` fields only, in their order,
+  * and may have no rows.
   */
 private[parquet] final class FilteredBatches(
     output: IndexedSeq[ParquetField],
@@ -60,7 +60,16 @@ private[parquet] final class FilteredBatches(
       )
     val columns = eager.map(c => c.field.columnIndex -> c.take(rows)).toMap
     remaining -= rows
-    var decoded = vectors(Assembly.build(eagerFields, columns, rows, int32DecimalAsLong))
+    // Each decoded column, with the level it was decoded at. A level's index map gives, for each
+    // row still selected, the index of the row in the level's columns: null while they are equal,
+    // which holds for the latest level and for every level until a step drops a row
+    val decoded = scala.collection.mutable.LinkedHashMap.empty[String, (ColumnVector, Int)]
+    val index   = scala.collection.mutable.ArrayBuffer.empty[Array[Int]]
+    def addLevel(vs: IndexedSeq[ColumnVector]): Unit =
+      val level = index.size
+      index += null
+      vs.foreach(v => decoded.getOrElseUpdate(v.name, (v, level)))
+    addLevel(vectors(Assembly.build(eagerFields, columns, rows, int32DecimalAsLong)))
     columns.values.foreach(_.releaseLevels())
 
     // The rows still selected, as row numbers of the batch (null for all of them), and their count
@@ -73,13 +82,24 @@ private[parquet] final class FilteredBatches(
         selected
       else
         all
+    val column   = (name: String) => decoded(name)._1
+    val position = (name: String) => index(decoded(name)._2)
     steps.foreach { step =>
       if step.fields.nonEmpty then
-        decoded = decoded ++ decode(step.fields, rows, current, n)
+        addLevel(decode(step.fields, rows, current, n))
       if n > 0 then
-        val kept = step.keptRows(ColumnBatch(n, decoded))
+        // Tests the selected rows in place, by their positions among them
+        val kept = step.filter.select(column, position, Array.range(0, n), n)
         if kept.length < n then
-          decoded = decoded.map(ColumnVector.take(_, kept))
+          var l = 0
+          while l < index.size do
+            val ix = index(l)
+            index(l) =
+              if ix == null then
+                kept
+              else
+                kept.map(ix(_))
+            l += 1
           selected =
             if selected == null then
               kept
@@ -87,12 +107,22 @@ private[parquet] final class FilteredBatches(
               kept.map(selected(_))
           n = kept.length
     }
-    val out = decoded ++ decode(payload, rows, current, n)
+    addLevel(decode(payload, rows, current, n))
     if remaining == 0 then
       eager.foreach(_.checkDone())
       selective.values.foreach(_.checkDone())
-    val byName = out.map(v => v.name -> v).toMap
-    ColumnBatch(n, output.map(f => byName(f.name)))
+    // Each output column is gathered once, from the level it was decoded at
+    ColumnBatch(
+      n,
+      output.map { f =>
+        val (v, level) = decoded(f.name)
+        val ix         = index(level)
+        if ix == null then
+          v
+        else
+          ColumnVector.take(v, ix)
+      }
+    )
 
   end next
 

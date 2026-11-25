@@ -11,7 +11,7 @@ import wvlet.uni.cloud.parquet.ParquetFilter.*
   * and the literal conjuncts the wvlet engine can hand to uni for TPC-H q1, q6, q12, q14, and q19
   * The q6d and q19d scans add the DECIMAL conjuncts on `l_discount` and `l_quantity` (q19d the
   * union of its three branches' quantity ranges), so their rows are decoded only where every
-  * conjunct holds.
+  * conjunct holds. The q09 scan keeps a fifth of the rows by a quantity range.
   *
   * It lives in the parquet package to switch [[ParquetFile.lateMaterialization]].
   *
@@ -87,6 +87,13 @@ object FilterProbe:
       col("l_shipinstruct") === "DELIVER IN PERSON" &&
         (col("l_shipmode") === "AIR" || col("l_shipmode") === "AIR REG") &&
         col("l_quantity") >= 1 && col("l_quantity") <= 30
+    ),
+    // Keeps ~20% of the rows, as TPC-DS q09's quantity ranges do: a filter selective enough to
+    // skip decoding, but loose enough that evaluating it costs as much as the decoding it saves
+    Scan(
+      "q09",
+      Seq("l_orderkey", "l_partkey", "l_quantity", "l_extendedprice", "l_discount", "l_tax"),
+      col("l_quantity") >= 11 && col("l_quantity") <= 20
     )
   )
 

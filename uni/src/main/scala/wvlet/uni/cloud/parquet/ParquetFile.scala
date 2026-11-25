@@ -611,10 +611,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val steps      = fl
       .steps
       .map { (names, rf) =>
-        FilterStep(
-          names.map(byName).filterNot(f => eagerNames.contains(f.name)).toIndexedSeq,
-          rf.keptRows
-        )
+        FilterStep(names.map(byName).filterNot(f => eagerNames.contains(f.name)).toIndexedSeq, rf)
       }
     val stepNames = fl.steps.flatMap(_._1).toSet
     val payload   = fields.filterNot(f => eagerNames.contains(f.name) || stepNames.contains(f.name))
