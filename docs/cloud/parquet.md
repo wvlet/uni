@@ -182,8 +182,7 @@ finally
 example `tags.list.element`), using only the footer. `min` and `max` hold values of the same types
 as `readRows` (for example an `Instant`). They are `None` when a row group has no statistics, or
 when the column's type has no order that statistics can be trusted for, such as DECIMAL stored as
-a byte array. Writers
-may truncate long strings, so for strings treat min and max as bounds.
+a byte array. Writers may truncate long strings, so for strings treat min and max as bounds.
 
 ### Reusing a Parsed Footer
 
@@ -362,7 +361,8 @@ async variants. A column the filter needs but `withColumns` leaves out is read, 
   top-level column with that exact name wins. A null struct makes its fields null.
 - **Errors.** A filter that can't be evaluated exactly fails when the read starts, naming the
   column: an unknown column, a list or map, a type such as TIME, UUID, or DECIMAL stored as a byte
-  array (precision above 18), or a literal of the wrong type. Untyped binary columns compare with strings under `withBinaryAsString(true)`.
+  array (precision above 18), or a literal of the wrong type. Untyped binary columns compare with
+  strings under `withBinaryAsString(true)`.
 
 ### Set Membership
 

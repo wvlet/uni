@@ -659,18 +659,36 @@ object ParquetFilter:
     end key
 
     private def decimalKey(x: BigDecimal): Key =
-      val unscaled = x.bigDecimal.movePointRight(scale)
-      val floor    = unscaled.setScale(0, java.math.RoundingMode.FLOOR)
-      val rest     =
-        if floor.compareTo(unscaled) != 0 then
-          1
+      val unscaled = x.bigDecimal.scaleByPowerOfTen(scale)
+      // The digits left of the point, found before setScale, which would build every digit of a
+      // literal such as 1e999999999 or divide by 10^999999999 for 1e-999999999
+      val intDigits = unscaled.precision() - unscaled.scale()
+      if unscaled.signum() == 0 then
+        Key.Time(0L, 0)
+      else if intDigits > 19 then
+        beyond(unscaled.signum())
+      else if intDigits <= 0 then
+        // Strictly between -1 and 1, and not 0
+        if unscaled.signum() > 0 then
+          Key.Time(0L, 1)
         else
-          0
-      val f = floor.toBigInteger
-      if f.bitLength() < 64 then
-        Key.Time(f.longValue(), rest)
-      else if f.signum() > 0 then
-        // Beyond every INT64 value: above or below all of them
+          Key.Time(-1L, 1)
+      else
+        val floor = unscaled.setScale(0, java.math.RoundingMode.FLOOR)
+        val rest  =
+          if floor.compareTo(unscaled) != 0 then
+            1
+          else
+            0
+        val f = floor.toBigInteger
+        if f.bitLength() < 64 then
+          Key.Time(f.longValue(), rest)
+        else
+          beyond(f.signum())
+
+    // Beyond every INT64 value: above or below all of them
+    private def beyond(signum: Int): Key =
+      if signum > 0 then
         Key.Time(Long.MaxValue, 1)
       else
         Key.Time(Long.MinValue, -1)

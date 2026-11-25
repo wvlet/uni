@@ -95,6 +95,12 @@ class DecimalFilterTest extends UniTest:
     ids(col("qty") > huge) shouldBe Seq.empty
     ids(col("qty") > -huge) shouldBe rows.map(_.id)
     ids(col("qty") === -huge) shouldBe Seq.empty
+    // Decided without building the literal's digits
+    ids(col("qty") < "1e999999999") shouldBe rows.map(_.id)
+    ids(col("qty") < "-1e999999999") shouldBe Seq.empty
+    ids(col("disc") > "1e-999999999") shouldBe expected(_.disc.exists(_ > 0))
+    ids(col("disc") > "-1e-999999999") shouldBe expected(_.disc.isDefined)
+    ids(col("disc") === "0E-7") shouldBe expected(_.disc.contains(BigDecimal(0)))
   }
 
   test("skip row groups by decimal statistics") {
