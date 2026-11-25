@@ -26,8 +26,6 @@ private[uni] object Snappy:
     val end = offset + length
     var ip  = offset
 
-    def fail(msg: String): Nothing = throw CodecException.corrupt(s"Snappy: ${msg}")
-
     def byteAt(i: Int): Int =
       if i >= end then
         fail("input ends early")
@@ -53,95 +51,131 @@ private[uni] object Snappy:
 
     var op = 0
 
-    // Fast loop while a tag and its extra bytes fit in the input, so they need no bounds check
-    while ip <= end - 5 do
-      val tag  = src(ip) & 0xff
-      val kind = tag & 3
-      if kind == 0 then
-        var len = (tag >>> 2) + 1
-        ip += 1
-        if len > 60 then
-          val n = len - 60
-          len = (Zstd.le32(src, ip) & ExtraMask(n)) + 1
-          ip += n
-        if len <= 0 || len > end - ip || len > expectedSize - op then
-          fail("literal runs past the end of the buffer")
-        WideCopy.literal(src, ip, out, op, len, expectedSize)
-        ip += len
-        op += len
-      else
-        var len    = 0
-        var offset = 0
-        if kind == 1 then
-          len = 4 + ((tag >>> 2) & 7)
-          offset = ((tag >>> 5) << 8) | (src(ip + 1) & 0xff)
-          ip += 2
-        else if kind == 2 then
-          len = (tag >>> 2) + 1
-          offset = (src(ip + 1) & 0xff) | ((src(ip + 2) & 0xff) << 8)
-          ip += 3
-        else
-          len = (tag >>> 2) + 1
-          offset = Zstd.le32(src, ip + 1)
-          ip += 5
-        if offset <= 0 || offset > op then
-          fail(s"copy offset ${offset} is out of range")
-        if len > expectedSize - op then
-          fail("copy runs past the end of the output")
-        WideCopy.matchCopy(out, op, offset, len, expectedSize)
-        op += len
-      end if
-    end while
-
-    // The last few tags, reading each byte with a bounds check
-    while ip < end do
-      val tag = byteAt(ip)
-      ip += 1
-      (tag & 3) match
-        case 0 =>
-          var len = tag >>> 2
-          if len >= 60 then
-            val n = len - 59
-            len = 0
-            var i = 0
-            while i < n do
-              len |= byteAt(ip + i) << (8 * i)
-              i += 1
+    if SnappyLoop.enabled then
+      // The JVM's loop decodes the common tags; each tag it stops at is decoded here, with checks
+      while ip < end do
+        val st = SnappyLoop.run(src, ip, end, out, op, expectedSize)
+        ip = (st >>> 32).toInt
+        op = st.toInt
+        if ip < end then
+          val next = checkedTag(src, ip, end, out, op, expectedSize)
+          ip = (next >>> 32).toInt
+          op = next.toInt
+    else
+      // Fast loop while a tag and its extra bytes fit in the input, so they need no bounds check
+      while ip <= end - 5 do
+        val tag  = src(ip) & 0xff
+        val kind = tag & 3
+        if kind == 0 then
+          var len = (tag >>> 2) + 1
+          ip += 1
+          if len > 60 then
+            val n = len - 60
+            len = (Zstd.le32(src, ip) & ExtraMask(n)) + 1
             ip += n
-          len += 1
           if len <= 0 || len > end - ip || len > expectedSize - op then
             fail("literal runs past the end of the buffer")
           WideCopy.literal(src, ip, out, op, len, expectedSize)
           ip += len
           op += len
-        case kind =>
+        else
           var len    = 0
           var offset = 0
           if kind == 1 then
             len = 4 + ((tag >>> 2) & 7)
-            offset = ((tag >>> 5) << 8) | byteAt(ip)
-            ip += 1
+            offset = ((tag >>> 5) << 8) | (src(ip + 1) & 0xff)
+            ip += 2
           else if kind == 2 then
             len = (tag >>> 2) + 1
-            offset = byteAt(ip) | (byteAt(ip + 1) << 8)
-            ip += 2
+            offset = (src(ip + 1) & 0xff) | ((src(ip + 2) & 0xff) << 8)
+            ip += 3
           else
             len = (tag >>> 2) + 1
-            offset =
-              byteAt(ip) | (byteAt(ip + 1) << 8) | (byteAt(ip + 2) << 16) | (byteAt(ip + 3) << 24)
-            ip += 4
+            offset = Zstd.le32(src, ip + 1)
+            ip += 5
           if offset <= 0 || offset > op then
             fail(s"copy offset ${offset} is out of range")
           if len > expectedSize - op then
             fail("copy runs past the end of the output")
           WideCopy.matchCopy(out, op, offset, len, expectedSize)
           op += len
-      end match
-    end while
+        end if
+      end while
+    end if
+
+    // The last few tags, reading each byte with a bounds check
+    while ip < end do
+      val next = checkedTag(src, ip, end, out, op, expectedSize)
+      ip = (next >>> 32).toInt
+      op = next.toInt
     if op != expectedSize then
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
 
   end decompressInto
+
+  private def fail(msg: String): Nothing = throw CodecException.corrupt(s"Snappy: ${msg}")
+
+  /**
+    * Decodes the tag at `src(start)`, checking every input byte against `end` and every output byte
+    * against `limit`. Returns the input position after the tag in the high 32 bits and the output
+    * position in the low 32.
+    */
+  private def checkedTag(
+      src: Array[Byte],
+      start: Int,
+      end: Int,
+      out: Array[Byte],
+      op: Int,
+      limit: Int
+  ): Long =
+    def byteAt(i: Int): Int =
+      if i >= end then
+        fail("input ends early")
+      src(i) & 0xff
+
+    val tag = byteAt(start)
+    var ip  = start + 1
+    var len = 0
+    (tag & 3) match
+      case 0 =>
+        len = tag >>> 2
+        if len >= 60 then
+          val n = len - 59
+          len = 0
+          var i = 0
+          while i < n do
+            len |= byteAt(ip + i) << (8 * i)
+            i += 1
+          ip += n
+        len += 1
+        if len <= 0 || len > end - ip || len > limit - op then
+          fail("literal runs past the end of the buffer")
+        WideCopy.literal(src, ip, out, op, len, limit)
+        ip += len
+      case kind =>
+        var offset = 0
+        if kind == 1 then
+          len = 4 + ((tag >>> 2) & 7)
+          offset = ((tag >>> 5) << 8) | byteAt(ip)
+          ip += 1
+        else if kind == 2 then
+          len = (tag >>> 2) + 1
+          offset = byteAt(ip) | (byteAt(ip + 1) << 8)
+          ip += 2
+        else
+          len = (tag >>> 2) + 1
+          offset =
+            byteAt(ip) | (byteAt(ip + 1) << 8) | (byteAt(ip + 2) << 16) | (byteAt(ip + 3) << 24)
+          ip += 4
+        if offset <= 0 || offset > op then
+          fail(s"copy offset ${offset} is out of range")
+        if len > limit - op then
+          fail("copy runs past the end of the output")
+        WideCopy.matchCopy(out, op, offset, len, limit)
+    end match
+    (ip.toLong << 32) | (op + len)
+
+  end checkedTag
 
   private val ExtraMask: Array[Int] = Array(0, 0xff, 0xffff, 0xffffff, -1)
 
