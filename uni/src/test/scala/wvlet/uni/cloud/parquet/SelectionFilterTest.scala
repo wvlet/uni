@@ -2,6 +2,7 @@ package wvlet.uni.cloud.parquet
 
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.cloud.parquet.ParquetFilter.*
+import wvlet.uni.cloud.parquet.format.PhysicalType
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
@@ -78,7 +79,7 @@ class SelectionFilterTest extends UniTest:
 
   private def leaf(): Gen =
     val op = ops(rnd.nextInt(ops.size))
-    rnd.nextInt(9) match
+    rnd.nextInt(11) match
       case 0 =>
         val k = rnd.nextInt(100) - 50
         (Compare("i", op, k), r => r.i.map(v => cmp(op, v.compare(k))))
@@ -104,8 +105,32 @@ class SelectionFilterTest extends UniTest:
       case 7 =>
         val set = Seq.fill(5)(rnd.nextInt(100).toLong - 50)
         (In("i", IntegerSet.of(set)), r => r.i.map(v => set.contains(v.toLong)))
-      case _ =>
+      case 8 =>
         (IsNull("inner"), r => Some(r.inner.isEmpty))
+      case 9 =>
+        // A range on one column, which the row filter tests as one merged range
+        val lo = rnd.nextInt(100) - 50
+        val hi = lo + rnd.nextInt(30)
+        (
+          And(Compare("i", Op.GtEq, lo), And(Compare("s", Op.LtEq, "v6"), Compare("i", Op.Lt, hi))),
+          r =>
+            (r.i, r.s) match
+              case (Some(v), _) if v < lo || v >= hi =>
+                Some(false)
+              case (_, Some(v)) if v.compareTo("v6") > 0 =>
+                Some(false)
+              case (Some(_), Some(_)) =>
+                Some(true)
+              case _ =>
+                None
+        )
+      case _ =>
+        val lo = rnd.nextInt(20)
+        (
+          And(Compare("inner.a", Op.Gt, lo), Compare("inner.a", Op.LtEq, lo + 5)),
+          r => r.inner.flatMap(_.a).map(v => v > lo && v <= lo + 5)
+        )
+    end match
 
   end leaf
 
@@ -164,6 +189,26 @@ class SelectionFilterTest extends UniTest:
         finally
           f.close()
       end for
+    }
+  }
+
+  test("merge the ranges a conjunction puts on one column into one test") {
+    val ord                    = IntOrder(PhysicalType.INT32, 0, isDate = false)
+    def range(op: Op, k: Long) = RowFilter
+      .Node
+      .Leaf(Seq("x"), RowFilter.compareTest(op, ord, Key.Num(k)))
+    val other = RowFilter.Node.Leaf(Seq("y"), RowFilter.Test.NotNull)
+    RowFilter.allOf(RowFilter.allOf(range(Op.GtEq, 1), other), range(Op.LtEq, 20)) shouldMatch {
+      case RowFilter
+            .Node
+            .AllOf(
+              RowFilter.Node.Leaf(Seq("x"), RowFilter.Test.Range(_, 1L, 20L)),
+              RowFilter.Node.Leaf(Seq("y"), RowFilter.Test.NotNull)
+            ) =>
+    }
+    // Disjoint ranges merge into an empty one
+    RowFilter.allOf(range(Op.Lt, 1), range(Op.Gt, 5)) shouldMatch {
+      case RowFilter.Node.Leaf(_, RowFilter.Test.Range(_, lo, hi)) if lo > hi =>
     }
   }
 
