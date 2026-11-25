@@ -149,8 +149,9 @@ class RowMapTest extends UniTest:
       stats("dt").min shouldBe Some(LocalDate.of(2020, 1, 1))
       stats("cat").min shouldBe Some("a")
       stats("cat").max shouldBe Some("c")
-      // DECIMAL has no order that statistics can rely on here
-      stats("dec").min shouldBe None
+      // DECIMAL(10, 2) stored as INT64 compares by its unscaled value
+      stats("dec").min shouldBe Some(BigDecimal("0.00"))
+      stats("dec").max shouldBe Some(BigDecimal("3748.75"))
       stats.contains("tags.list.element") shouldBe true
     finally
       f.close()

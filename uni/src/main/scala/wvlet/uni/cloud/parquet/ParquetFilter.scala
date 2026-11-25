@@ -419,9 +419,9 @@ object ParquetFilter:
     case Num(v: Long)
 
     /**
-      * An Instant in a TIMESTAMP column's unit: `floor`, plus `rest` = 1 when the Instant lies just
-      * above it, -1 just below it (only when it is beyond the column's range), and 0 when it is
-      * exact
+      * An Instant in a TIMESTAMP column's unit, or a number as a DECIMAL column's unscaled value:
+      * `floor`, plus `rest` = 1 when the literal lies just above it, -1 just below it (only when it
+      * is beyond the column's range), and 0 when it is exact
       */
     case Time(floor: Long, rest: Int)
 
@@ -618,6 +618,86 @@ object ParquetFilter:
 
   end TimeOrder
 
+  /**
+    * DECIMAL stored as INT32 or INT64, compared exactly by unscaled value. A literal with more
+    * fractional digits than the column's scale lies between two unscaled values, so its key is a
+    * [[Key.Time]]-style floor and rest, as for an Instant finer than a timestamp's unit.
+    */
+  private[parquet] final class DecimalOrder(val physical: PhysicalType, val scale: Int)
+      extends ColumnOrder:
+    def key(v: Any): Either[String, Key] =
+      val d: Option[BigDecimal] =
+        v match
+          case d: BigDecimal =>
+            Some(d)
+          case d: java.math.BigDecimal =>
+            Some(BigDecimal(d))
+          case i: Int =>
+            Some(BigDecimal(i))
+          case l: Long =>
+            Some(BigDecimal(l))
+          case s: Short =>
+            Some(BigDecimal(s.toInt))
+          case b: Byte =>
+            Some(BigDecimal(b.toInt))
+          case b: BigInt =>
+            Some(BigDecimal(b))
+          case s: String =>
+            try
+              Some(BigDecimal(s))
+            catch
+              case _: NumberFormatException =>
+                None
+          case _ =>
+            None
+      d match
+        case Some(x) =>
+          Right(decimalKey(x))
+        case None =>
+          Left("a BigDecimal, an integer, or a decimal string such as \"0.05\"")
+
+    end key
+
+    private def decimalKey(x: BigDecimal): Key =
+      val unscaled = x.bigDecimal.movePointRight(scale)
+      val floor    = unscaled.setScale(0, java.math.RoundingMode.FLOOR)
+      val rest     =
+        if floor.compareTo(unscaled) != 0 then
+          1
+        else
+          0
+      val f = floor.toBigInteger
+      if f.bitLength() < 64 then
+        Key.Time(f.longValue(), rest)
+      else if f.signum() > 0 then
+        // Beyond every INT64 value: above or below all of them
+        Key.Time(Long.MaxValue, 1)
+      else
+        Key.Time(Long.MinValue, -1)
+
+    def decode(b: Array[Byte]): Option[Any] =
+      physical match
+        case PhysicalType.INT32 if b.length == 4 =>
+          Some(Bytes.intLE(b, 0).toLong)
+        case PhysicalType.INT64 if b.length == 8 =>
+          Some(Bytes.longLE(b, 0))
+        case _ =>
+          None
+
+    def cmp(a: Any, b: Any): Int = java
+      .lang
+      .Long
+      .compare(a.asInstanceOf[Long], b.asInstanceOf[Long])
+
+    def cmpKey(a: Any, k: Key): Int =
+      k match
+        case Key.Time(floor, rest) =>
+          compareTime(a.asInstanceOf[Long], floor, rest)
+        case _ =>
+          throw IllegalStateException(s"Unexpected key ${k}")
+
+  end DecimalOrder
+
   inline def compareTime(v: Long, floor: Long, rest: Int): Int =
     if v != floor then
       java.lang.Long.compare(v, floor)
@@ -738,7 +818,10 @@ object ParquetFilter:
     val x = a.getBytes(java.nio.charset.StandardCharsets.UTF_8)
     compareBytes(x, 0, x.length, b.getBytes(java.nio.charset.StandardCharsets.UTF_8))
 
-  /** How a column compares, or None for types filters don't understand (such as DECIMAL) */
+  /**
+    * How a column compares, or None for types filters don't understand (such as TIME, or DECIMAL
+    * stored as binary)
+    */
   private[parquet] def order(
       p: ParquetField.Primitive,
       binaryAsString: Boolean
@@ -758,6 +841,8 @@ object ParquetFilter:
         Some(IntOrder(PhysicalType.INT64, 64, isDate = false))
       case (PhysicalType.INT64, Some(LogicalType.Timestamp(_, unit))) =>
         Some(TimeOrder(unit))
+      case (PhysicalType.INT32 | PhysicalType.INT64, Some(LogicalType.Decimal(scale, _))) =>
+        Some(DecimalOrder(p.physicalType, scale))
       case (PhysicalType.INT96, None) =>
         Some(Int96Order)
       case (PhysicalType.FLOAT, None) =>
@@ -1110,9 +1195,15 @@ object ParquetFilter:
                 k
               )
             i += 1
-        case (c: LongColumn, _: TimeOrder, Key.Time(floor, rest)) =>
+        case (c: LongColumn, _: TimeOrder | _: DecimalOrder, Key.Time(floor, rest)) =>
+          val a = c.values
           while i < n do
-            r(i) = compareTime(c.values(i), floor, rest)
+            r(i) = compareTime(a(i), floor, rest)
+            i += 1
+        case (c: IntColumn, _: DecimalOrder, Key.Time(floor, rest)) =>
+          val a = c.values
+          while i < n do
+            r(i) = compareTime(a(i).toLong, floor, rest)
             i += 1
         case (c: DoubleColumn, _, Key.Real(k)) =>
           while i < n do

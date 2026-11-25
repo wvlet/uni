@@ -9,7 +9,9 @@ import wvlet.uni.cloud.parquet.ParquetFilter.*
   * Times filtered scans of TPC-H lineitem, decoding filter columns first (late materialization) and
   * decoding every column then filtering, back to back in one process. The scans read the columns
   * and the literal conjuncts the wvlet engine can hand to uni for TPC-H q1, q6, q12, q14, and q19
-  * (DECIMAL columns can't be filtered, so their conjuncts stay out).
+  * The q6d and q19d scans add the DECIMAL conjuncts on `l_discount` and `l_quantity` (q19d the
+  * union of its three branches' quantity ranges), so their rows are decoded only where every
+  * conjunct holds.
   *
   * It lives in the parquet package to switch [[ParquetFile.lateMaterialization]].
   *
@@ -42,6 +44,13 @@ object FilterProbe:
       col("l_shipdate") >= day("1994-01-01") && col("l_shipdate") < day("1995-01-01")
     ),
     Scan(
+      "q6d",
+      Seq("l_extendedprice", "l_discount", "l_shipdate", "l_quantity"),
+      col("l_shipdate") >= day("1994-01-01") && col("l_shipdate") < day("1995-01-01") &&
+        col("l_discount") >= BigDecimal("0.05") && col("l_discount") <= BigDecimal("0.07") &&
+        col("l_quantity") < 24
+    ),
+    Scan(
       "q12",
       Seq("l_orderkey", "l_shipmode", "l_commitdate", "l_receiptdate", "l_shipdate"),
       (col("l_shipmode") === "MAIL" || col("l_shipmode") === "SHIP") &&
@@ -64,6 +73,20 @@ object FilterProbe:
       ),
       col("l_shipinstruct") === "DELIVER IN PERSON" &&
         (col("l_shipmode") === "AIR" || col("l_shipmode") === "AIR REG")
+    ),
+    Scan(
+      "q19d",
+      Seq(
+        "l_partkey",
+        "l_quantity",
+        "l_extendedprice",
+        "l_discount",
+        "l_shipinstruct",
+        "l_shipmode"
+      ),
+      col("l_shipinstruct") === "DELIVER IN PERSON" &&
+        (col("l_shipmode") === "AIR" || col("l_shipmode") === "AIR REG") &&
+        col("l_quantity") >= 1 && col("l_quantity") <= 30
     )
   )
 
@@ -87,6 +110,8 @@ object FilterProbe:
           val times = Map(true -> Array.newBuilder[Double], false -> Array.newBuilder[Double])
           val alloc = Map(true -> Array.newBuilder[Long], false -> Array.newBuilder[Long])
           var check = Map.empty[Boolean, (Long, Long)]
+          // The first round's filter-first time, before the JIT has compiled the hot loops
+          var firstLate = 0.0
           (0 until rounds).foreach { r =>
             // Alternate which mode goes first, so drift in machine load hits both alike
             val order =
@@ -108,6 +133,8 @@ object FilterProbe:
                     throw IllegalStateException(s"${s.name}: result changed: ${c} -> ${result}")
                 }
               check += late -> result
+              if r == 0 && late then
+                firstLate = (t1 - t0) / 1e6
               if r > 0 then
                 times(late) += (t1 - t0) / 1e6
                 alloc(late) += a1 - a0
@@ -125,7 +152,7 @@ object FilterProbe:
                 1 - late / eager
               ) * 100}%.0f%% less); allocated ${median(alloc(true)) / 1e6}%.0f MB vs ${median(
                 alloc(false)
-              ) / 1e6}%.0f MB"
+              ) / 1e6}%.0f MB; first filter-first round ${firstLate}%.0f ms"
           )
         }
     finally file.close()

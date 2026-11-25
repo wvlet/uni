@@ -181,7 +181,8 @@ finally
 `columnStatistics` summarizes each leaf column over all row groups, keyed by its dotted path (for
 example `tags.list.element`), using only the footer. `min` and `max` hold values of the same types
 as `readRows` (for example an `Instant`). They are `None` when a row group has no statistics, or
-when the column's type has no order that statistics can be trusted for, such as DECIMAL. Writers
+when the column's type has no order that statistics can be trusted for, such as DECIMAL stored as
+a byte array. Writers
 may truncate long strings, so for strings treat min and max as bounds.
 
 ### Reusing a Parsed Footer
@@ -353,12 +354,15 @@ async variants. A column the filter needs but `withColumns` leaves out is read, 
   columns (signed or unsigned, also from a string of digits such as `"2026"`), `LocalDate` or an
   ISO date string to DATE, `Instant` to TIMESTAMP and INT96 (compared exactly, below the column's
   unit too), `String` to STRING and ENUM, `Boolean` to BOOLEAN, and numbers to FLOAT and DOUBLE
-  (integers only within ±2^53). Strings compare in UTF-8 byte order, which is code point order.
+  (integers only within ±2^53). DECIMAL columns stored as INT32 or INT64 take a `BigDecimal`, an
+  integer, or a decimal string such as `"0.05"`, compared exactly, finer than the column's scale
+  too; a `Double` is an error, since `0.1` has no exact binary value. Strings compare in UTF-8 byte
+  order, which is code point order.
 - **Nested columns.** A dotted name such as `col("address.city")` names a field inside structs; a
   top-level column with that exact name wins. A null struct makes its fields null.
 - **Errors.** A filter that can't be evaluated exactly fails when the read starts, naming the
-  column: an unknown column, a list or map, a type such as DECIMAL, TIME, or UUID, or a literal of
-  the wrong type. Untyped binary columns compare with strings under `withBinaryAsString(true)`.
+  column: an unknown column, a list or map, a type such as TIME, UUID, or DECIMAL stored as a byte
+  array (precision above 18), or a literal of the wrong type. Untyped binary columns compare with strings under `withBinaryAsString(true)`.
 
 ### Set Membership
 
