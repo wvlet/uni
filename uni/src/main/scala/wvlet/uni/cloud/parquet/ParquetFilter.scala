@@ -656,25 +656,29 @@ object ParquetFilter:
         i += 1
       out
 
+    /** The numbers of the matching rows, in order */
+    def keptRows(batch: ColumnBatch): Array[Int] =
+      val m    = matches(batch)
+      val rows = new Array[Int](m.count(identity))
+      var j    = 0
+      var i    = 0
+      while i < m.length do
+        if m(i) then
+          rows(j) = i
+          j += 1
+        i += 1
+      rows
+
     /** The batch with only the matching rows */
     def apply(batch: ColumnBatch): ColumnBatch =
       if batch.numRows == 0 then
         batch
       else
-        val m = matches(batch)
-        val n = m.count(identity)
-        if n == m.length then
+        val rows = keptRows(batch)
+        if rows.length == batch.numRows then
           batch
         else
-          val rows = new Array[Int](n)
-          var j    = 0
-          var i    = 0
-          while i < m.length do
-            if m(i) then
-              rows(j) = i
-              j += 1
-            i += 1
-          ColumnBatch(n, batch.columns.map(ColumnVector.take(_, rows)))
+          ColumnBatch(rows.length, batch.columns.map(ColumnVector.take(_, rows)))
 
   end RowFilter
 

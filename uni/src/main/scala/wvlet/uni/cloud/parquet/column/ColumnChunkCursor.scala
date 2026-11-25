@@ -10,6 +10,7 @@ import wvlet.uni.cloud.parquet.encoding.ValueDecoder
 import wvlet.uni.cloud.parquet.format.*
 import wvlet.uni.cloud.parquet.io.ByteReader
 import wvlet.uni.cloud.parquet.thrift.CompactProtocol
+import ColumnChunkCursor.readLevelsV1
 
 /**
   * The decoded levels and non-null values of a range of rows of one column. Levels are null when
@@ -782,7 +783,12 @@ private[parquet] final class ColumnChunkCursor(
       case other =>
         throw ParquetException.unsupported(s"${other} encoding for levels")
 
-  private def readLevelsV1(
+end ColumnChunkCursor
+
+private[parquet] object ColumnChunkCursor:
+
+  /** Reads a data page v1's levels into `dst`; returns how many equal `maxLevel` */
+  private[column] def readLevelsV1(
       r: ByteReader,
       encoding: Encoding,
       maxLevel: Int,
