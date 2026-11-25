@@ -192,13 +192,14 @@ val since2026 = ParquetReadOptions.default
   (IEEE 754, unlike Spark and DuckDB), and `-0.0` equals `0.0`.
 - Literals convert only without loss: integers (or digit strings) to INT32/INT64, `LocalDate` or
   an ISO string to DATE, `Instant` to TIMESTAMP/INT96 (exact), `String` to STRING/ENUM, numbers
-  to FLOAT/DOUBLE (integers within ±2^53). `col("a.b")` names a struct field.
+  to FLOAT/DOUBLE (integers within ±2^53), and `BigDecimal`, integers, or decimal strings to
+  DECIMAL stored as INT32/INT64 (exact; a `Double` throws). `col("a.b")` names a struct field.
 - `col("k").isIn(1L, 2L)` (or an `Iterable[Long]`) is SQL `IN` on INT32/INT64/DATE (epoch
   days) columns; nulls never match. `isIn(set)` takes a custom `ParquetFilter.IntegerSet`
   (`contains(v: Long)`, `min`, `max`, optional `mayIntersect(lo, hi)`), such as a join's bitmap or
   Bloom filter, without copying it.
-- An unknown column, a list or map, DECIMAL/TIME/UUID, or a wrong literal type throws
-  `IllegalArgumentException` when the read starts.
+- An unknown column, a list or map, TIME/UUID, DECIMAL above precision 18 (a byte array), or a
+  wrong literal type throws `IllegalArgumentException` when the read starts.
 - `withRowGroupFilter(f)` only skips row groups and ignores what it can't check; rows inside are
   not filtered. `RowGroupFilter` is the deprecated old name of `ParquetFilter`.
 

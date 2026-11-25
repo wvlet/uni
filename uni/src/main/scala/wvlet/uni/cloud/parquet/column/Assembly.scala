@@ -596,7 +596,9 @@ private[cloud] object Assembly:
           i += 1
         LongColumn(p, out, nulls)
       case b: BooleanBuffer =>
-        BooleanColumn(p, gather(n, pick)(i => b.values(i), false), nulls)
+        // Bound first: a loop inside constructor arguments can't be compiled mid-loop (OSR)
+        val values = gather(n, pick)(i => b.values(i), false)
+        BooleanColumn(p, values, nulls)
       case b: IntBuffer =>
         val out = new Array[Int](n)
         var i   = 0

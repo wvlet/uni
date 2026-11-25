@@ -281,17 +281,25 @@ object ColumnVector:
         i += 1
       (newOffsets, childRows)
 
+    // Each picked array is bound to a local before the constructor call. A loop inside a
+    // constructor's arguments runs with the new object on the operand stack, where HotSpot can't
+    // enter compiled code mid-loop (OSR), so the loop would stay interpreted until a full compile.
     v match
       case c: BooleanColumn =>
-        BooleanColumn(c.field, pick(c.values), nulls)
+        val values = pick(c.values)
+        BooleanColumn(c.field, values, nulls)
       case c: IntColumn =>
-        IntColumn(c.field, pick(c.values), nulls)
+        val values = pick(c.values)
+        IntColumn(c.field, values, nulls)
       case c: LongColumn =>
-        LongColumn(c.field, pick(c.values), nulls)
+        val values = pick(c.values)
+        LongColumn(c.field, values, nulls)
       case c: FloatColumn =>
-        FloatColumn(c.field, pick(c.values), nulls)
+        val values = pick(c.values)
+        FloatColumn(c.field, values, nulls)
       case c: DoubleColumn =>
-        DoubleColumn(c.field, pick(c.values), nulls)
+        val values = pick(c.values)
+        DoubleColumn(c.field, values, nulls)
       case c: BinaryColumn =>
         val offsets = new Array[Int](n + 1)
         var i       = 0
@@ -314,12 +322,16 @@ object ColumnVector:
         )
       case c: ListColumn =>
         val (offsets, childRows) = ranges(c.offsets)
-        ListColumn(c.field, offsets, take(c.elements, childRows), nulls)
+        val elements             = take(c.elements, childRows)
+        ListColumn(c.field, offsets, elements, nulls)
       case c: MapColumn =>
         val (offsets, childRows) = ranges(c.offsets)
-        MapColumn(c.field, offsets, take(c.keys, childRows), take(c.values, childRows), nulls)
+        val keys                 = take(c.keys, childRows)
+        val values               = take(c.values, childRows)
+        MapColumn(c.field, offsets, keys, values, nulls)
       case c: StructColumn =>
-        StructColumn(c.field, n, c.children.map(take(_, rows)), nulls)
+        val children = c.children.map(take(_, rows))
+        StructColumn(c.field, n, children, nulls)
     end match
 
   end take
