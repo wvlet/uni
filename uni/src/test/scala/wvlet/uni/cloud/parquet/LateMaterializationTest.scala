@@ -222,7 +222,11 @@ class LateMaterializationTest extends UniTest:
   // their columns by a value of the column
   private def testFiles: Seq[String] =
     val root = TestFiles.path("duckdb").parent.get
-    FileSystem.list(root, ListOptions(recursive = true, extensions = Seq("parquet"))).map(_.path)
+    FileSystem
+      .list(root, ListOptions(recursive = true, extensions = Seq("parquet")))
+      .map(_.path)
+      // More than 2 GiB of values in one chunk, which BatchTest reads row by row
+      .filterNot(_.endsWith("large_string_map.brotli.parquet"))
 
   test("match decoding everything then filtering on the test files") {
     var checked = 0
