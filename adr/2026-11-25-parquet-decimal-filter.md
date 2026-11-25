@@ -24,7 +24,9 @@ variable-length byte array.
   scaled to the column's scale. One with more fractional digits lies between two unscaled
   values, so it becomes the same floor-plus-rest key a sub-unit `Instant` uses for TIMESTAMP:
   `col("d") < BigDecimal("0.055")` on scale 2 keeps 0.05 and drops 0.06. A literal beyond every
-  Long is above or below every value.
+  Long is above or below every value. Such literals, and ones between -1 and 1 at the column's
+  scale, are decided from their digit count before any rescaling, so `1e999999999` or
+  `1e-999999999` doesn't build a billion-digit number.
 - **`Double` and `Float` literals are rejected.** `0.1` has no exact binary value, and guessing a
   decimal for it (shortest representation or the exact binary expansion) would make results
   depend on that guess. Callers pass a `BigDecimal` or a string.
