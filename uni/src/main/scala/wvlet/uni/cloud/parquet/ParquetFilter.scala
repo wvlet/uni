@@ -899,7 +899,7 @@ object ParquetFilter:
     private def compile(f: ParquetFilter): Node =
       f match
         case And(a, b) =>
-          Node.AllOf(compile(a), compile(b))
+          allOf(compile(a), compile(b))
         case Or(a, b) =>
           Node.AnyOf(compile(a), compile(b))
         case IsNull(c) =>
@@ -933,7 +933,7 @@ object ParquetFilter:
                 ),
               identity
             )
-          Node.Leaf(chain.map(_.name), Test.Cmp(op, ord, key))
+          Node.Leaf(chain.map(_.name), compareTest(op, ord, key))
         case In(c, set) =>
           val (chain, p) = leafOf(c)
           if set == null then
@@ -1007,6 +1007,14 @@ object ParquetFilter:
     enum Test:
       case Null
       case NotNull
+
+      /**
+        * The values in the inclusive range [lo, hi] (empty when lo > hi) of the order's Long
+        * domain: integers, DATE days, BOOLEAN as 0 or 1, TIMESTAMP units, and unscaled DECIMALs.
+        * Unsigned 64-bit values are compared with the sign bit flipped.
+        */
+      case Range(order: ColumnOrder, lo: Long, hi: Long)
+
       case Cmp(op: Op, order: ColumnOrder, key: Key)
       case Member(order: IntOrder, set: IntegerSet)
 
@@ -1017,8 +1025,63 @@ object ParquetFilter:
 
     private def fail(msg: String): Nothing = throw IllegalArgumentException(msg)
 
+    /**
+      * The test of `compare(value, key) op 0`. Integer, date, boolean, timestamp, and decimal keys
+      * become a [[Test.Range]], computed once here rather than for each batch.
+      */
+    private[parquet] def compareTest(op: Op, ord: ColumnOrder, key: Key): Test =
+      (ord, key) match
+        case (o: IntOrder, Key.Num(k)) if o.isUnsigned64 =>
+          val (lo, hi) = longRange(op, k ^ Long.MinValue, 0)
+          Test.Range(ord, lo, hi)
+        case (_, Key.Num(k)) =>
+          val (lo, hi) = longRange(op, k, 0)
+          Test.Range(ord, lo, hi)
+        case (_, Key.Time(floor, rest)) =>
+          val (lo, hi) = longRange(op, floor, rest)
+          Test.Range(ord, lo, hi)
+        case _ =>
+          Test.Cmp(op, ord, key)
+
+    /**
+      * `a AND b`, with the ranges on one column merged into one test: `x >= 1 AND x <= 20` tests
+      * each row once. A merged range takes the place of the first of its conjuncts, so the order of
+      * the tests stays as given.
+      */
+    private[parquet] def allOf(a: Node, b: Node): Node =
+      def conjuncts(n: Node): List[Node] =
+        n match
+          case Node.AllOf(x, y) =>
+            conjuncts(x) ++ conjuncts(y)
+          case other =>
+            List(other)
+      val merged =
+        conjuncts(b).foldLeft(conjuncts(a).toVector) { (acc, c) =>
+          c match
+            case Node.Leaf(path, r: Test.Range) =>
+              acc.indexWhere {
+                case Node.Leaf(p, _: Test.Range) =>
+                  p == path
+                case _ =>
+                  false
+              } match
+                case -1 =>
+                  acc :+ c
+                case i =>
+                  val Node.Leaf(_, q: Test.Range) = acc(i): @unchecked
+                  acc.updated(
+                    i,
+                    Node.Leaf(path, Test.Range(q.order, math.max(q.lo, r.lo), math.min(q.hi, r.hi)))
+                  )
+            case other =>
+              acc :+ other
+        }
+      merged.reduceLeft(Node.AllOf(_, _))
+
     /** The first `n` entries of `rows` */
     private final class Selection(val rows: Array[Int], val n: Int)
+
+    private val NoRows = Selection(Array.emptyIntArray, 0)
 
     private def columnOf(batch: ColumnBatch, name: String): ColumnVector = batch
       .columns
@@ -1085,6 +1148,54 @@ object ParquetFilter:
           m += 1
         Selection(out, m)
 
+    /**
+      * The rows among the first `n` of `rows` whose value, at index `i` of the vector, is not null
+      * and passes `ok(i)`. `position` maps a row to its index (null: the row is its index), and
+      * `nulls` marks the null indexes (null: none). One loop per case, so the JIT sees no per-row
+      * branch on either, and no array of indexes is built.
+      */
+    private inline def keep(rows: Array[Int], n: Int, position: Array[Int], nulls: Array[Boolean])(
+        inline ok: Int => Boolean
+    ): Selection =
+      val out = new Array[Int](n)
+      var m   = 0
+      var j   = 0
+      if position == null then
+        if nulls == null then
+          while j < n do
+            val r = rows(j)
+            out(m) = r
+            if ok(r) then
+              m += 1
+            j += 1
+        else
+          while j < n do
+            val r = rows(j)
+            out(m) = r
+            if !nulls(r) && ok(r) then
+              m += 1
+            j += 1
+      else if nulls == null then
+        while j < n do
+          val r = rows(j)
+          val i = position(r)
+          out(m) = r
+          if ok(i) then
+            m += 1
+          j += 1
+      else
+        while j < n do
+          val r = rows(j)
+          val i = position(r)
+          out(m) = r
+          if !nulls(i) && ok(i) then
+            m += 1
+          j += 1
+      end if
+      Selection(out, m)
+
+    end keep
+
     private def leafRows(
         path: Seq[String],
         test: Test,
@@ -1094,10 +1205,8 @@ object ParquetFilter:
         n: Int
     ): Selection =
       // The vector at the path, and the nulls of every vector on the way
-      val nulls = Array.newBuilder[Array[Boolean]]
       var v     = top
-      if v.nulls != null then
-        nulls += v.nulls
+      var nulls = v.nulls
       path
         .tail
         .foreach { seg =>
@@ -1107,70 +1216,42 @@ object ParquetFilter:
                 s.child(seg).getOrElse(throw IllegalStateException(s"No field ${seg} in ${s.name}"))
               case other =>
                 throw IllegalStateException(s"Column ${other.name} is not a struct")
-          if v.nulls != null then
-            nulls += v.nulls
+          nulls = orNulls(nulls, v.nulls)
         }
-      val ns = nulls.result()
       test match
         case Test.Null =>
-          byNulls(ns, position, rows, n, wantNull = true)
+          if nulls == null then
+            NoRows
+          else
+            val ns = nulls
+            keep(rows, n, position, null)(i => ns(i))
         case Test.NotNull =>
-          byNulls(ns, position, rows, n, wantNull = false)
-        case _ =>
-          val s =
-            if ns.isEmpty then
-              Selection(rows, n)
-            else
-              byNulls(ns, position, rows, n, wantNull = false)
-          // The index in the vector of each row
-          val idx =
-            if position == null then
-              s.rows
-            else
-              val a = new Array[Int](s.n)
-              var j = 0
-              while j < s.n do
-                a(j) = position(s.rows(j))
-                j += 1
-              a
-          test match
-            case Test.Cmp(op, ord, key) =>
-              compareRows(v, op, ord, key, idx, s.rows, s.n, path)
-            case Test.Member(ord, set) =>
-              memberRows(v, ord, set, idx, s.rows, s.n, path)
-            case _ =>
-              throw IllegalStateException(s"Unexpected test ${test}")
-      end match
+          if nulls == null then
+            Selection(rows, n)
+          else
+            keep(rows, n, position, nulls)(_ => true)
+        case Test.Range(ord, lo, hi) =>
+          rangeRows(v, ord, lo, hi, position, nulls, rows, n, path)
+        case Test.Cmp(op, ord, key) =>
+          compareRows(v, op, ord, key, position, nulls, rows, n, path)
+        case Test.Member(ord, set) =>
+          memberRows(v, ord, set, position, nulls, rows, n, path)
 
     end leafRows
 
-    /** The rows with (or without) a null on the path */
-    private def byNulls(
-        ns: Array[Array[Boolean]],
-        position: Array[Int],
-        rows: Array[Int],
-        n: Int,
-        wantNull: Boolean
-    ): Selection =
-      val out = new Array[Int](n)
-      var m   = 0
-      var j   = 0
-      while j < n do
-        val i =
-          if position == null then
-            rows(j)
-          else
-            position(rows(j))
-        var isNull = false
-        var k      = 0
-        while k < ns.length && !isNull do
-          isNull = ns(k)(i)
-          k += 1
-        out(m) = rows(j)
-        if isNull == wantNull then
-          m += 1
-        j += 1
-      Selection(out, m)
+    /** Null where either is: a struct's nulls with those of its field */
+    private def orNulls(a: Array[Boolean], b: Array[Boolean]): Array[Boolean] =
+      if a == null then
+        b
+      else if b == null then
+        a
+      else
+        val out = new Array[Boolean](math.min(a.length, b.length))
+        var i   = 0
+        while i < out.length do
+          out(i) = a(i) || b(i)
+          i += 1
+        out
 
     /**
       * The inclusive range `(lo, hi)` of the Long values `v` with `compare(v, literal) op 0`, where
@@ -1235,153 +1316,135 @@ object ParquetFilter:
     private inline def accepts(mask: Int, c: Int): Boolean =
       ((mask >> (Integer.signum(c) + 1)) & 1) != 0
 
+    /** The rows whose value lies in [lo, hi] of the order's Long domain (see [[Test.Range]]) */
+    private def rangeRows(
+        v: ColumnVector,
+        ord: ColumnOrder,
+        lo: Long,
+        hi: Long,
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        path: Seq[String]
+    ): Selection =
+      (v, ord) match
+        case _ if lo > hi =>
+          NoRows
+        case (c: IntColumn, o: IntOrder) =>
+          val a = c.values
+          if o.unsignedBits == 32 then
+            keep(rows, n, position, nulls) { i =>
+              val x = a(i).toLong & 0xffffffffL
+              x >= lo && x <= hi
+            }
+          else
+            keep(rows, n, position, nulls) { i =>
+              val x = a(i).toLong
+              x >= lo && x <= hi
+            }
+        case (c: LongColumn, o: IntOrder) =>
+          val a = c.values
+          if o.isUnsigned64 then
+            keep(rows, n, position, nulls) { i =>
+              val x = a(i) ^ Long.MinValue
+              x >= lo && x <= hi
+            }
+          else
+            keep(rows, n, position, nulls) { i =>
+              val x = a(i)
+              x >= lo && x <= hi
+            }
+        case (c: BooleanColumn, _) =>
+          val a = c.values
+          // Which of false (0) and true (1) the range holds
+          val f = lo <= 0 && hi >= 0
+          val t = lo <= 1 && hi >= 1
+          keep(rows, n, position, nulls) { i =>
+            if a(i) then
+              t
+            else
+              f
+          }
+        case (c: LongColumn, _: TimeOrder | _: DecimalOrder) =>
+          val a = c.values
+          keep(rows, n, position, nulls) { i =>
+            val x = a(i)
+            x >= lo && x <= hi
+          }
+        case (c: IntColumn, _: DecimalOrder) =>
+          val a = c.values
+          keep(rows, n, position, nulls) { i =>
+            val x = a(i).toLong
+            x >= lo && x <= hi
+          }
+        case _ =>
+          throw IllegalStateException(
+            s"Can't compare ${v.getClass.getSimpleName} at ${path.mkString(
+                "."
+              )} with [${lo}, ${hi}]"
+          )
+
+    end rangeRows
+
     /**
-      * The rows whose value at index `idx(j)` compares with the key as the operator asks. Values
-      * are compared in the order's domain, as [[ColumnOrder.cmpKey]] compares statistics; NaN
-      * satisfies no operator.
+      * The rows whose value compares with a floating-point, binary, or INT96 key as the operator
+      * asks. Values are compared in the order's domain, as [[ColumnOrder.cmpKey]] compares
+      * statistics; NaN satisfies no operator.
       */
     private def compareRows(
         v: ColumnVector,
         op: Op,
         ord: ColumnOrder,
         key: Key,
-        idx: Array[Int],
+        position: Array[Int],
+        nulls: Array[Boolean],
         rows: Array[Int],
         n: Int,
         path: Seq[String]
     ): Selection =
-      val out = new Array[Int](n)
-      var m   = 0
-      var j   = 0
-      (v, ord, key) match
-        case (c: IntColumn, o: IntOrder, Key.Num(k)) =>
-          val (lo, hi) = longRange(op, k, 0)
-          val a        = c.values
-          if o.unsignedBits == 32 then
-            while j < n do
-              val x = a(idx(j)).toLong & 0xffffffffL
-              out(m) = rows(j)
-              if x >= lo && x <= hi then
-                m += 1
-              j += 1
-          else
-            while j < n do
-              val x = a(idx(j)).toLong
-              out(m) = rows(j)
-              if x >= lo && x <= hi then
-                m += 1
-              j += 1
-        case (c: LongColumn, o: IntOrder, Key.Num(k)) =>
+      val mask = acceptMask(op)
+      (v, key) match
+        case (c: DoubleColumn, Key.Real(k)) =>
           val a = c.values
-          if o.isUnsigned64 then
-            // Unsigned order is signed order with the sign bit flipped
-            val (lo, hi) = longRange(op, k ^ Long.MinValue, 0)
-            while j < n do
-              val x = a(idx(j)) ^ Long.MinValue
-              out(m) = rows(j)
-              if x >= lo && x <= hi then
-                m += 1
-              j += 1
-          else
-            val (lo, hi) = longRange(op, k, 0)
-            while j < n do
-              val x = a(idx(j))
-              out(m) = rows(j)
-              if x >= lo && x <= hi then
-                m += 1
-              j += 1
-        case (c: BooleanColumn, _, Key.Num(k)) =>
-          val (lo, hi) = longRange(op, k, 0)
-          val a        = c.values
-          while j < n do
-            val x =
-              if a(idx(j)) then
-                1L
-              else
-                0L
-            out(m) = rows(j)
-            if x >= lo && x <= hi then
-              m += 1
-            j += 1
-        case (c: LongColumn, _: TimeOrder | _: DecimalOrder, Key.Time(floor, rest)) =>
-          val (lo, hi) = longRange(op, floor, rest)
-          val a        = c.values
-          while j < n do
-            val x = a(idx(j))
-            out(m) = rows(j)
-            if x >= lo && x <= hi then
-              m += 1
-            j += 1
-        case (c: IntColumn, _: DecimalOrder, Key.Time(floor, rest)) =>
-          val (lo, hi) = longRange(op, floor, rest)
-          val a        = c.values
-          while j < n do
-            val x = a(idx(j)).toLong
-            out(m) = rows(j)
-            if x >= lo && x <= hi then
-              m += 1
-            j += 1
-        case (c: DoubleColumn, _, Key.Real(k)) =>
-          val mask = acceptMask(op)
-          val a    = c.values
-          while j < n do
-            out(m) = rows(j)
-            if realAccepts(mask, a(idx(j)), k) then
-              m += 1
-            j += 1
-        case (c: FloatColumn, _, Key.Real(k)) =>
-          val mask = acceptMask(op)
-          val a    = c.values
-          while j < n do
-            out(m) = rows(j)
-            if realAccepts(mask, a(idx(j)).toDouble, k) then
-              m += 1
-            j += 1
-        case (c: BinaryColumn, _, Key.Bytes(k)) =>
-          val mask = acceptMask(op)
+          keep(rows, n, position, nulls)(i => realAccepts(mask, a(i), k))
+        case (c: FloatColumn, Key.Real(k)) =>
+          val a = c.values
+          keep(rows, n, position, nulls)(i => realAccepts(mask, a(i).toDouble, k))
+        case (c: BinaryColumn, Key.Bytes(k)) =>
           // Dictionary-encoded values test each distinct entry once
           val dict    = c.dictionary
           val dictIdx = c.dictIndices
-          val byEntry =
-            if dict != null && dictIdx != null then
-              val e = new Array[Boolean](dict.size)
-              var d = 0
-              while d < e.length do
-                e(d) = accepts(
-                  mask,
-                  compareBytes(dict.data, dict.offsets(d), dict.offsets(d + 1) - dict.offsets(d), k)
-                )
-                d += 1
-              e
-            else
-              null
-          while j < n do
-            val i  = idx(j)
-            val ok =
-              if byEntry != null && dictIdx(i) >= 0 then
-                byEntry(dictIdx(i))
+          if dict != null && dictIdx != null then
+            val byEntry = new Array[Boolean](dict.size)
+            var d       = 0
+            while d < byEntry.length do
+              byEntry(d) = accepts(
+                mask,
+                compareBytes(dict.data, dict.offsets(d), dict.offsets(d + 1) - dict.offsets(d), k)
+              )
+              d += 1
+            keep(rows, n, position, nulls) { i =>
+              val e = dictIdx(i)
+              if e >= 0 then
+                byEntry(e)
               else
                 accepts(mask, compareBytes(c.data, c.offsets(i), c.length(i), k))
-            out(m) = rows(j)
-            if ok then
-              m += 1
-            j += 1
-        case (c: BinaryColumn, _, Key.Moment(k)) =>
-          val mask = acceptMask(op)
-          while j < n do
-            val i = idx(j)
-            out(m) = rows(j)
-            if c.length(i) == 12 &&
-              accepts(mask, LogicalValues.int96ToInstant(c.data, c.offsets(i)).compareTo(k))
-            then
-              m += 1
-            j += 1
+            }
+          else
+            keep(rows, n, position, nulls) { i =>
+              accepts(mask, compareBytes(c.data, c.offsets(i), c.length(i), k))
+            }
+        case (c: BinaryColumn, Key.Moment(k)) =>
+          keep(rows, n, position, nulls) { i =>
+            c.length(i) == 12 &&
+            accepts(mask, LogicalValues.int96ToInstant(c.data, c.offsets(i)).compareTo(k))
+          }
         case _ =>
           throw IllegalStateException(
             s"Can't compare ${v.getClass.getSimpleName} at ${path.mkString(".")} with ${key}"
           )
       end match
-      Selection(out, m)
 
     end compareRows
 
@@ -1390,47 +1453,31 @@ object ParquetFilter:
         (x == k && (mask & 2) != 0) ||
         (x > k && (mask & 4) != 0)
 
-    /** The rows whose value at index `idx(j)` is in the set */
+    /** The rows whose value is in the set */
     private def memberRows(
         v: ColumnVector,
         ord: IntOrder,
         set: IntegerSet,
-        idx: Array[Int],
+        position: Array[Int],
+        nulls: Array[Boolean],
         rows: Array[Int],
         n: Int,
         path: Seq[String]
     ): Selection =
-      val out = new Array[Int](n)
-      var m   = 0
-      var j   = 0
       v match
         case c: IntColumn =>
           val a = c.values
           if ord.unsignedBits == 32 then
-            while j < n do
-              out(m) = rows(j)
-              if set.contains(a(idx(j)).toLong & 0xffffffffL) then
-                m += 1
-              j += 1
+            keep(rows, n, position, nulls)(i => set.contains(a(i).toLong & 0xffffffffL))
           else
-            while j < n do
-              out(m) = rows(j)
-              if set.contains(a(idx(j)).toLong) then
-                m += 1
-              j += 1
+            keep(rows, n, position, nulls)(i => set.contains(a(i).toLong))
         case c: LongColumn =>
           val a = c.values
-          while j < n do
-            out(m) = rows(j)
-            if set.contains(a(idx(j))) then
-              m += 1
-            j += 1
+          keep(rows, n, position, nulls)(i => set.contains(a(i)))
         case _ =>
           throw IllegalStateException(
             s"Can't test ${v.getClass.getSimpleName} at ${path.mkString(".")} for set membership"
           )
-      end match
-      Selection(out, m)
 
     end memberRows
 

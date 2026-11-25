@@ -13,7 +13,7 @@ private[parquet] final class ArrayPool[A <: AnyRef](
     maxPooledBytes: Long,
     maxArrayBytes: Long,
     bytesPerElement: Int,
-    newArray: Int => A,
+    newArray: ArrayPool.NewArray[A],
     lengthOf: ArrayPool.Length[A]
 ):
   private final class Pool:
@@ -93,6 +93,10 @@ private[parquet] object ArrayPool:
     */
   trait Length[A]:
     def apply(a: A): Int
+
+  /** A new array of a given length; a SAM type for the same reason as [[Length]] */
+  trait NewArray[A]:
+    def apply(length: Int): A
 
 /**
   * Buffers for decompressed pages. A buffer belongs to one [[ColumnChunkCursor]] from [[borrow]]
