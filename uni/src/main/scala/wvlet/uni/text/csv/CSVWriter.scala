@@ -52,7 +52,17 @@ private[csv] final class CSVWriter(format: CSVFormat):
   ): Unit = records
     .iterator
     .foreach { r =>
-      writeRecord(r.map(recordField), out)
+      if r.size == 1 && r.head.isEmpty then
+        // A bare empty field is a blank line, which readers skip. Quote it, or write the null
+        // string (`\N` in TSV), which reads back as an empty field
+        if style == CSVEscapeStyle.Quoted then
+          out += quote
+          out += quote
+        else
+          out ++= nullText
+        out += '\n'
+      else
+        writeRecord(r.map(recordField), out)
       afterRow()
     }
 

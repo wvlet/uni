@@ -615,6 +615,13 @@ object OffsetUnpacker:
         case 12 =>
           val nsecU32 = cursor.readInt & 0xffffffffL
           val sec     = cursor.readLong
+          // Instant normalizes nanoseconds of 1e9 or more into seconds
+          val carry = nsecU32 / 1000000000L
+          if sec < Instant.MIN.getEpochSecond || sec > Instant.MAX.getEpochSecond - carry then
+            throw MessageException(
+              INVALID_EXT_FORMAT,
+              s"Timestamp ${sec} seconds is out of the range of java.time.Instant"
+            )
           Instant.ofEpochSecond(sec, nsecU32)
         case other =>
           cursor.reverseCursor
@@ -623,6 +630,8 @@ object OffsetUnpacker:
             s"Timestamp type expects 4, 8, or 12 bytes of payload but got ${other} bytes"
           )
     instant
+
+  end unpackTimestamp
 
   def readPayload(cursor: ReadCursor, length: Int): Array[Byte] =
     val data = cursor.readBytes(length)

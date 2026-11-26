@@ -199,13 +199,15 @@ object FuzzCheck:
       case NonFatal(_) =>
         None
 
+  private val libraryPrefixes = Seq("wvlet.uni.test.", "scala.", "java.", "jdk.", "sun.")
+
   /** Exception class plus the first frame outside the test framework and Scala library. */
   private[test] def crashId(e: Throwable): String =
     val frame = e
       .getStackTrace
       .find { f =>
         val c = f.getClassName
-        !c.startsWith("wvlet.uni.test.") && !c.startsWith("scala.") && !c.startsWith("java.")
+        !FuzzCheck.libraryPrefixes.exists(c.startsWith)
       }
     s"${e.getClass.getName}${frame
         .map(f => s"@${f.getClassName}.${f.getMethodName}:${f.getLineNumber}")

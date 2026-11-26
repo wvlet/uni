@@ -127,7 +127,7 @@ class MsgPackSpecTest extends UniTest:
           val (h, r) = pack(OffsetPacker.packTimestampEpochSecond(_, sec, nanos))
           h shouldBe args(2)
           if expected == "invalid" then
-            intercept[java.time.DateTimeException] {
+            intercept[MessageException] {
               OffsetUnpacker.unpackTimestamp(r)
             }
           else
