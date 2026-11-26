@@ -593,6 +593,10 @@ object OffsetUnpacker:
         cursor.reverseCursor
         throw unexpected(ValueType.EXTENSION, other)
 
+  // The epoch-second range of java.time.Instant, written out so every platform's java.time works
+  private val MinInstantSecond = -31557014167219200L
+  private val MaxInstantSecond = 31556889864403199L
+
   def unpackTimestamp(cursor: ReadCursor): Instant =
     val extTypeHeader = unpackExtTypeHeader(cursor)
     val instant       = unpackTimestamp(extTypeHeader, cursor)
@@ -617,7 +621,7 @@ object OffsetUnpacker:
           val sec     = cursor.readLong
           // Instant normalizes nanoseconds of 1e9 or more into seconds
           val carry = nsecU32 / 1000000000L
-          if sec < Instant.MIN.getEpochSecond || sec > Instant.MAX.getEpochSecond - carry then
+          if sec < MinInstantSecond || sec > MaxInstantSecond - carry then
             throw MessageException(
               INVALID_EXT_FORMAT,
               s"Timestamp ${sec} seconds is out of the range of java.time.Instant"
