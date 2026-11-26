@@ -1453,7 +1453,6 @@ object ParquetFilter:
         (x == k && (mask & 2) != 0) ||
         (x > k && (mask & 4) != 0)
 
-    /** The rows whose value is in the set */
     /**
       * [[keep]] for the rows whose value is in `set`. The last value's answer is reused while the
       * value repeats: fact tables often store rows in runs that share a key (one order's date or
@@ -1476,6 +1475,7 @@ object ParquetFilter:
         lastIn
       }
 
+    /** The rows whose value is in the set */
     private def memberRows(
         v: ColumnVector,
         ord: IntOrder,

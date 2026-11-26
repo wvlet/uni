@@ -86,12 +86,17 @@ class InFilterTest extends UniTest:
     )
     try
       for set <- Seq(Seq(0L), Seq(1L, 4L), Seq(0L, 2L, 3L, 5L)) do
-        // A second conjunct, so the other columns are read for the selected rows only
-        val got = f.readAs[InRow](
-          ParquetReadOptions.default.withFilter(col("store").isIn(set) && col("small") < 90L)
+        val expected = clustered.filter(r =>
+          r.store.exists(s => set.contains(s.toLong)) && r.small < 90
         )
-        got.toSeq shouldBe
-          clustered.filter(r => r.store.exists(s => set.contains(s.toLong)) && r.small < 90)
+        // A second conjunct, so later columns are read for the selected rows only. With `small`
+        // first, the nullable `store` is one of them.
+        for filter <- Seq(
+            col("store").isIn(set) && col("small") < 90L,
+            col("small") < 90L && col("store").isIn(set)
+          )
+        do
+          f.readAs[InRow](ParquetReadOptions.default.withFilter(filter)).toSeq shouldBe expected
     finally f.close()
   }
 
