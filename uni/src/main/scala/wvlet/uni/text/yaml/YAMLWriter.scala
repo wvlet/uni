@@ -192,7 +192,8 @@ private[yaml] object YAMLWriter:
           case j =>
             Some(line.substring(j + 1))
 
-  private def lines(text: String): Seq[String] = text.split("\n", -1).map(_.stripSuffix("\r")).toSeq
+  // `\r` alone is a line break too, as the parser reads it
+  private def lines(text: String): Seq[String] = text.split("\r\n|\r|\n", -1).toSeq
 
   private def isMarker(line: String, marker: String): Boolean =
     line.startsWith(marker) && (line.length == 3 || YAMLParser.isSeparator(line.charAt(3)))

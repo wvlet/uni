@@ -153,7 +153,7 @@ private[yaml] class YAMLParser(input: String):
       if r.isEOF then
         continue = false
       else if atDocumentMarker("...") then
-        r.advance(3)
+        skipDocumentEnd()
       else
         var lastEnd = r.offset
         if atDocumentMarker("---") then
@@ -172,7 +172,7 @@ private[yaml] class YAMLParser(input: String):
             n
         skipToContent()
         if atDocumentMarker("...") then
-          r.advance(3)
+          skipDocumentEnd()
           lastEnd = r.offset
         else if !r.isEOF && !atDocumentMarker("---") then
           r.error("Unexpected content after the end of a node")
@@ -961,6 +961,16 @@ private[yaml] class YAMLParser(input: String):
     r.column == 0 && r.startsWith(marker) && isSeparator(r.lookAhead(3))
 
   private def atAnyDocumentMarker: Boolean = atDocumentMarker("---") || atDocumentMarker("...")
+
+  /**
+    * Read a `...` marker. Only a comment may follow it on its line: a node there would start the
+    * next document inside this document's last line.
+    */
+  private def skipDocumentEnd(): Unit =
+    r.advance(3)
+    r.skipWhiteSpaces()
+    if !r.isAtLineEnd && r.peek != '#' then
+      r.error("Unexpected content after the document end marker '...'")
 
   // ---- Building nodes with their source text ----
 
