@@ -14,6 +14,7 @@
 package wvlet.uni.json
 
 import wvlet.uni.log.LogSupport
+import wvlet.uni.msgpack.spi.Value
 
 /**
   * Represents a comment in JSONC. The text includes delimiters (e.g., "// comment" or "/​* block
@@ -300,16 +301,16 @@ object JSON extends LogSupport:
          * encode the C1 codes, but we do to be safe.
          */
         case c if (c >= '\u0000' && c <= '\u001f') || (c >= '\u007f' && c <= '\u009f') =>
-          appendUnicodeEscape(sb, c)
+          Value.escapeChar(sb, c)
         case c if Character.isHighSurrogate(c) =>
           if i + 1 < s.length && Character.isLowSurrogate(s.charAt(i + 1)) then
             sb.append(c).append(s.charAt(i + 1))
             i += 1
           else
             // An unpaired surrogate has no UTF-8 encoding, so only an escape keeps it
-            appendUnicodeEscape(sb, c)
+            Value.escapeChar(sb, c)
         case c if Character.isLowSurrogate(c) =>
-          appendUnicodeEscape(sb, c)
+          Value.escapeChar(sb, c)
         case c =>
           sb.append(c)
       end match
@@ -318,14 +319,5 @@ object JSON extends LogSupport:
     sb.result()
 
   end quoteJSONString
-
-  private def appendUnicodeEscape(sb: StringBuilder, c: Char): Unit =
-    val hex = Integer.toHexString(c.toInt)
-    sb.append("\\u")
-    var pad = 4 - hex.length
-    while pad > 0 do
-      sb.append('0')
-      pad -= 1
-    sb.append(hex)
 
 end JSON

@@ -987,7 +987,7 @@ For a type with an `Arbitrary`, pass `Arbitrary.arbitrary[A]`.
 
 `forAll` and `fuzzGen` complement each other: `forAll` samples a fixed
 number of values and shrinks with `Shrink`; `fuzzGen` keeps going for a time
-budget, keeps failures as corpus files, and runs in the nightly job.
+budget (`UNI_FUZZ_SECONDS`) and keeps failures as corpus files.
 
 ### Slow inputs
 
@@ -1020,7 +1020,7 @@ UNI_FUZZ_SEED=733437378479625 ./sbt "uniJVM/testOnly *FuzzTest"  # replay a fail
 | RNG seed | `withSeed(s)` | `System.nanoTime()` |
 | Ignore `UNI_FUZZ_*` | `noEnvOverrides` | overrides on |
 | Generator size (`fuzzGen`) | `withGenSize(n)` | 32 |
-| Slow-input limit | `withSlowInputMillis(ms)` / `noSlowInputLimit` | none |
+| Slow-input limit | `withSlowInputMillis(ms)` / `noSlowInputMillis` | none |
 
 Override `fuzzConfig` on the test class to share settings across targets.
 Fuzzing does not yet use coverage feedback.

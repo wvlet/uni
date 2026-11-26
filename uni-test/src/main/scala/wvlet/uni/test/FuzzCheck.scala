@@ -62,7 +62,7 @@ trait FuzzCheck:
   /** Fuzz a target that reads bytes. */
   def fuzz(target: String, config: FuzzConfig = fuzzConfig)(body: Array[Byte] => Any)(using
       source: TestSource
-  ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), body, source)
+  ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), Some(_), body, source)
 
   /** Fuzz a target that reads text. Inputs are mutated as bytes and decoded as UTF-8. */
   def fuzzString(target: String, config: FuzzConfig = fuzzConfig)(body: String => Any)(using
@@ -73,7 +73,7 @@ trait FuzzCheck:
     * Fuzz a target over values of a generator, such as a `Gen` built for property tests:
     *
     * {{{
-    *   fuzzGen("round-trip", Gen.listOf(Gen.alphaNumStr)) { names =>
+    *   fuzzGen("round-trip", Gen.nonEmptyListOf(Gen.alphaNumStr)) { names =>
     *     CSV.parse(CSV.writeRecords(Seq(names))) shouldBe Seq(names)
     *   }
     * }}}
@@ -91,7 +91,8 @@ trait FuzzCheck:
     FuzzCheck.run(
       target,
       c,
-      bytes => FuzzCheck.generate(gen, bytes, c.genSize).foreach(body),
+      bytes => FuzzCheck.generate(gen, bytes, c.genSize),
+      body,
       source,
       bytes => FuzzCheck.generate(gen, bytes, c.genSize).map(FuzzCheck.show)
     )
@@ -137,10 +138,16 @@ object FuzzCheck:
   /** At most this many candidates are tried when reducing a slow input, since each one is slow. */
   private val maxSlowReduceSteps = 30
 
-  private[test] def run(
+  /**
+    * @param decode
+    *   turns an input into the target's argument, or None to skip it; its time does not count
+    *   against the slow-input limit
+    */
+  private[test] def run[A](
       target: String,
       config: FuzzConfig,
-      body: Array[Byte] => Any,
+      decode: Array[Byte] => Option[A],
+      body: A => Any,
       source: TestSource,
       describe: Array[Byte] => Option[String] = _ => None
   ): Unit =
@@ -148,10 +155,11 @@ object FuzzCheck:
     val rng  = Random(seed)
 
     def runOnce(input: Array[Byte]): Option[Throwable] =
+      val arg    = decode(input)
       val start  = System.nanoTime()
       val result =
         try
-          body(input)
+          arg.foreach(body)
           None
         catch
           // Skip/pending/cancel from the body are test control, not crashes.

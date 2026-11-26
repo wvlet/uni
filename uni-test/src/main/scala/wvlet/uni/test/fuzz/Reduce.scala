@@ -83,10 +83,17 @@ object Reduce:
     var lowered = false
     var i       = 0
     while i < shorter.length && steps < maxSteps do
-      var lo = 0
-      var hi = shorter(i) & 0xff
+      var lo    = 0
+      var hi    = shorter(i) & 0xff
+      var first = true
       while lo < hi && steps < maxSteps do
-        val mid       = (lo + hi) >>> 1
+        // Try 0 first: most bytes do not matter, and then one candidate settles them
+        val mid =
+          if first then
+            0
+          else
+            (lo + hi) >>> 1
+        first = false
         val candidate = shorter.clone()
         candidate(i) = mid.toByte
         if tryCandidate(candidate) then

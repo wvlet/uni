@@ -97,7 +97,7 @@ final case class FuzzConfig(
   def withMaxReduceSteps(n: Int): FuzzConfig            = copy(maxReduceSteps = math.max(0, n))
   def withGenSize(n: Int): FuzzConfig                   = copy(genSize = math.max(0, n))
   def withSlowInputMillis(millis: Long): FuzzConfig     = copy(slowInputMillis = Some(millis))
-  def noSlowInputLimit: FuzzConfig                      = copy(slowInputMillis = None)
+  def noSlowInputMillis: FuzzConfig                     = copy(slowInputMillis = None)
   def withExpected(p: Throwable => Boolean): FuzzConfig = copy(expected = p)
 
   /**

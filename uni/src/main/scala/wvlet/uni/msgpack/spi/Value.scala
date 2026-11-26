@@ -324,7 +324,7 @@ object Value:
 
   private final val HEX_TABLE = "0123456789abcdef".toCharArray
 
-  private[spi] def escapeChar(sb: StringBuilder, ch: Int): Unit =
+  private[uni] def escapeChar(sb: StringBuilder, ch: Int): Unit =
     sb.append("\\u")
     sb.append(HEX_TABLE((ch >> 12) & 0x0f))
     sb.append(HEX_TABLE((ch >> 8) & 0x0f))
