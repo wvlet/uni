@@ -233,7 +233,16 @@ private[parquet] final class RleBitPackedDecoder(
     while i < n do
       if rleRemaining > 0 then
         val k = math.min(rleRemaining, n - i)
-        java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue)
+        // Writers such as DuckDB emit RLE runs of a few values, where a loop beats the fixed cost of
+        // an Arrays.fill call
+        if k < RleBitPackedDecoder.ShortRun then
+          val v = rleValue
+          var q = offset + i
+          while q < offset + i + k do
+            dst(q) = v
+            q += 1
+        else
+          java.util.Arrays.fill(dst, offset + i, offset + i + k, rleValue)
         rleRemaining -= k
         i += k
       else if bitRemaining > 0 then
@@ -541,6 +550,9 @@ private[parquet] abstract class NullMask:
     positions = Array.emptyIntArray
 
 private[parquet] object RleBitPackedDecoder:
+
+  /** RLE runs shorter than this fill in a loop rather than with Arrays.fill */
+  private final val ShortRun = 32
 
   /**
     * Copies `n` levels from `src` to `dst` as bytes, and returns how many equal `maxLevel`. Throws

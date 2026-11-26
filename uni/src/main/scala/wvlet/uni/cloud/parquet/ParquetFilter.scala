@@ -1453,6 +1453,28 @@ object ParquetFilter:
         (x == k && (mask & 2) != 0) ||
         (x > k && (mask & 4) != 0)
 
+    /**
+      * [[keep]] for the rows whose value is in `set`. The last value's answer is reused while the
+      * value repeats: fact tables often store rows in runs that share a key (one order's date or
+      * store), and a set lookup costs more than a comparison.
+      */
+    private inline def keepMembers(
+        rows: Array[Int],
+        n: Int,
+        position: Array[Int],
+        nulls: Array[Boolean],
+        set: IntegerSet
+    )(inline value: Int => Long): Selection =
+      var last   = 0L
+      var lastIn = set.contains(0L)
+      keep(rows, n, position, nulls) { i =>
+        val x = value(i)
+        if x != last then
+          last = x
+          lastIn = set.contains(x)
+        lastIn
+      }
+
     /** The rows whose value is in the set */
     private def memberRows(
         v: ColumnVector,
@@ -1468,12 +1490,12 @@ object ParquetFilter:
         case c: IntColumn =>
           val a = c.values
           if ord.unsignedBits == 32 then
-            keep(rows, n, position, nulls)(i => set.contains(a(i).toLong & 0xffffffffL))
+            keepMembers(rows, n, position, nulls, set)(i => a(i).toLong & 0xffffffffL)
           else
-            keep(rows, n, position, nulls)(i => set.contains(a(i).toLong))
+            keepMembers(rows, n, position, nulls, set)(i => a(i).toLong)
         case c: LongColumn =>
           val a = c.values
-          keep(rows, n, position, nulls)(i => set.contains(a(i)))
+          keepMembers(rows, n, position, nulls, set)(i => a(i))
         case _ =>
           throw IllegalStateException(
             s"Can't test ${v.getClass.getSimpleName} at ${path.mkString(".")} for set membership"
