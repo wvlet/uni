@@ -66,6 +66,8 @@ private[uni] object MsgPackJson:
 
   private def write(u: Unpacker, sb: StringBuilder, scratch: Scratch): Unit =
     val format = u.getNextFormat
+    if format == MessageFormat.NEVER_USED then
+      throw MessageException(ErrorCode.NEVER_USED_FORMAT, "Found 0xC1 (NEVER_USED) byte")
     format.valueType match
       case ValueType.NIL =>
         u.unpackNil

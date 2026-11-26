@@ -221,6 +221,32 @@ test("positive") {
 }
 ```
 
+## Fuzz tests
+
+A fuzz target replays seeds and `<corpusDir>/<target>/` files, then mutates
+them byte by byte. Any exception other than the expected ones fails the test,
+with a reduced input, the seed, and a crash file under `target/fuzz/`.
+
+```scala test
+import wvlet.uni.json.JSON
+import wvlet.uni.json.JSONParseException
+import wvlet.uni.test.fuzz.FuzzConfig
+
+test("JSON parser rejects invalid input cleanly") {
+  fuzzString(
+    "json-parse",
+    FuzzConfig()
+      .withSeeds("""{"a":[1,true]}""")
+      .withExpectedCases { case _: JSONParseException => }
+  ) { s => JSON.parseAny(s) }
+}
+```
+
+`UNI_FUZZ_SECONDS`, `UNI_FUZZ_ITERATIONS`, and `UNI_FUZZ_SEED` override the
+budget and seed for long runs and replays.
+
+Full guide: https://wvlet.org/uni/core/unitest.md#fuzz-testing
+
 ## Testing a uni-dom UI (Scala.js)
 
 `uni-test` on Scala.js includes the uni-dom testing kit; no other test
