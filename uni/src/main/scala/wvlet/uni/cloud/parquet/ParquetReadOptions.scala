@@ -29,6 +29,13 @@ package wvlet.uni.cloud.parquet
   *   read top-level DECIMAL columns stored as INT32 into [[ColumnVector.LongColumn]]s of unscaled
   *   values, widened while the decoded values are copied, for consumers that keep decimals as Long
   *   values
+  * @param dictionaryCodesOnly
+  *   top-level BYTE_ARRAY columns whose dictionary-encoded rows are read as dictionary entries
+  *   only, without copying each row's bytes: [[ColumnVector.BinaryColumn.dictionaryIndex]] and the
+  *   accessors ([[ColumnVector.BinaryColumn.getString]], `getBytes`, `length`, `getValue`) read the
+  *   entry, while the raw `offsets` and `data` hold an empty value for such rows. For consumers
+  *   that group or compare by entry and need each distinct value once. Columns a [[filter]] reads
+  *   are read as usual.
   */
 case class ParquetReadOptions(
     columns: Option[Seq[String]] = None,
@@ -37,7 +44,8 @@ case class ParquetReadOptions(
     maxMergeGap: Int = 1024 * 1024,
     batchSize: Option[Int] = None,
     filter: Option[ParquetFilter] = None,
-    int32DecimalAsLong: Boolean = false
+    int32DecimalAsLong: Boolean = false,
+    dictionaryCodesOnly: Set[String] = Set.empty
 ):
   def withColumns(names: String*): ParquetReadOptions          = copy(columns = Some(names))
   def noColumns(): ParquetReadOptions                          = copy(columns = None)
@@ -55,6 +63,13 @@ case class ParquetReadOptions(
   def withInt32DecimalAsLong(enabled: Boolean): ParquetReadOptions = copy(int32DecimalAsLong =
     enabled
   )
+
+  /** Read these columns' dictionary-encoded rows as dictionary entries only (see the class doc) */
+  def withDictionaryCodesOnly(columns: String*): ParquetReadOptions = copy(dictionaryCodesOnly =
+    columns.toSet
+  )
+
+  def noDictionaryCodesOnly(): ParquetReadOptions = copy(dictionaryCodesOnly = Set.empty)
 
   def withBatchSize(rows: Int): ParquetReadOptions =
     require(rows > 0, s"batch size must be positive: ${rows}")

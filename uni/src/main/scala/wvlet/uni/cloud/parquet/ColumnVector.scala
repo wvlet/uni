@@ -116,24 +116,47 @@ object ColumnVector:
       protected[parquet] val nulls: Array[Boolean],
       val binaryAsString: Boolean = false
   ) extends ColumnVector:
-    def size: Int           = offsets.length - 1
+    def size: Int = offsets.length - 1
+
+    /**
+      * The bytes row i holds in `data`, which callers pair with `offsets(i)`. Rows read as their
+      * dictionary entry only (ParquetReadOptions.dictionaryCodesOnly) hold 0 bytes there; their
+      * value is in [[getBytes]], [[getString]], and [[getValue]]
+      */
     def length(i: Int): Int = offsets(i + 1) - offsets(i)
 
     // Set by the reader when values come from a dictionary page: row i is entry dictIndices(i) of
     // `dictionary`, or -1 for a null or PLAIN value
     private[parquet] var dictionary: column.BinaryBuffer = null
     private[parquet] var dictIndices: Array[Int]         = null
+    // Whether rows with an entry hold an empty value in `data`, their bytes being the entry's
+    // (ParquetReadOptions.dictionaryCodesOnly)
+    private[parquet] var entriesOnly: Boolean = false
 
-    private[parquet] def withDictionary(d: column.BinaryBuffer, indices: Array[Int]): BinaryColumn =
+    private[parquet] def withDictionary(
+        d: column.BinaryBuffer,
+        indices: Array[Int],
+        entriesOnly: Boolean = false
+    ): BinaryColumn =
       if d != null then
         dictionary = d
         dictIndices = indices
+        this.entriesOnly = entriesOnly && indices != null
       this
 
-    def getBytes(i: Int): Array[Byte] = java
-      .util
-      .Arrays
-      .copyOfRange(data, offsets(i), offsets(i + 1))
+    // The entry whose bytes row i reads instead of its own, or -1
+    private inline def entryOf(i: Int): Int =
+      if entriesOnly then
+        dictIndices(i)
+      else
+        -1
+
+    def getBytes(i: Int): Array[Byte] =
+      val k = entryOf(i)
+      if k < 0 then
+        java.util.Arrays.copyOfRange(data, offsets(i), offsets(i + 1))
+      else
+        dictionary.bytes(k)
 
     /**
       * The dictionary entry row i was decoded from, or -1 when the row is null, PLAIN-encoded, or
@@ -168,18 +191,24 @@ object ColumnVector:
           cache(k) = s
         s
 
-    private def utf8(i: Int): String = String(
-      data,
-      offsets(i),
-      length(i),
-      java.nio.charset.StandardCharsets.UTF_8
-    )
+    private def utf8(i: Int): String =
+      val k = entryOf(i)
+      if k < 0 then
+        String(data, offsets(i), length(i), java.nio.charset.StandardCharsets.UTF_8)
+      else
+        val d = dictionary
+        String(d.data, d.offsets(k), d.length(k), java.nio.charset.StandardCharsets.UTF_8)
 
     def getValue(i: Int): Any =
       if isNull(i) then
         null
       else
-        LogicalValues.fromBinary(data, offsets(i), length(i), field, binaryAsString)
+        val k = entryOf(i)
+        if k < 0 then
+          LogicalValues.fromBinary(data, offsets(i), length(i), field, binaryAsString)
+        else
+          val d = dictionary
+          LogicalValues.fromBinary(d.data, d.offsets(k), d.length(k), field, binaryAsString)
 
   end BinaryColumn
 
@@ -318,7 +347,8 @@ object ColumnVector:
             pick(c.dictIndices)
         BinaryColumn(c.field, offsets, data, nulls, c.binaryAsString).withDictionary(
           c.dictionary,
-          indices
+          indices,
+          c.entriesOnly
         )
       case c: ListColumn =>
         val (offsets, childRows) = ranges(c.offsets)
@@ -342,7 +372,8 @@ object ColumnVector:
       case b: BinaryColumn =>
         BinaryColumn(b.field, b.offsets, b.data, b.nulls, binaryAsString = true).withDictionary(
           b.dictionary,
-          b.dictIndices
+          b.dictIndices,
+          b.entriesOnly
         )
       case l: ListColumn =>
         ListColumn(l.field, l.offsets, withBinaryAsString(l.elements), l.nulls)

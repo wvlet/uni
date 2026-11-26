@@ -390,7 +390,7 @@ private[cloud] object Assembly:
           else
             dictIndices(b, n, i => i)
         BinaryColumn(p, exact(b.offsets, n + 1)(copyOf(b.offsets, n + 1)), b.data, nulls)
-          .withDictionary(b.dict, indices)
+          .withDictionary(b.dict, indices, b.codesOnly)
     end match
 
   end directLeaf
@@ -535,7 +535,7 @@ private[cloud] object Assembly:
                 indices(i) = -1
             )
         offsets(n) = src(j)
-        BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices)
+        BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices, b.codesOnly)
     end match
 
   end scatterLeaf
@@ -654,7 +654,7 @@ private[cloud] object Assembly:
         val startValue = (0 until n).find(pick(_) >= 0).map(pick).getOrElse(0)
         val indices    = dictIndices(b, n, i => pick(i))
         if dense && startValue == 0 then
-          BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices)
+          BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices, b.codesOnly)
         else
           val data = new Array[Byte](total)
           i = 0
@@ -662,7 +662,7 @@ private[cloud] object Assembly:
             if pick(i) >= 0 then
               System.arraycopy(b.data, b.offsets(pick(i)), data, offsets(i), b.length(pick(i)))
             i += 1
-          BinaryColumn(p, offsets, data, nulls).withDictionary(b.dict, indices)
+          BinaryColumn(p, offsets, data, nulls).withDictionary(b.dict, indices, b.codesOnly)
     end match
 
   end gatherLeaf

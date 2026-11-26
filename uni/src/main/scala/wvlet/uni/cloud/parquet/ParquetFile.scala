@@ -543,13 +543,29 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
               p.columnIndex
           }
           .toSet
+    // Top-level byte arrays read as dictionary entries only, unless a filter reads them
+    val codesOnly: Set[Int] =
+      if options.dictionaryCodesOnly.isEmpty then
+        Set.empty
+      else
+        val filterNames = fl.toSeq.flatMap(f => f.extra ++ f.steps.flatMap(_._1)).toSet
+        plan
+          .fields
+          .collect {
+            case p: ParquetField.Primitive
+                if !p.isRepeated && p.physicalType == PhysicalType.BYTE_ARRAY &&
+                  options.dictionaryCodesOnly.contains(p.name) && !filterNames.contains(p.name) =>
+              p.columnIndex
+          }
+          .toSet
     def cursor(c: ChunkPlan) = ColumnChunkCursor(
       c.field,
       c.meta,
       inputs(c.field.columnIndex),
       soft,
       batchHardLimit,
-      int32AsLong = asLong.contains(c.field.columnIndex)
+      int32AsLong = asLong.contains(c.field.columnIndex),
+      dictionaryCodesOnly = codesOnly.contains(c.field.columnIndex)
     )
     val batchSize =
       if whole then
@@ -558,7 +574,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
         options.batchSize.getOrElse(ValueBuffer.MaxArrayLength)
     fl match
       case Some(f) if lateMaterialization =>
-        filterFirst(plan, inputs, options, f, asLong, batchSize, cursor)
+        filterFirst(plan, inputs, options, f, asLong, codesOnly, batchSize, cursor)
       case _ =>
         val it = RowGroupBatches(
           plan.fields,
@@ -583,6 +599,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       options: ParquetReadOptions,
       fl: Filtering,
       asLong: Set[Int],
+      codesOnly: Set[Int],
       batchSize: Int,
       cursor: ChunkPlan => ColumnChunkCursor
   ): Iterator[ColumnBatch] =
@@ -599,7 +616,8 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
           c.field,
           c.meta,
           inputs(p.columnIndex),
-          int32AsLong = asLong.contains(p.columnIndex)
+          int32AsLong = asLong.contains(p.columnIndex),
+          dictionaryCodesOnly = codesOnly.contains(p.columnIndex)
         )
         selective(p.columnIndex) = s
         s.decodedBound <= batchSoftLimit
