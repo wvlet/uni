@@ -417,14 +417,7 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
             q += 1
         }
       ,
-      k =>
-        checkIndices(indices, k, ds)
-        appendRuns(k) { (dst, i, c) =>
-          var q = 0
-          while q < c do
-            v(dst + q) = dv(indices(i + q))
-            q += 1
-        }
+      k => appendFromDictionary(d, indices, k)
     )
 
   private def appendDictionaryDense(
@@ -448,11 +441,8 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
         s += k
       ,
       k =>
-        checkIndices(indices, k, ds)
-        var q = 0
-        while q < k do
-          v(s + q) = dv(indices(q))
-          q += 1
+        size = s
+        appendFromDictionary(d, indices, k)
         s += k
     )
     size = s
@@ -598,14 +588,7 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
             q += 1
         }
       ,
-      k =>
-        checkIndices(indices, k, ds)
-        appendRuns(k) { (dst, i, c) =>
-          var q = 0
-          while q < c do
-            v(dst + q) = dv(indices(i + q))
-            q += 1
-        }
+      k => appendFromDictionary(d, indices, k)
     )
 
   private def appendDictionaryDense(
@@ -629,11 +612,8 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
         s += k
       ,
       k =>
-        checkIndices(indices, k, ds)
-        var q = 0
-        while q < k do
-          v(s + q) = dv(indices(q))
-          q += 1
+        size = s
+        appendFromDictionary(d, indices, k)
         s += k
     )
     size = s
@@ -779,14 +759,7 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
             q += 1
         }
       ,
-      k =>
-        checkIndices(indices, k, ds)
-        appendRuns(k) { (dst, i, c) =>
-          var q = 0
-          while q < c do
-            v(dst + q) = dv(indices(i + q))
-            q += 1
-        }
+      k => appendFromDictionary(d, indices, k)
     )
 
   private def appendDictionaryDense(
@@ -810,11 +783,8 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
         s += k
       ,
       k =>
-        checkIndices(indices, k, ds)
-        var q = 0
-        while q < k do
-          v(s + q) = dv(indices(q))
-          q += 1
+        size = s
+        appendFromDictionary(d, indices, k)
         s += k
     )
     size = s
@@ -960,14 +930,7 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
             q += 1
         }
       ,
-      k =>
-        checkIndices(indices, k, ds)
-        appendRuns(k) { (dst, i, c) =>
-          var q = 0
-          while q < c do
-            v(dst + q) = dv(indices(i + q))
-            q += 1
-        }
+      k => appendFromDictionary(d, indices, k)
     )
 
   private def appendDictionaryDense(
@@ -991,11 +954,8 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
         s += k
       ,
       k =>
-        checkIndices(indices, k, ds)
-        var q = 0
-        while q < k do
-          v(s + q) = dv(indices(q))
-          q += 1
+        size = s
+        appendFromDictionary(d, indices, k)
         s += k
     )
     size = s
