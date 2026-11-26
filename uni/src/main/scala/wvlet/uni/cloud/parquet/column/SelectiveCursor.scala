@@ -168,6 +168,12 @@ private[parquet] final class SelectiveCursor(
   private def ordinalAt(e: Int): Int =
     var c = ordinal
     var i = ordEntry
+    if maxDef == 1 then
+      // Levels of a flat optional column are bytes 0 or 1: count eight at a time, as bits set.
+      // Selected rows can be far apart, so this pass covers most of the page's entries.
+      while i + 8 <= e do
+        c += java.lang.Long.bitCount(Bytes.wordLE(pageDefs, i))
+        i += 8
     while i < e do
       if pageDefs(i) == maxDef then
         c += 1

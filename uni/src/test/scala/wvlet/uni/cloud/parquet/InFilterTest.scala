@@ -61,6 +61,40 @@ class InFilterTest extends UniTest:
       Seq(1L, 2L, 3L, 4L, 5L, 6L)
   }
 
+  test("test runs of one value, as fact tables store an order's rows, with nulls among them") {
+    // Runs of 1 to 20 rows share a key, 0 included; some rows in a run are null
+    val rnd  = scala.util.Random(3)
+    val runs =
+      Iterator
+        .continually((rnd.nextInt(6).toLong, 1 + rnd.nextInt(20)))
+        .flatMap((k, len) => Iterator.fill(len)(k))
+        .take(5000)
+        .toIndexedSeq
+    val clustered = runs
+      .zipWithIndex
+      .map((k, i) =>
+        InRow(
+          id = i.toLong,
+          store = Option.when(i % 9 != 4)(k.toInt),
+          day = LocalDate.of(2026, 1, 1),
+          name = s"n${k}",
+          small = (i % 100).toShort
+        )
+      )
+    val f = Parquet.open(
+      Parquet.writeBytes(clustered, ParquetWriteOptions.default.withRowGroupSize(16 * 1024))
+    )
+    try
+      for set <- Seq(Seq(0L), Seq(1L, 4L), Seq(0L, 2L, 3L, 5L)) do
+        // A second conjunct, so the other columns are read for the selected rows only
+        val got = f.readAs[InRow](
+          ParquetReadOptions.default.withFilter(col("store").isIn(set) && col("small") < 90L)
+        )
+        got.toSeq shouldBe
+          clustered.filter(r => r.store.exists(s => set.contains(s.toLong)) && r.small < 90)
+    finally f.close()
+  }
+
   test("keep no rows for an empty set") {
     ids(col("id").isIn()) shouldBe Seq.empty
     withFile(
