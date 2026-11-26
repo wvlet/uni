@@ -309,22 +309,33 @@ private[parquet] final class RleBitPackedDecoder(
     ((w >>> sh) & ((1L << bitWidth) - 1)).toInt
 
   /**
-    * Appends `dict(index)` to `out` for the next `n` dictionary indices. An RLE run is looked up
-    * once for the whole run; bit-packed indices are unpacked into `indices`, a block at a time.
-    * Throws when the data ends first or an index is out of the dictionary.
+    * Appends `dict(index)` to `out` for the next `n` dictionary indices (see
+    * [[ValueBuffer.appendDictionaryRuns]]). Throws when the data ends first or an index is out of
+    * the dictionary.
     */
-  def readDictionary(out: ValueBuffer, dict: ValueBuffer, n: Int, indices: Array[Int]): Unit =
+  def readDictionary(out: ValueBuffer, dict: ValueBuffer, n: Int, indices: Array[Int]): Unit = out
+    .appendDictionaryRuns(this, dict, n, indices)
+
+  /**
+    * Reads the next `n` dictionary indices run by run: calls `rle(index, k)` for `k` copies of one
+    * index, and `packed(k)` after unpacking `k` indices into `indices(0 until k)`, at most a block
+    * of `indices.length` at a time. Throws when the data ends first.
+    */
+  inline def foreachIndexRun(n: Int, indices: Array[Int])(
+      inline rle: (Int, Int) => Unit,
+      inline packed: Int => Unit
+  ): Unit =
     var i = 0
     while i < n do
       if rleRemaining > 0 then
         val k = math.min(rleRemaining, n - i)
-        out.appendRepeated(dict, rleValue, k, indices)
+        rle(rleValue, k)
         rleRemaining -= k
         i += k
       else if bitRemaining > 0 then
         val k = math.min(math.min(bitRemaining, n - i), indices.length)
         unpack(indices, 0, k)
-        out.appendFromDictionary(dict, indices, k)
+        packed(k)
         i += k
       else if pos >= end then
         throw ParquetException.corrupt(s"RLE data ends after ${i} of ${n} values")
