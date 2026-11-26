@@ -202,7 +202,7 @@ jobs:
         run: JVM_OPTS="-Xms2g -Xmx4g" ./sbt "projectJVM/test"
       # pyarrow reads the Arrow IPC samples uni writes and checks every value; pyarrow is a
       # CI-only dependency
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@v10.4.0
       - name: Arrow IPC check with pyarrow
         run: |
           ./sbt "uniJVM/Test/runMain wvlet.uni.cloud.arrow.WriteArrowSamples target/arrow-samples"
