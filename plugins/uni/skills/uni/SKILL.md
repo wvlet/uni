@@ -65,6 +65,7 @@ Maven Central should depend on a Central version and not add that resolver.
 | Browser UI (Scala.js; `uni-ui` artifact for components) | `wvlet.uni.dom.all.*`, `wvlet.uni.ui.*` | `class V extends RxElement: def render = div(...)`, `V().renderTo("app")`; `Button("Send").primary.onClick(() => send())`, `Input(textVar)`, `Menu(openVar, trigger = element, entries = Seq(MenuItem("Copy").onSelect(f)))`, `Dialog(openVar, content = element)`, `VirtualList(itemsRx, rowHeight = 24, key = _.id, render = a => node)`, `Dock(layoutVar, label = "Dock", panels = Seq(DockPanel(id, title = "...", content = element)))`; render lists with `itemsRx.each(_.id)(render)`; `.onChange(d => if ... then d.cancel())` sees and can refuse each change a component makes; `UiAgent.install()` lets an AI agent snapshot and operate the UI, `UiTelemetry.install(UiTelemetrySink.relay())` records which components people use, and `UiHistory.record()` undoes its changes (`undoSource(ChangeSource.Agent)`, `stage(label)`) without overwriting later edits; load `uni-ui.css` and restyle with `--uni-*` variables; see [references/ui.md](references/ui.md) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 | Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."` |
+| Fuzz tests | `wvlet.uni.test.fuzz.FuzzConfig` | `fuzz("target", FuzzConfig().withSeedBytes(...).withExpectedCases { case _: MyError => }) { bytes => parse(bytes) }` |
 
 ## Uni or the Scala Toolkit
 

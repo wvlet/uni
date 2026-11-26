@@ -895,6 +895,90 @@ Every failure includes the seed. To reproduce a flaky failure, copy the
 seed from the error message into `propertyConfig.withSeed(...)` and rerun
 — the exact same samples are drawn.
 
+## Fuzz Testing
+
+`forAll` draws fresh, well-formed values from generators. Fuzzing starts from
+real inputs and edits them byte by byte, so a parser sees input that is almost
+valid: a truncated string, a length field near `Int.MaxValue`, a reserved
+byte. Every `UniTest` gets `fuzz` (bytes) and `fuzzString` (UTF-8 text).
+
+A fuzz target must not fail on any input. It may throw only the exceptions
+that `withExpectedCases` accepts as rejections of invalid input; any other
+exception, or a failed assertion in the body, is a bug.
+
+```scala
+import wvlet.uni.json.JSON
+import wvlet.uni.json.JSONParseException
+import wvlet.uni.test.fuzz.FuzzConfig
+
+class JSONFuzzTest extends UniTest:
+  test("JSON parser rejects invalid input cleanly") {
+    fuzzString(
+      "json-parse",
+      FuzzConfig()
+        .withSeeds("""{"a":[1,true,null]}""", "\"text\"")
+        .withDictionary("{", "}", "[", "]", "\"", "\\u", "true", "null")
+        .withCorpusDir("src/test/resources/fuzz")
+        .withExpectedCases { case _: JSONParseException => }
+    ) { s =>
+      JSON.parseAny(s)
+    }
+  }
+```
+
+A run has two phases:
+
+1. **Replay.** Every seed and every file in `<corpusDir>/<target>/` runs
+   first, on every test run, so a fixed bug stays fixed.
+2. **Mutate.** Bit flips, boundary integers (1, 2, 4, or 8 bytes in either
+   byte order), inserts, deletes, duplicated ranges, splices of two inputs,
+   and dictionary tokens, stacked 1 to 4 at a time.
+
+On a failure, the input is reduced while it still fails with the same
+exception class (delta debugging, then zeroing bytes that do not matter),
+written to `target/fuzz/<target>/crash-<hash>` with a `.report` file, and
+reported with the seed:
+
+```text
+Fuzz target json-parse failed on input 20 with java.lang.ArrayIndexOutOfBoundsException: ...
+  input (1 bytes, reduced from 6): 22
+  as text: """
+  seed=733437378479625 (replay with UNI_FUZZ_SEED=733437378479625)
+  saved to target/fuzz/json-parse/crash-af639f4c860184e5; copy it into src/test/resources/fuzz/json-parse/ to keep it as a regression case
+```
+
+Copy the crash file into the corpus directory, fix the bug, and the replay
+phase checks it from then on. Corpus files are read where a file system is
+available (JVM, Scala Native, Scala.js on Node); seeds in code run
+everywhere.
+
+### Longer runs
+
+A normal test run mutates 1,000 inputs per target. Environment variables
+raise the budget without code changes, for a local session or a nightly job:
+
+```bash
+UNI_FUZZ_SECONDS=300 ./sbt "uniJVM/testOnly *FuzzTest"   # 5 minutes per target
+UNI_FUZZ_ITERATIONS=100000 ./sbt "uniJVM/testOnly *FuzzTest"
+UNI_FUZZ_SEED=733437378479625 ./sbt "uniJVM/testOnly *FuzzTest"  # replay a failure
+```
+
+| Knob | Method | Default |
+|------|--------|---------|
+| Mutated inputs | `withIterations(n)` | 1000 |
+| Time budget | `withTimeBudgetMillis(ms)` | none |
+| Input length cap | `withMaxLength(n)` | 4096 |
+| Seed inputs | `withSeeds(...)` / `withSeedBytes(...)` | none |
+| Dictionary | `withDictionary(...)` / `withDictionaryBytes(...)` | none |
+| Corpus directory | `withCorpusDir(dir)` | none |
+| Crash directory | `withCrashDir(dir)` | `target/fuzz` |
+| Expected rejections | `withExpectedCases { case ... => }` | none |
+| RNG seed | `withSeed(s)` | `System.nanoTime()` |
+| Ignore `UNI_FUZZ_*` | `noEnvOverrides` | overrides on |
+
+Override `fuzzConfig` on the test class to share settings across targets.
+Fuzzing does not yet use coverage feedback, and it does not detect hangs.
+
 ## Running Tests
 
 ### sbt Commands

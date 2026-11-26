@@ -69,7 +69,8 @@ trait UniTest
     with Assertions
     with TestControl
     with OutputCapture
-    with PropertyCheck:
+    with PropertyCheck
+    with FuzzCheck:
   // Storage for registered tests
   private val _tests: ListBuffer[TestDef] = ListBuffer.empty
 

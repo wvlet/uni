@@ -101,7 +101,10 @@ abstract class ByteArrayBufferBase(
     )
     new ByteArrayBuffer(a, offset + position, newSize)
 
-  def hasCapacity(position: Int, byteLength: Int): Boolean = position + byteLength <= capacity
+  // Written as a subtraction: `position + byteLength` overflows for a length near Int.MaxValue
+  // read from a corrupt header, which would pass the check and allocate a huge array
+  def hasCapacity(position: Int, byteLength: Int): Boolean =
+    position >= 0 && byteLength >= 0 && byteLength <= capacity - position
 
   def ensureCapacity(position: Int, requestedLength: Int): Unit =
     if !hasCapacity(position, requestedLength) then

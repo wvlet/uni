@@ -172,7 +172,23 @@ end JSONScanner
 
 class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler[J])
     extends LogSupport:
-  private var cursor: Int        = 0
+  private var cursor: Int       = 0
+  private val sourceLength: Int = s.length
+
+  /**
+    * The byte at `index`, or 0 past the end of the input. A truncated input then reaches a check
+    * that throws a [[JSONParseException]] instead of reading out of bounds, which Scala.js does not
+    * check in optimized builds.
+    */
+  private inline def byteAt(index: Int): Byte =
+    if index < sourceLength then
+      s(index)
+    else
+      0
+
+  private def unexpectedEOF(): Exception =
+    new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
+
   private var lineStartPos: Int  = 0
   private var line: Int          = 0
   private var lastValueLine: Int = -1
@@ -197,7 +213,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
   private def skipWhiteSpaces: Unit =
     var toContinue = true
     while toContinue && cursor < s.length do
-      val ch = s(cursor)
+      val ch = byteAt(cursor)
       (ch: @switch) match
         case WS | WS_T | WS_R =>
           cursor += 1
@@ -207,7 +223,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
           lineStartPos = cursor
         case Slash =>
           if cursor + 1 < s.length then
-            val next = s(cursor + 1)
+            val next = byteAt(cursor + 1)
             if next == Slash then
               scanLineComment()
             else if next == '*' then
@@ -223,7 +239,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     val commentLine = line
     val start       = cursor
     cursor += 2 // skip //
-    while cursor < s.length && s(cursor) != WS_N do
+    while cursor < s.length && byteAt(cursor) != WS_N do
       cursor += 1
     val text       = s.substring(start, cursor)
     val isTrailing = commentLine == lastValueLine && lastValueLine >= 0
@@ -235,11 +251,11 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     cursor += 2 // skip /*
     var found = false
     while !found && cursor + 1 < s.length do
-      if s(cursor) == '*' && s(cursor + 1) == Slash then
+      if byteAt(cursor) == '*' && byteAt(cursor + 1) == Slash then
         cursor += 2
         found = true
       else
-        if s(cursor) == WS_N then
+        if byteAt(cursor) == WS_N then
           line += 1
           lineStartPos = cursor + 1
         cursor += 1
@@ -256,7 +272,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       commentBuffer.clear()
 
   private def unexpected(expected: String): Exception =
-    val char = s(cursor)
+    val char = byteAt(cursor)
     new UnexpectedToken(
       line,
       cursor - lineStartPos,
@@ -278,7 +294,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       if cursor >= s.length then
         throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
       flushHandlerComments()
-      (s(cursor): @switch) match
+      (byteAt(cursor): @switch) match
         case LBracket =>
           cursor += 1
           rscan(OBJECT_START, handler.objectContext(s, cursor - 1) :: Nil)
@@ -306,7 +322,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     flushComments(ctx)
     if cursor >= s.length then
       throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
-    (s(cursor): @switch) match
+    (byteAt(cursor): @switch) match
       case DoubleQuote =>
         scanString(ctx)
         markValueLine()
@@ -348,7 +364,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if cursor >= s.length then
       throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
     flushComments(stack.head)
-    val ch = s(cursor)
+    val ch = byteAt(cursor)
     if state == DATA then
       if ch == LSquare then
         cursor += 1
@@ -448,17 +464,17 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private def cursorChar: Byte =
     if cursor < s.length then
-      s(cursor)
+      byteAt(cursor)
     else
       -1
 
   private def scanNumber(ctx: JSONContext[J]): Unit =
     val numberStart = cursor
 
-    var ch = s(cursor)
+    var ch = byteAt(cursor)
     if ch == Minus then
       cursor += 1
-      ch = s(cursor)
+      ch = byteAt(cursor)
 
     if ch == '0' then
       cursor += 1
@@ -475,7 +491,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if ch == '.' then
       dotIndex = cursor
       cursor += 1
-      ch = s(cursor)
+      ch = byteAt(cursor)
       if '0' <= ch && ch <= '9' then
         while '0' <= ch && ch <= '9' do
           cursor += 1
@@ -488,10 +504,10 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if ch == Exp || ch == ExpL then
       expIndex = cursor
       cursor += 1
-      ch = s(cursor)
+      ch = byteAt(cursor)
       if ch == Plus | ch == Minus then
         cursor += 1
-        ch = s(cursor)
+        ch = byteAt(cursor)
       if '0' <= ch && ch <= '9' then
         while '0' <= ch && ch <= '9' do
           cursor += 1
@@ -517,7 +533,9 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private def scanTrue(ctx: JSONContext[J]): Unit =
     ensure(4)
-    if s(cursor) == 't' && s(cursor + 1) == 'r' && s(cursor + 2) == 'u' && s(cursor + 3) == 'e' then
+    if byteAt(cursor) == 't' && byteAt(cursor + 1) == 'r' && byteAt(cursor + 2) == 'u' &&
+      byteAt(cursor + 3) == 'e'
+    then
       cursor += 4
       ctx.addBoolean(s, true, cursor - 4, cursor)
       markValueLine()
@@ -526,8 +544,8 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private def scanFalse(ctx: JSONContext[J]): Unit =
     ensure(5)
-    if s(cursor) == 'f' && s(cursor + 1) == 'a' && s(cursor + 2) == 'l' && s(cursor + 3) == 's' &&
-      s(cursor + 4) == 'e'
+    if byteAt(cursor) == 'f' && byteAt(cursor + 1) == 'a' && byteAt(cursor + 2) == 'l' &&
+      byteAt(cursor + 3) == 's' && byteAt(cursor + 4) == 'e'
     then
       cursor += 5
       ctx.addBoolean(s, false, cursor - 5, cursor)
@@ -537,7 +555,9 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private def scanNull(ctx: JSONContext[J]): Unit =
     ensure(4)
-    if s(cursor) == 'n' && s(cursor + 1) == 'u' && s(cursor + 2) == 'l' && s(cursor + 3) == 'l' then
+    if byteAt(cursor) == 'n' && byteAt(cursor + 1) == 'u' && byteAt(cursor + 2) == 'l' &&
+      byteAt(cursor + 3) == 'l'
+    then
       cursor += 4
       ctx.addNull(s, cursor - 4, cursor)
       markValueLine()
@@ -546,14 +566,17 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private final def scanSimpleString: Int =
     var i  = 0
-    var ch = s(cursor + i) & 0xff
+    var ch = byteAt(cursor + i) & 0xff
     while ch != DoubleQuote do
       if ch < 0x20 then
+        // byteAt returns 0 past the end, so the EOF check stays off the per-byte path
+        if cursor + i >= sourceLength then
+          throw unexpectedEOF()
         throw unexpected("utf8")
       if ch == BackSlash then
         return -1
       i += 1
-      ch = s(cursor + i) & 0xff
+      ch = byteAt(cursor + i) & 0xff
     i
 
   private final def scanString(ctx: JSONContext[J]): Unit =
@@ -568,7 +591,9 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     sb.clear()
     var continue = true
     while continue do
-      val ch = s(cursor)
+      if cursor >= sourceLength then
+        throw unexpectedEOF()
+      val ch = byteAt(cursor)
       (ch: @switch) match
         case DoubleQuote =>
           cursor += 1
@@ -604,7 +629,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 //  }
 
   private def scanUtf8(sb: StringBuilder): Unit =
-    val ch                = s(cursor)
+    val ch                = byteAt(cursor)
     val first5bit         = (ch & 0xf8) >> 3
     val isValidUtf8Header = validUtf8BitVector & (1L << first5bit)
     if isValidUtf8Header != 0L then
@@ -621,7 +646,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
   @tailrec
   private def scanUtf8Body(n: Int): Unit =
     if n > 0 then
-      val ch = s(cursor)
+      val ch = byteAt(cursor)
       val b  = ch & 0xff
       if (b & 0xc0) == 0x80 then
         // 10xxxxxx
@@ -632,7 +657,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private def scanEscape(sb: StringBuilder): Unit =
     cursor += 1
-    val ch = s(cursor)
+    val ch = byteAt(cursor)
     (ch: @switch) match
       case DoubleQuote =>
         sb.append('"')
@@ -674,7 +699,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if n == 0 then
       code
     else
-      val ch = s(cursor)
+      val ch = byteAt(cursor)
       if (ch >= 'a' && ch <= 'f') ||
         (ch >= 'A' && ch <= 'F') ||
         (ch >= '0' && ch <= '9')
