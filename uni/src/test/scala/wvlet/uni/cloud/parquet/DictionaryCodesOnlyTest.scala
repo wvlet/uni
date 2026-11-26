@@ -62,7 +62,8 @@ class DictionaryCodesOnlyTest extends UniTest:
     flag.dictionarySize shouldBe 3
     // The rows keep no bytes of their own
     flag.offsets(flag.size) shouldBe 0
-    flag.length(1) shouldBe 1
+    flag.length(1) shouldBe 0
+    flag.getBytes(1).length shouldBe 1
     flag.getString(1) shouldBeTheSameInstanceAs flag.getString(4)
   }
 

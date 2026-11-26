@@ -118,12 +118,12 @@ object ColumnVector:
   ) extends ColumnVector:
     def size: Int = offsets.length - 1
 
-    def length(i: Int): Int =
-      val k = entryOf(i)
-      if k < 0 then
-        offsets(i + 1) - offsets(i)
-      else
-        dictionary.length(k)
+    /**
+      * The bytes row i holds in `data`, which callers pair with `offsets(i)`. Rows read as their
+      * dictionary entry only (ParquetReadOptions.dictionaryCodesOnly) hold 0 bytes there; their
+      * value is in [[getBytes]], [[getString]], and [[getValue]]
+      */
+    def length(i: Int): Int = offsets(i + 1) - offsets(i)
 
     // Set by the reader when values come from a dictionary page: row i is entry dictIndices(i) of
     // `dictionary`, or -1 for a null or PLAIN value
@@ -143,9 +143,6 @@ object ColumnVector:
         dictIndices = indices
         this.entriesOnly = entriesOnly && indices != null
       this
-
-    // The bytes row i holds in `data` (empty for a row read as its entry only)
-    private[parquet] def rawLength(i: Int): Int = offsets(i + 1) - offsets(i)
 
     // The entry whose bytes row i reads instead of its own, or -1
     private inline def entryOf(i: Int): Int =
@@ -336,12 +333,12 @@ object ColumnVector:
         val offsets = new Array[Int](n + 1)
         var i       = 0
         while i < n do
-          offsets(i + 1) = offsets(i) + c.rawLength(rows(i))
+          offsets(i + 1) = offsets(i) + c.length(rows(i))
           i += 1
         val data = new Array[Byte](offsets(n))
         i = 0
         while i < n do
-          System.arraycopy(c.data, c.offsets(rows(i)), data, offsets(i), c.rawLength(rows(i)))
+          System.arraycopy(c.data, c.offsets(rows(i)), data, offsets(i), c.length(rows(i)))
           i += 1
         val indices =
           if c.dictIndices == null then
