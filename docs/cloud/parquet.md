@@ -378,7 +378,7 @@ val stores = ParquetReadOptions.default.withFilter(col("store_id").isIn(3L, 4L, 
 
 An engine can pass its own `ParquetFilter.IntegerSet` instead, such as a hash join's bitmap or
 Bloom filter over its build keys, so the scan drops probe rows before decoding their other
-columns. Uni calls `contains` once per row, from several threads, and uses `min`, `max`, and
+columns. Uni calls `contains` for each row, from several threads, and uses `min`, `max`, and
 `mayIntersect` to skip row groups. A set that accepts values it doesn't hold (a Bloom filter's
 false positives) keeps those rows too:
 
@@ -389,6 +389,26 @@ final class EvenKeys(val min: Long, val max: Long) extends IntegerSet:
   def contains(v: Long): Boolean = v >= min && v <= max && v % 2 == 0
 
 val evens = ParquetReadOptions.default.withFilter(col("id").isIn(EvenKeys(100, 200)))
+```
+
+A scan of an INT64, DATE, or signed INT32 column calls the set's `select` once per batch instead,
+whose default calls `contains` for each row. Override it to test a whole batch in one loop, with no
+call per row; `IntegerSet.selectWith` writes the loop over the rows, their positions, and their
+nulls:
+
+```scala
+import wvlet.uni.cloud.parquet.ParquetFilter.*
+
+final class EvenBatch(val min: Long, val max: Long) extends IntegerSet:
+  def contains(v: Long): Boolean = v >= min && v <= max && v % 2 == 0
+  override def select(
+      values: Array[Long],
+      position: Array[Int],
+      nulls: Array[Boolean],
+      rows: Array[Int],
+      n: Int,
+      out: Array[Int]
+  ): Int = IntegerSet.selectWith(position, nulls, rows, n, out)(i => contains(values(i)))
 ```
 
 A batch from `readBatches` holds only matching rows, so it can be smaller than `withBatchSize`;

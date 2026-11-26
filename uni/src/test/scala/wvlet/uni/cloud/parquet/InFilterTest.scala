@@ -150,6 +150,58 @@ class InFilterTest extends UniTest:
     ) shouldBe IndexedSeq(0)
   }
 
+  test("test a batch of rows through a set's own loop") {
+    // Overrides select as a join build's filter does, counting its calls
+    object Batched extends IntegerSet:
+      var batches                    = 0
+      def contains(v: Long): Boolean = v >= 100 && v <= 120 && v % 2 == 0
+      def min: Long                  = 100
+      def max: Long                  = 120
+      override def select(
+          values: Array[Long],
+          position: Array[Int],
+          nulls: Array[Boolean],
+          rows: Array[Int],
+          n: Int,
+          out: Array[Int]
+      ): Int =
+        batches += 1
+        IntegerSet.selectWith(position, nulls, rows, n, out)(i => contains(values(i)))
+    ids(col("id").isIn(Batched)) shouldBe (100L to 120L by 2L)
+    (Batched.batches > 0) shouldBe true
+  }
+
+  test("select the accepted rows of a batch by position, skipping nulls") {
+    val sets   = Seq(IntegerSet.of(Seq(0L, 3L, 4L)), IntegerSet.of(Seq(0L, 3L, 4L, 1L << 40)))
+    val values = Array(3L, 3L, 0L, 5L, 4L, 4L, 0L)
+    val ints   = values.map(_.toInt)
+    val nulls  = Array(false, true, false, false, false, true, false)
+    // Rows map to indexes in reverse
+    val position                                              = Array(6, 5, 4, 3, 2, 1, 0)
+    val rows                                                  = Array(0, 2, 3, 4, 6)
+    def expect(pos: Array[Int], ns: Array[Boolean]): Seq[Int] = rows
+      .toSeq
+      .filter { r =>
+        val i =
+          if pos == null then
+            r
+          else
+            pos(r)
+        (ns == null || !ns(i)) && Set(0L, 3L, 4L)(values(i))
+      }
+    for
+      s   <- sets
+      pos <- Seq(null, position)
+      ns  <- Seq(null, nulls)
+    do
+      val out = new Array[Int](rows.length)
+      val m   = s.select(values, pos, ns, rows, rows.length, out)
+      out.take(m).toSeq shouldBe expect(pos, ns)
+      // out may be rows
+      val in = rows.clone()
+      in.take(s.select(ints, pos, ns, in, in.length, in)).toSeq shouldBe expect(pos, ns)
+  }
+
   test("filter asynchronously") {
     Parquet
       .openAsync(ByteSource.ofBytes(bytes))

@@ -97,7 +97,7 @@ object ParquetFilter:
     * bitmap or Bloom filter over its build keys. A set may accept values it doesn't hold (a Bloom
     * filter's false positives); a filter then keeps the rows the set accepts.
     *
-    * Scans call `contains` from several threads at once, so it must not change state.
+    * Scans call `contains` and `select` from several threads at once, so neither may change state.
     */
   trait IntegerSet:
     /** Whether the set accepts v. Called once per row, so keep it cheap. */
@@ -115,7 +115,110 @@ object ParquetFilter:
       */
     def mayIntersect(lo: Long, hi: Long): Boolean = lo <= max && hi >= min
 
+    /**
+      * Write to `out`, in order, the rows of `rows(0 until n)` whose value the set accepts, and
+      * return their count. Row r's value is `values(i)`, where i is `position(r)` (r when
+      * `position` is null), and the row is skipped when `nulls(i)` (`nulls` null: no nulls). `out`
+      * may be `rows`.
+      *
+      * Scans call this once per batch of an INT64 column, so that a set can test the batch in one
+      * loop instead of paying a call per row ([[IntegerSet.selectWith]] writes the loop). The
+      * default calls [[contains]], reusing its answer while the value repeats.
+      */
+    def select(
+        values: Array[Long],
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    ): Int = IntegerSet.selectEachRun(this, position, nulls, rows, n, out)(i => values(i))
+
+    /** [[select]] over a signed INT32 or DATE column */
+    def select(
+        values: Array[Int],
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    ): Int = IntegerSet.selectEachRun(this, position, nulls, rows, n, out)(i => values(i).toLong)
+
+  end IntegerSet
+
   object IntegerSet:
+    /**
+      * The body of [[IntegerSet.select]] for a set testing values with `accepts(i)`, where i is the
+      * value's index: one loop per combination of `position` and `nulls` being null, so the JIT
+      * sees no per-row branch on either, and rows are written without a branch.
+      */
+    inline def selectWith(
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    )(inline accepts: Int => Boolean): Int =
+      var m = 0
+      var j = 0
+      if position == null then
+        if nulls == null then
+          while j < n do
+            val r = rows(j)
+            out(m) = r
+            if accepts(r) then
+              m += 1
+            j += 1
+        else
+          while j < n do
+            val r = rows(j)
+            out(m) = r
+            if !nulls(r) && accepts(r) then
+              m += 1
+            j += 1
+      else if nulls == null then
+        while j < n do
+          val r = rows(j)
+          out(m) = r
+          if accepts(position(r)) then
+            m += 1
+          j += 1
+      else
+        while j < n do
+          val r = rows(j)
+          val i = position(r)
+          out(m) = r
+          if !nulls(i) && accepts(i) then
+            m += 1
+          j += 1
+      end if
+      m
+
+    end selectWith
+
+    /**
+      * [[selectWith]] calling `set.contains` for the value at each index, reusing the last answer
+      * while the value repeats: fact tables often store rows in runs that share a key (one order's
+      * date or store), and a lookup costs more than a comparison
+      */
+    inline def selectEachRun(
+        set: IntegerSet,
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    )(inline value: Int => Long): Int =
+      var last   = 0L
+      var lastIn = set.contains(0L)
+      selectWith(position, nulls, rows, n, out) { i =>
+        val x = value(i)
+        if x != last then
+          last = x
+          lastIn = set.contains(x)
+        lastIn
+      }
+
     /** An exact set of these values: a bitmap when they are dense, a hash table otherwise */
     def of(values: Iterable[Long]): IntegerSet = SortedIntegerSet(values.toArray.sorted.distinct)
 
@@ -124,6 +227,8 @@ object ParquetFilter:
 
     /** Spans up to this many values always use a bitmap (8 KB) */
     private[parquet] final val SmallBitmapSpan = 64L * 1024
+
+  end IntegerSet
 
   /** An exact set over sorted distinct values */
   private[parquet] final class SortedIntegerSet(sorted: Array[Long]) extends IntegerSet:
@@ -182,10 +287,7 @@ object ParquetFilter:
 
     def contains(v: Long): Boolean =
       if bitmap != null then
-        v >= min && v <= max && {
-          val d = v - min
-          (bitmap((d >>> 6).toInt) & (1L << d)) != 0
-        }
+        inBitmap(v)
       else if table == null then
         false
       else if v == 0L then
@@ -201,6 +303,38 @@ object ParquetFilter:
             h = (h + 1) & mask
             e = table(h)
         found
+
+    private inline def inBitmap(v: Long): Boolean =
+      v >= min && v <= max && {
+        val d = v - min
+        (bitmap((d >>> 6).toInt) & (1L << d)) != 0
+      }
+
+    override def select(
+        values: Array[Long],
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    ): Int =
+      if bitmap != null then
+        IntegerSet.selectWith(position, nulls, rows, n, out)(i => inBitmap(values(i)))
+      else
+        super.select(values, position, nulls, rows, n, out)
+
+    override def select(
+        values: Array[Int],
+        position: Array[Int],
+        nulls: Array[Boolean],
+        rows: Array[Int],
+        n: Int,
+        out: Array[Int]
+    ): Int =
+      if bitmap != null then
+        IntegerSet.selectWith(position, nulls, rows, n, out)(i => inBitmap(values(i).toLong))
+      else
+        super.select(values, position, nulls, rows, n, out)
 
     override def mayIntersect(lo: Long, hi: Long): Boolean =
       // The first value at or above lo, if any, must be at most hi
@@ -1453,11 +1587,7 @@ object ParquetFilter:
         (x == k && (mask & 2) != 0) ||
         (x > k && (mask & 4) != 0)
 
-    /**
-      * [[keep]] for the rows whose value is in `set`. The last value's answer is reused while the
-      * value repeats: fact tables often store rows in runs that share a key (one order's date or
-      * store), and a set lookup costs more than a comparison.
-      */
+    /** [[keep]] for the rows whose value is in `set`, calling it once per row */
     private inline def keepMembers(
         rows: Array[Int],
         n: Int,
@@ -1465,15 +1595,8 @@ object ParquetFilter:
         nulls: Array[Boolean],
         set: IntegerSet
     )(inline value: Int => Long): Selection =
-      var last   = 0L
-      var lastIn = set.contains(0L)
-      keep(rows, n, position, nulls) { i =>
-        val x = value(i)
-        if x != last then
-          last = x
-          lastIn = set.contains(x)
-        lastIn
-      }
+      val out = new Array[Int](n)
+      Selection(out, IntegerSet.selectEachRun(set, position, nulls, rows, n, out)(value))
 
     /** The rows whose value is in the set */
     private def memberRows(
@@ -1492,10 +1615,11 @@ object ParquetFilter:
           if ord.unsignedBits == 32 then
             keepMembers(rows, n, position, nulls, set)(i => a(i).toLong & 0xffffffffL)
           else
-            keepMembers(rows, n, position, nulls, set)(i => a(i).toLong)
+            val out = new Array[Int](n)
+            Selection(out, set.select(a, position, nulls, rows, n, out))
         case c: LongColumn =>
-          val a = c.values
-          keepMembers(rows, n, position, nulls, set)(i => a(i))
+          val out = new Array[Int](n)
+          Selection(out, set.select(c.values, position, nulls, rows, n, out))
         case _ =>
           throw IllegalStateException(
             s"Can't test ${v.getClass.getSimpleName} at ${path.mkString(".")} for set membership"
