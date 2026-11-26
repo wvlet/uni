@@ -29,7 +29,8 @@ private[parquet] final class SelectiveCursor(
     val field: ParquetField.Primitive,
     meta: ColumnChunkMeta,
     input: ChunkInput,
-    int32AsLong: Boolean = false
+    int32AsLong: Boolean = false,
+    dictionaryCodesOnly: Boolean = false
 ):
   import SelectiveCursor.*
 
@@ -88,11 +89,14 @@ private[parquet] final class SelectiveCursor(
   // The row of the batch being read
   private var row = 0
 
-  private def newValues(capacity: Int): ValueBuffer = ValueDecoder.newBuffer(
-    field.physicalType,
-    capacity,
-    int32AsLong
-  )
+  private def newValues(capacity: Int): ValueBuffer =
+    val b = ValueDecoder.newBuffer(field.physicalType, capacity, int32AsLong)
+    if dictionaryCodesOnly then
+      b match
+        case x: BinaryBuffer =>
+          x.codesOnly = true
+        case _ =>
+    b
 
   /**
     * Reads the next `rows` rows, and returns the values of those at the first `n` of `selected`

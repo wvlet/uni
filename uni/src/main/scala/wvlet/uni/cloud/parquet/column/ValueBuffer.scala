@@ -682,6 +682,10 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
   var dictCount: Int      = 0
   private var noDict      = false
 
+  // Values from `dict` keep only their entry, as empty values here, without copying its bytes
+  // (ParquetReadOptions.dictionaryCodesOnly). Values that lose their entry get their bytes back
+  var codesOnly: Boolean = false
+
   /** The dictionary entry of value v, or -1 */
   def dictIndex(v: Int): Int =
     if dict != null && v < dictCount then
@@ -751,6 +755,7 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       i += 1
     b.data = java.util.Arrays.copyOfRange(data, start, math.max(offsets(until), start + 1))
     b.size = n
+    b.codesOnly = codesOnly
     if dict != null && from < dictCount then
       b.dict = dict
       b.dictCount = math.min(until, dictCount) - from
@@ -818,6 +823,16 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
     checkIndices(indices, n, d.size)
     ensureValues(n)
     recordIndices(d, indices, n)
+    if codesOnly && (this.dict eq d) then
+      // The entries stand for the values: each is an empty value here
+      java.util.Arrays.fill(offsets, size + 1, size + n + 1, dataSize)
+      size += n
+    else
+      copyFromDictionary(d, indices, n)
+
+  end appendFromDictionary
+
+  private def copyFromDictionary(d: BinaryBuffer, indices: Array[Int], n: Int): Unit =
     var bytes = 0L
     var i     = 0
     while i < n do
@@ -848,11 +863,54 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       i += 1
     size = v
 
-  end appendFromDictionary
+  end copyFromDictionary
+
+  /**
+    * Copies the bytes of the values [0, dictCount) kept as dictionary entries only (`codesOnly`)
+    * into the data, before the entries are dropped
+    */
+  private def materializeEntries(): Unit =
+    if codesOnly && dict != null && dictCount > 0 then
+      val d     = dict
+      var total = 0L
+      var v     = 0
+      while v < size do
+        total += valueLength(v)
+        v += 1
+      if total > ValueBuffer.MaxArrayLength then
+        throw ParquetException.unsupported(s"a binary column of ${total} bytes in one batch")
+      val out  = new Array[Byte](math.max(total.toInt, 1))
+      val outO = new Array[Int](offsets.length)
+      var pos  = 0
+      v = 0
+      while v < size do
+        val k = dictIndex(v)
+        if k >= 0 then
+          val len = d.length(k)
+          System.arraycopy(d.data, d.offsets(k), out, pos, len)
+          pos += len
+        else
+          val len = length(v)
+          System.arraycopy(data, offsets(v), out, pos, len)
+          pos += len
+        v += 1
+        outO(v) = pos
+      data = out
+      offsets = outO
+    codesOnly = false
+
+  // The length of value v, read from its dictionary entry when only the entry is kept
+  private def valueLength(v: Int): Int =
+    val k = dictIndex(v)
+    if codesOnly && k >= 0 then
+      dict.length(k)
+    else
+      length(v)
 
   private def recordIndices(d: BinaryBuffer, indices: Array[Int], n: Int): Unit =
     if !noDict then
       if dictCount != size || (dict != null && (dict ne d)) then
+        materializeEntries()
         noDict = true
         dict = null
       else

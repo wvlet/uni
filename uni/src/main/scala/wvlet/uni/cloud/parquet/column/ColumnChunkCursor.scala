@@ -49,7 +49,8 @@ private[parquet] final class ColumnChunkCursor(
     input: ChunkInput,
     softLimit: Long,
     hardLimit: Long,
-    int32AsLong: Boolean = false
+    int32AsLong: Boolean = false,
+    dictionaryCodesOnly: Boolean = false
 ):
   private val total: Long = meta.numValues
   if total < 0 then
@@ -168,11 +169,14 @@ private[parquet] final class ColumnChunkCursor(
           false
     )
 
-  private def newValues(capacity: Int): ValueBuffer = ValueDecoder.newBuffer(
-    field.physicalType,
-    capacity,
-    int32AsLong
-  )
+  private def newValues(capacity: Int): ValueBuffer =
+    val b = ValueDecoder.newBuffer(field.physicalType, capacity, int32AsLong)
+    if dictionaryCodesOnly then
+      b match
+        case x: BinaryBuffer =>
+          x.codesOnly = true
+        case _ =>
+    b
 
   private def initialLevels(n: Int): Int = math.min(total, n.toLong).toInt
 
