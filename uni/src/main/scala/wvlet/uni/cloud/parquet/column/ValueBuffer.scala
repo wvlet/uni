@@ -334,6 +334,8 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
     val row = writeRuns(size, n)(copy)
     size = row
 
@@ -513,6 +515,8 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
     val row = writeRuns(size, n)(copy)
     size = row
 
@@ -692,6 +696,8 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
     val row = writeRuns(size, n)(copy)
     size = row
 
@@ -871,6 +877,8 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
     val row = writeRuns(size, n)(copy)
     size = row
 
