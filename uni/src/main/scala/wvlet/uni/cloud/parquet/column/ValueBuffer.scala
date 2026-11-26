@@ -1,6 +1,7 @@
 package wvlet.uni.cloud.parquet.column
 
 import wvlet.uni.cloud.parquet.ParquetException
+import wvlet.uni.cloud.parquet.encoding.RleBitPackedDecoder
 import wvlet.uni.io.codec.WideCopy
 
 /** Growable typed storage for the non-null values of one column */
@@ -43,6 +44,23 @@ private[parquet] sealed abstract class ValueBuffer:
       java.util.Arrays.fill(indices, 0, k, index)
       appendFromDictionary(dict, indices, k)
       done += k
+
+  /**
+    * Appends `dict(index)` for the next `n` dictionary indices of `dec`: an RLE run is looked up
+    * once, bit-packed indices a block of `indices` at a time. Fixed-size buffers override this with
+    * one typed loop per page, since writers such as DuckDB emit RLE runs of a few values each (rows
+    * of one order share a date or store), where a virtual call per run costs more than its values.
+    */
+  def appendDictionaryRuns(
+      dec: RleBitPackedDecoder,
+      dict: ValueBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    dec.foreachIndexRun(n, indices)(
+      (index, k) => appendRepeated(dict, index, k, indices),
+      k => appendFromDictionary(dict, indices, k)
+    )
 
   protected final def checkIndex(i: Int, dictSize: Int): Unit =
     if i < 0 || i >= dictSize then
@@ -316,7 +334,10 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
-    size = writeRuns(size, n)(copy)
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
+    val row = writeRuns(size, n)(copy)
+    size = row
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[IntBuffer]
@@ -358,6 +379,73 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
     else
       java.util.Arrays.fill(values, size, size + n, x)
       size += n
+
+  /** One typed loop per page: a run costs no virtual call or capacity check */
+  override def appendDictionaryRuns(
+      dec: RleBitPackedDecoder,
+      dict: ValueBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val d = dict.asInstanceOf[IntBuffer]
+    ensure(n)
+    // Separate methods, so the JIT profiles and compiles each loop on its own
+    if slotNulls != null then
+      appendDictionarySlots(dec, d, n, indices)
+    else
+      appendDictionaryDense(dec, d, n, indices)
+
+  // The run loops fill with a loop, not Arrays.fill: they are too large for the JIT to inline it
+
+  private def appendDictionarySlots(
+      dec: RleBitPackedDecoder,
+      d: IntBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        appendRuns(k) { (dst, _, c) =>
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        }
+      ,
+      k => appendFromDictionary(d, indices, k)
+    )
+
+  private def appendDictionaryDense(
+      dec: RleBitPackedDecoder,
+      d: IntBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    var s  = size
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        var q = s
+        while q < s + k do
+          v(q) = x
+          q += 1
+        s += k
+      ,
+      k =>
+        size = s
+        appendFromDictionary(d, indices, k)
+        s += k
+    )
+    size = s
 
 end IntBuffer
 
@@ -417,7 +505,10 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
-    size = writeRuns(size, n)(copy)
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
+    val row = writeRuns(size, n)(copy)
+    size = row
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[LongBuffer]
@@ -459,6 +550,73 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
     else
       java.util.Arrays.fill(values, size, size + n, x)
       size += n
+
+  /** One typed loop per page: a run costs no virtual call or capacity check */
+  override def appendDictionaryRuns(
+      dec: RleBitPackedDecoder,
+      dict: ValueBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val d = dict.asInstanceOf[LongBuffer]
+    ensure(n)
+    // Separate methods, so the JIT profiles and compiles each loop on its own
+    if slotNulls != null then
+      appendDictionarySlots(dec, d, n, indices)
+    else
+      appendDictionaryDense(dec, d, n, indices)
+
+  // The run loops fill with a loop, not Arrays.fill: they are too large for the JIT to inline it
+
+  private def appendDictionarySlots(
+      dec: RleBitPackedDecoder,
+      d: LongBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        appendRuns(k) { (dst, _, c) =>
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        }
+      ,
+      k => appendFromDictionary(d, indices, k)
+    )
+
+  private def appendDictionaryDense(
+      dec: RleBitPackedDecoder,
+      d: LongBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    var s  = size
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        var q = s
+        while q < s + k do
+          v(q) = x
+          q += 1
+        s += k
+      ,
+      k =>
+        size = s
+        appendFromDictionary(d, indices, k)
+        s += k
+    )
+    size = s
 
 end LongBuffer
 
@@ -518,7 +676,10 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
-    size = writeRuns(size, n)(copy)
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
+    val row = writeRuns(size, n)(copy)
+    size = row
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[FloatBuffer]
@@ -560,6 +721,73 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
     else
       java.util.Arrays.fill(values, size, size + n, x)
       size += n
+
+  /** One typed loop per page: a run costs no virtual call or capacity check */
+  override def appendDictionaryRuns(
+      dec: RleBitPackedDecoder,
+      dict: ValueBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val d = dict.asInstanceOf[FloatBuffer]
+    ensure(n)
+    // Separate methods, so the JIT profiles and compiles each loop on its own
+    if slotNulls != null then
+      appendDictionarySlots(dec, d, n, indices)
+    else
+      appendDictionaryDense(dec, d, n, indices)
+
+  // The run loops fill with a loop, not Arrays.fill: they are too large for the JIT to inline it
+
+  private def appendDictionarySlots(
+      dec: RleBitPackedDecoder,
+      d: FloatBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        appendRuns(k) { (dst, _, c) =>
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        }
+      ,
+      k => appendFromDictionary(d, indices, k)
+    )
+
+  private def appendDictionaryDense(
+      dec: RleBitPackedDecoder,
+      d: FloatBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    var s  = size
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        var q = s
+        while q < s + k do
+          v(q) = x
+          q += 1
+        s += k
+      ,
+      k =>
+        size = s
+        appendFromDictionary(d, indices, k)
+        s += k
+    )
+    size = s
 
 end FloatBuffer
 
@@ -619,7 +847,10 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
 
   /** Writes `n` values to row slots in slot mode, calling `copy(dst, i, c)` for each run */
   private inline def appendRuns(n: Int)(inline copy: (Int, Int, Int) => Unit): Unit =
-    size = writeRuns(size, n)(copy)
+    // Through a local: `size = writeRuns(...)` would hold `this` on the stack over the inlined
+    // loops, and the JIT can't compile a long page loop there on stack replacement
+    val row = writeRuns(size, n)(copy)
+    size = row
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[DoubleBuffer]
@@ -661,6 +892,73 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
     else
       java.util.Arrays.fill(values, size, size + n, x)
       size += n
+
+  /** One typed loop per page: a run costs no virtual call or capacity check */
+  override def appendDictionaryRuns(
+      dec: RleBitPackedDecoder,
+      dict: ValueBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val d = dict.asInstanceOf[DoubleBuffer]
+    ensure(n)
+    // Separate methods, so the JIT profiles and compiles each loop on its own
+    if slotNulls != null then
+      appendDictionarySlots(dec, d, n, indices)
+    else
+      appendDictionaryDense(dec, d, n, indices)
+
+  // The run loops fill with a loop, not Arrays.fill: they are too large for the JIT to inline it
+
+  private def appendDictionarySlots(
+      dec: RleBitPackedDecoder,
+      d: DoubleBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        appendRuns(k) { (dst, _, c) =>
+          var q = dst
+          while q < dst + c do
+            v(q) = x
+            q += 1
+        }
+      ,
+      k => appendFromDictionary(d, indices, k)
+    )
+
+  private def appendDictionaryDense(
+      dec: RleBitPackedDecoder,
+      d: DoubleBuffer,
+      n: Int,
+      indices: Array[Int]
+  ): Unit =
+    val dv = d.values
+    val ds = d.size
+    val v  = values
+    var s  = size
+    dec.foreachIndexRun(n, indices)(
+      (index, k) =>
+        checkIndex(index, ds)
+        val x = dv(index)
+        var q = s
+        while q < s + k do
+          v(q) = x
+          q += 1
+        s += k
+      ,
+      k =>
+        size = s
+        appendFromDictionary(d, indices, k)
+        s += k
+    )
+    size = s
 
 end DoubleBuffer
 
