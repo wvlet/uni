@@ -63,29 +63,44 @@ object Reduce:
   end ddmin
 
   /**
-    * Reduce a failing byte input: [[ddmin]] to drop bytes, then set each remaining byte to 0 where
-    * the input still fails, so the reported input shows only the bytes that matter.
+    * Reduce a failing byte input: [[ddmin]] to drop bytes, then lower each remaining byte to the
+    * smallest value (as unsigned, found by binary search) where the input still fails, then drop
+    * bytes again. Lowering shows only the bytes that matter, and for
+    * [[wvlet.uni.test.FuzzCheck .fuzzGen]] it shrinks the generated value: smaller bytes mean
+    * shorter lists and smaller numbers, after which the bytes past the value are no longer read and
+    * can go.
     */
   def bytes(input: Array[Byte], fails: Array[Byte] => Boolean, maxSteps: Int): Array[Byte] =
-    var steps   = 0
-    val shorter =
-      ddmin[Byte](
-        input.toIndexedSeq,
-        c =>
-          steps += 1
-          fails(c.toArray)
-        ,
-        maxSteps
-      ).toArray
-    var i = 0
+    var steps                                 = 0
+    def tryCandidate(c: Array[Byte]): Boolean =
+      steps += 1
+      fails(c)
+
+    def drop(in: Array[Byte]): Array[Byte] =
+      ddmin[Byte](in.toIndexedSeq, c => tryCandidate(c.toArray), maxSteps - steps).toArray
+
+    val shorter = drop(input)
+    var lowered = false
+    var i       = 0
     while i < shorter.length && steps < maxSteps do
-      if shorter(i) != 0 then
+      var lo = 0
+      var hi = shorter(i) & 0xff
+      while lo < hi && steps < maxSteps do
+        val mid       = (lo + hi) >>> 1
         val candidate = shorter.clone()
-        candidate(i) = 0
-        steps += 1
-        if fails(candidate) then
-          shorter(i) = 0
+        candidate(i) = mid.toByte
+        if tryCandidate(candidate) then
+          hi = mid
+          shorter(i) = mid.toByte
+          lowered = true
+        else
+          lo = mid + 1
       i += 1
-    shorter
+    if lowered && steps < maxSteps then
+      drop(shorter)
+    else
+      shorter
+
+  end bytes
 
 end Reduce

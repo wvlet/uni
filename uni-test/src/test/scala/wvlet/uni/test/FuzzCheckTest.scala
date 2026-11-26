@@ -18,6 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
+import wvlet.uni.test.check.Gen
 import wvlet.uni.test.fuzz.ByteMutator
 import wvlet.uni.test.fuzz.FuzzConfig
 import wvlet.uni.test.fuzz.Reduce
@@ -156,6 +157,56 @@ class FuzzCheckTest extends UniTest:
   test("Reduce.bytes zeroes bytes that do not matter") {
     val reduced = Reduce.bytes(utf8("abXcd"), b => b.length >= 2 && b(1) == 'X'.toByte, 10000)
     reduced.toSeq shouldBe Seq[Byte](0, 'X'.toByte)
+  }
+
+  test("fuzzGen finds a failing value and reports it") {
+    val ex = intercept[AssertionFailure] {
+      fuzzGen("gen-sum", Gen.listOf(Gen.chooseNum(0, 1000)), base.withIterations(5000)) { xs =>
+        if xs.sum > 1500 then
+          throw IllegalStateException("sum too large")
+      }
+    }
+    ex.getMessage shouldContain "Fuzz target gen-sum failed"
+    ex.getMessage shouldContain "value: List("
+    ex.getMessage shouldContain "IllegalStateException"
+  }
+
+  test("fuzzGen explores values without seeds") {
+    val seen = scala.collection.mutable.Set.empty[Int]
+    fuzzGen("gen-explore", Gen.chooseNum(0, 1000000), base.withIterations(500)) { x =>
+      seen += x
+    }
+    (seen.size > 100) shouldBe true
+  }
+
+  test("fuzzGen skips inputs the generator cannot decode") {
+    var count = 0
+    fuzzGen("gen-filter", Gen.chooseNum(0, 10).filter(_ > 100), base.withIterations(5)) { _ =>
+      count += 1
+    }
+    count shouldBe 0
+  }
+
+  test("generators read 0 once the bytes run out") {
+    val gen = Gen.listOf(Gen.chooseNum(0, 1000))
+    FuzzCheck.generate(gen, Array.emptyByteArray, 32) shouldBe Some(List.empty)
+    FuzzCheck.generate(Gen.chooseNum(5, 10), Array.emptyByteArray, 32) shouldBe Some(5)
+    val bytes = Array.tabulate[Byte](64)(i => (i * 37).toByte)
+    FuzzCheck.generate(gen, bytes, 32) shouldBe FuzzCheck.generate(gen, bytes, 32)
+  }
+
+  test("fails on an input that is slow twice in a row") {
+    val ex = intercept[AssertionFailure] {
+      fuzz("slow", base.withIterations(0).withSeeds("slow!").withSlowInputMillis(5)) { bytes =>
+        if bytes.length >= 4 then
+          val start = System.nanoTime()
+          while System.nanoTime() - start < 15000000L do
+            (
+          )
+      }
+    }
+    ex.getMessage shouldContain "SlowInput"
+    ex.getMessage shouldContain "input (4 bytes, reduced from 5)"
   }
 
 end FuzzCheckTest

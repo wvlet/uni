@@ -242,8 +242,27 @@ test("JSON parser rejects invalid input cleanly") {
 }
 ```
 
+For a writer or a round trip, `fuzzGen` fuzzes over the values of a `Gen`
+(the generators of `forAll`). The generator reads its random choices from the
+mutated bytes, so failures are reduced and saved like byte inputs, and the
+report shows the value:
+
+```scala test
+import wvlet.uni.json.JSON
+import wvlet.uni.json.JSON.JSONString
+import wvlet.uni.test.check.Gen
+
+test("JSON strings read back the same") {
+  fuzzGen("json-string-write", Gen.asciiStr) { s =>
+    JSON.parseAny(JSONString(s).toJSON) shouldBe JSONString(s)
+  }
+}
+```
+
 `UNI_FUZZ_SECONDS`, `UNI_FUZZ_ITERATIONS`, and `UNI_FUZZ_SEED` override the
-budget and seed for long runs and replays.
+budget and seed for long runs and replays. `withSlowInputMillis(ms)` fails on
+inputs that run too long. A failure prints a `cp` command that keeps the
+reduced input in the corpus directory.
 
 Full guide: https://wvlet.org/uni/core/unitest.md#fuzz-testing
 

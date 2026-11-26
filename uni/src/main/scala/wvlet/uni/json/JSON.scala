@@ -271,22 +271,26 @@ object JSON extends LogSupport:
     * This function can be used to properly quote Strings for JSON output.
     */
   def quoteJSONString(s: String): String =
-    s.map {
+    val sb = StringBuilder(s.length + 2)
+    var i  = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      c match
         case '"' =>
-          "\\\""
+          sb.append("\\\"")
         case '\\' =>
-          "\\\\"
-//      case '/'  => "\\/" We don't need to escape forward slashes
+          sb.append("\\\\")
+        // We don't need to escape forward slashes
         case '\b' =>
-          "\\b"
+          sb.append("\\b")
         case '\f' =>
-          "\\f"
+          sb.append("\\f")
         case '\n' =>
-          "\\n"
+          sb.append("\\n")
         case '\r' =>
-          "\\r"
+          sb.append("\\r")
         case '\t' =>
-          "\\t"
+          sb.append("\\t")
         /* We'll unicode escape any control characters. These include:
          * 0x0 -> 0x1f  : ASCII Control (C0 Control Codes)
          * 0x7f         : ASCII DELETE
@@ -295,11 +299,33 @@ object JSON extends LogSupport:
          * Per RFC4627, section 2.5, we're not technically required to
          * encode the C1 codes, but we do to be safe.
          */
-        case c if ((c >= '\u0000' && c <= '\u001f') || (c >= '\u007f' && c <= '\u009f')) =>
-          "\\u%04x".format(c.toInt)
+        case c if (c >= '\u0000' && c <= '\u001f') || (c >= '\u007f' && c <= '\u009f') =>
+          appendUnicodeEscape(sb, c)
+        case c if Character.isHighSurrogate(c) =>
+          if i + 1 < s.length && Character.isLowSurrogate(s.charAt(i + 1)) then
+            sb.append(c).append(s.charAt(i + 1))
+            i += 1
+          else
+            // An unpaired surrogate has no UTF-8 encoding, so only an escape keeps it
+            appendUnicodeEscape(sb, c)
+        case c if Character.isLowSurrogate(c) =>
+          appendUnicodeEscape(sb, c)
         case c =>
-          c
-      }
-      .mkString
+          sb.append(c)
+      end match
+      i += 1
+    end while
+    sb.result()
+
+  end quoteJSONString
+
+  private def appendUnicodeEscape(sb: StringBuilder, c: Char): Unit =
+    val hex = Integer.toHexString(c.toInt)
+    sb.append("\\u")
+    var pad = 4 - hex.length
+    while pad > 0 do
+      sb.append('0')
+      pad -= 1
+    sb.append(hex)
 
 end JSON

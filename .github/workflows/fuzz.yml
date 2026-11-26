@@ -1,0 +1,64 @@
+name: Fuzz
+
+# Long fuzz sessions for Uni's parsers and writers (uni/src/test/scala/wvlet/uni/fuzz/). Pull
+# request CI runs each target for a fixed, short budget; this job gives every target minutes and a
+# fresh seed each night. A failure prints the seed and the reduced input, and the crash files are
+# uploaded as an artifact: add one to uni/src/test/resources/fuzz/<target>/ with the fix. It runs
+# nightly on main, when dispatched, and on pull requests that change this file. It is not a
+# required check.
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: 'Seconds per fuzz target'
+        default: '120'
+      seed:
+        description: 'RNG seed, to replay a reported failure (empty for a fresh one)'
+        default: ''
+  schedule:
+    - cron: '41 2 * * *'
+  pull_request:
+    paths:
+      - '.github/workflows/fuzz.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz (JVM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: sbt
+      - uses: ./.github/actions/sbt-launcher
+      - name: Run fuzz targets
+        shell: bash
+        env:
+          # Short on pull requests, which only check that the workflow runs
+          UNI_FUZZ_SECONDS: ${{ inputs.seconds || (github.event_name == 'pull_request' && '10') || '120' }}
+          UNI_FUZZ_SEED: ${{ inputs.seed }}
+        run: |
+          set -o pipefail
+          ./sbt "uniJVM/testOnly wvlet.uni.fuzz.*" 2>&1 | tee fuzz.log
+      - name: Summarize failures
+        if: failure()
+        run: |
+          {
+            echo '## Fuzz failures'
+            echo '```'
+            grep -E 'Fuzz target|  (input|value|as text|seed|crash_id)' fuzz.log | sed 's/\x1b\[[0-9;]*m//g'
+            echo '```'
+            echo 'Download the fuzz-crashes artifact, add the input to uni/src/test/resources/fuzz/<target>/, and fix the bug.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: target/fuzz/
+          if-no-files-found: ignore
