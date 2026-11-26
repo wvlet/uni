@@ -108,7 +108,7 @@ object OffsetUnpacker:
     val b  = cursor.peekByte
     val mf = MessageFormat.of(b)
     if mf == MessageFormat.NEVER_USED then
-      throw new MessageException(NEVER_USED_FORMAT, "Found 0xC1 (NEVER_USED) byte")
+      throw MessageException(NEVER_USED_FORMAT, "Found 0xC1 (NEVER_USED) byte")
     mf.valueType match
       case ValueType.NIL =>
         cursor.skipBytes(1)

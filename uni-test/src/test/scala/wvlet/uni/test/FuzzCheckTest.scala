@@ -24,7 +24,7 @@ import wvlet.uni.test.fuzz.Reduce
 
 class FuzzCheckTest extends UniTest:
 
-  private val base = FuzzConfig().withSeed(42L).withCrashDir("target/fuzz-test")
+  private val base = FuzzConfig().withSeed(42L).withCrashDir("target/fuzz-test").noEnvOverrides
 
   private def utf8(s: String): Array[Byte] = s.getBytes(StandardCharsets.UTF_8)
 
@@ -121,12 +121,13 @@ class FuzzCheckTest extends UniTest:
 
   test("environment variables override the budget and seed") {
     val env = Map("UNI_FUZZ_ITERATIONS" -> "7", "UNI_FUZZ_SEED" -> "9")
-    val c   = FuzzConfig().withEnvOverrides(env.get)
+    val c   = FuzzConfig().applyEnv(env.get)
     c.iterations shouldBe 7
     c.seed shouldBe Some(9L)
-    val timed = FuzzConfig().withEnvOverrides(Map("UNI_FUZZ_SECONDS" -> "3").get)
+    val timed = FuzzConfig().applyEnv(Map("UNI_FUZZ_SECONDS" -> "3").get)
     timed.timeBudgetMillis shouldBe Some(3000L)
     timed.iterations shouldBe Int.MaxValue
+    FuzzConfig().noEnvOverrides.applyEnv(env.get).iterations shouldBe 1000
   }
 
   test("mutations are deterministic for a seed and respect maxLength") {

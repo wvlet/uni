@@ -47,6 +47,8 @@ import java.nio.charset.StandardCharsets
   *   exceptions the target may throw for invalid input; any other exception is a bug
   * @param maxReduceSteps
   *   how many candidate inputs the reducer may try when shrinking a failure
+  * @param useEnvOverrides
+  *   apply the `UNI_FUZZ_*` environment overrides (on by default)
   */
 final case class FuzzConfig(
     iterations: Int = 1000,
@@ -58,7 +60,8 @@ final case class FuzzConfig(
     corpusDir: Option[String] = None,
     crashDir: String = "target/fuzz",
     expected: Throwable => Boolean = _ => false,
-    maxReduceSteps: Int = 10000
+    maxReduceSteps: Int = 10000,
+    useEnvOverrides: Boolean = true
 ):
   def withIterations(n: Int): FuzzConfig                    = copy(iterations = math.max(0, n))
   def withTimeBudgetMillis(millis: Long): FuzzConfig        = copy(timeBudgetMillis = Some(millis))
@@ -74,10 +77,15 @@ final case class FuzzConfig(
     dictionary ++ tokens.filter(_.nonEmpty)
   )
 
-  def noDictionary: FuzzConfig                          = copy(dictionary = Seq.empty)
-  def withCorpusDir(dir: String): FuzzConfig            = copy(corpusDir = Some(dir))
-  def noCorpusDir: FuzzConfig                           = copy(corpusDir = None)
-  def withCrashDir(dir: String): FuzzConfig             = copy(crashDir = dir)
+  def noDictionary: FuzzConfig               = copy(dictionary = Seq.empty)
+  def withCorpusDir(dir: String): FuzzConfig = copy(corpusDir = Some(dir))
+  def noCorpusDir: FuzzConfig                = copy(corpusDir = None)
+  def withCrashDir(dir: String): FuzzConfig  = copy(crashDir = dir)
+  def withEnvOverrides: FuzzConfig           = copy(useEnvOverrides = true)
+
+  /** Ignore `UNI_FUZZ_*`, for tests that depend on an exact budget or seed. */
+  def noEnvOverrides: FuzzConfig = copy(useEnvOverrides = false)
+
   def withMaxReduceSteps(n: Int): FuzzConfig            = copy(maxReduceSteps = math.max(0, n))
   def withExpected(p: Throwable => Boolean): FuzzConfig = copy(expected = p)
 
@@ -95,8 +103,10 @@ final case class FuzzConfig(
   private def utf8(s: String): Array[Byte] = s.getBytes(StandardCharsets.UTF_8)
 
   /** Apply the `UNI_FUZZ_*` environment overrides. */
-  private[test] def withEnvOverrides(env: String => Option[String]): FuzzConfig =
+  private[test] def applyEnv(env: String => Option[String]): FuzzConfig =
     var c = this
+    if !useEnvOverrides then
+      return c
     env("UNI_FUZZ_ITERATIONS").flatMap(_.trim.toIntOption).foreach(n => c = c.withIterations(n))
     env("UNI_FUZZ_SECONDS")
       .flatMap(_.trim.toLongOption)

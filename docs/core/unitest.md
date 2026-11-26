@@ -974,6 +974,7 @@ UNI_FUZZ_SEED=733437378479625 ./sbt "uniJVM/testOnly *FuzzTest"  # replay a fail
 | Crash directory | `withCrashDir(dir)` | `target/fuzz` |
 | Expected rejections | `withExpectedCases { case ... => }` | none |
 | RNG seed | `withSeed(s)` | `System.nanoTime()` |
+| Ignore `UNI_FUZZ_*` | `noEnvOverrides` | overrides on |
 
 Override `fuzzConfig` on the test class to share settings across targets.
 Fuzzing does not yet use coverage feedback, and it does not detect hangs.

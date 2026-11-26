@@ -58,7 +58,7 @@ trait FuzzCheck:
   /** Fuzz a target that reads bytes. */
   def fuzz(target: String, config: FuzzConfig = fuzzConfig)(body: Array[Byte] => Any)(using
       source: TestSource
-  ): Unit = FuzzCheck.run(target, config.withEnvOverrides(FuzzCheck.env), body, source)
+  ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), body, source)
 
   /** Fuzz a target that reads text. Inputs are mutated as bytes and decoded as UTF-8. */
   def fuzzString(target: String, config: FuzzConfig = fuzzConfig)(body: String => Any)(using

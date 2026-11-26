@@ -568,9 +568,10 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     var i  = 0
     var ch = byteAt(cursor + i) & 0xff
     while ch != DoubleQuote do
-      if cursor + i >= sourceLength then
-        throw unexpectedEOF()
       if ch < 0x20 then
+        // byteAt returns 0 past the end, so the EOF check stays off the per-byte path
+        if cursor + i >= sourceLength then
+          throw unexpectedEOF()
         throw unexpected("utf8")
       if ch == BackSlash then
         return -1
