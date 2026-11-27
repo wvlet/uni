@@ -81,9 +81,9 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
       propagateEvent(OnNext(newValue))
 
   /**
-    * Stop updating this variable and send OnCompletion event to the downstream subscribers. After
-    * this method is called, the behavior of the downstream subscribers is undefined for further
-    * updates of this variable.
+    * Stop updating this variable and send an `OnCompletion` event to the downstream subscribers.
+    * After this method is called, the behavior of the downstream subscribers is undefined for
+    * further updates of this variable.
     */
   override def stop(): Unit = propagateEvent(OnCompletion)
 
@@ -176,9 +176,9 @@ trait RxVarOps[A]:
   def foreachEvent[U](effect: RxEvent => U): Cancelable
 
   /**
-    * Stop updating this variable and send OnCompletion event to the downstream subscribers. After
-    * this method is called, the behavior of the downstream subscribers is undefined for further
-    * updates of this variable.
+    * Stop updating this variable and send an `OnCompletion` event to the downstream subscribers.
+    * After this method is called, the behavior of the downstream subscribers is undefined for
+    * further updates of this variable.
     */
   def stop(): Unit
 

@@ -114,7 +114,7 @@ object RxRunner extends LogSupport:
 
   /**
     * Run `rx` and report the subscription to the active [[RxTracker]]s. The subscription ends on
-    * cancel, on `OnCompletion`, or (for `run` and `runOnce`) on the first error.
+    * cancel, on `OnCompletion` or `OnFailure`, or (for `run` and `runOnce`) on the first error.
     */
   private def tracked[A](
       runner: RxRunner,
@@ -147,10 +147,10 @@ end RxRunner
 
 /**
   * Runs Rx operator chains with one semantics: `OnError` reports an error the stream continues
-  * past, and `OnCompletion` ends the stream (see `adr/2026-11-21-rx-single-mode.md`). A downstream
-  * `Stop` means the downstream wants nothing more: `runContinuously` answers `Continue` to an
-  * error, and `run` / `runOnce` answer `Stop` to the event that ends their run
-  * (`adr/2026-11-21-rx-sink-continue.md`).
+  * past, and `OnCompletion` or `OnFailure` ends the stream (see `adr/2026-11-21-rx-single-mode.md`
+  * and `adr/2026-11-21-rx-onfailure.md`). A downstream `Stop` means the downstream wants nothing
+  * more: `runContinuously` answers `Continue` to an error, and `run` / `runOnce` answer `Stop` to
+  * the event that ends their run (`adr/2026-11-21-rx-sink-continue.md`).
   */
 class RxRunner extends LogSupport:
   runner =>
@@ -165,8 +165,8 @@ class RxRunner extends LogSupport:
     * @param rx
     * @param effect
     *   a function to process the generated RxEvent. This function must return [[RxResult.Continue]]
-    *   when the downstream operator can receive further events (OnNext). If the leaf sink operator
-    *   issued OnError or OnCompletion event, this must return [[RxResult.Stop]].
+    *   when the downstream operator can receive further events. After an end (`OnCompletion` or
+    *   `OnFailure`), or when the sink wants nothing more, it must return [[RxResult.Stop]].
     * @tparam A
     */
   def run[A](rx: RxOps[A])(effect: RxEvent => RxResult): Cancelable =
@@ -925,7 +925,7 @@ class RxRunner extends LogSupport:
               effect(ev)
         }
       case OnCancelOp(in, f) =>
-        // Set by the first cancel or by OnCompletion, so f runs at most once and not after the
+        // Set by the first cancel or by an end (OnEnd), so f runs at most once and not after the
         // stream ended
         val ended        = AtomicBoolean(false)
         val subscription =

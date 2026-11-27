@@ -300,7 +300,7 @@ trait Assertions:
 
   /**
     * Run `body` and fail if Rx subscriptions it started on this thread are still active afterwards,
-    * i.e., neither cancelled nor ended with `OnError` / `OnCompletion`. Returns the result of
+    * i.e., neither cancelled nor ended with `OnCompletion` / `OnFailure`. Returns the result of
     * `body`.
     *
     * {{{

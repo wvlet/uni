@@ -54,10 +54,10 @@ object RxSubscription:
   * Records the Rx subscriptions that are still active, to find subscriptions nobody cancels.
   *
   * A subscription starts when an Rx is run (`run`, `subscribe`, `RxRunner.runContinuously`, ...).
-  * It ends when it is cancelled, when the stream reports `OnCompletion`, or for `run` and `runOnce`
-  * at the first `OnError`. A `subscribe` subscription to a source that never ends stays active
-  * until it is cancelled, which makes it the usual leak: an `RxVar` bound to a DOM node that was
-  * removed.
+  * It ends when it is cancelled, when the stream ends (`OnCompletion` or `OnFailure`), or for `run`
+  * and `runOnce` at the first `OnError`. A `subscribe` subscription to a source that never ends
+  * stays active until it is cancelled, which makes it the usual leak: an `RxVar` bound to a DOM
+  * node that was removed.
   *
   * Track the subscriptions that a block of code starts on the current thread:
   * {{{
