@@ -223,6 +223,30 @@ class ParquetDataset private[parquet] (
     firstRowIds.get(path)
   )
 
+  /**
+    * Whether this file read alone as a plain Parquet file, its columns matched by name, holds the
+    * dataset's rows of the file: no delete removes its rows (Iceberg position or equality deletes,
+    * deletion vectors), its columns have the dataset's names (no Iceberg column was renamed or
+    * dropped since it was written), no column it lacks has an `initial-default`, and it holds every
+    * partition column. Columns it lacks are nulls in the dataset, and narrower types are widened,
+    * as [[schema]] describes. Lets a reader split such files into row groups and read them with
+    * [[ParquetFile]], sharing what the dataset knows only for the other files. Reads the file's
+    * footer, which the dataset then keeps for its own reads.
+    */
+  def readsAsPlainFile(file: DatasetFile): Boolean =
+    !rowDeletes.get(file.path).exists(_.nonEmpty) &&
+      !equalityDeletes.get(file.path).exists(_.nonEmpty) && {
+        // The cached footer has the table's names already: read the file's own
+        val f    = wrapErrors(file)(ParquetFile.open(openSource(file)))
+        val meta =
+          try f.metadata
+          finally f.close()
+        val names = topLevelNames(meta)
+        names == topLevelNames(cache(file, meta)) &&
+        partitionColumns.forall(c => names.contains(c.name)) &&
+        columnDefaults.keys.forall(names.contains)
+      }
+
   /** The files a filter may match, by partition values and statistics, without reading them */
   private[cloud] def candidateFiles(filter: ParquetFilter): Set[String] =
     selectByPartition(ParquetReadOptions.default.withFilter(filter)).map(_.file.path).toSet
@@ -964,17 +988,7 @@ class ParquetDataset private[parquet] (
     if fieldIds.known.isEmpty || meta.schema.isEmpty then
       meta
     else
-      // The top-level elements: each is followed by its subtree
-      val top = IndexedSeq.newBuilder[Int]
-      var i   = 1
-      while i < meta.schema.size do
-        top += i
-        var pending = meta.schema(i).numChildren.getOrElse(0)
-        i += 1
-        while pending > 0 do
-          pending += meta.schema(i).numChildren.getOrElse(0) - 1
-          i += 1
-      val tops = top.result()
+      val tops = topLevel(meta)
       // Reserved IDs mark metadata columns, such as row lineage's `_row_id`, which stay hidden
       if tops.forall(j =>
           meta.schema(j).fieldId.exists(id => fieldIds.known.contains(id) || isReservedId(id))
@@ -996,6 +1010,23 @@ class ParquetDataset private[parquet] (
         meta
 
   end byFieldId
+
+  /** The positions of a footer's top-level schema elements: each is followed by its subtree */
+  private def topLevel(meta: FileMetaData): IndexedSeq[Int] =
+    val top = IndexedSeq.newBuilder[Int]
+    var i   = 1
+    while i < meta.schema.size do
+      top += i
+      var pending = meta.schema(i).numChildren.getOrElse(0)
+      i += 1
+      while pending > 0 do
+        pending += meta.schema(i).numChildren.getOrElse(0) - 1
+        i += 1
+    top.result()
+
+  private def topLevelNames(meta: FileMetaData): IndexedSeq[String] = topLevel(meta).map(
+    meta.schema(_).name
+  )
 
   private def footer(file: DatasetFile): FileMetaData = cachedFooter(file).getOrElse {
     val f = wrapErrors(file)(ParquetFile.open(openSource(file)))
