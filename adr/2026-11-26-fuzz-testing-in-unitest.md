@@ -111,3 +111,30 @@ coverage guidance; this ADR records the first step that shipped.
   length limit failed when a read ended between its CR and LF; and the command-line tokenizer
   dropped a line holding only a control character (`trim` strips it) and the character after an
   unknown escape inside double quotes (`"\q"`).
+
+## Update: the Parquet reader
+
+- `ParquetFuzzTest` lives in `wvlet.uni.cloud.parquet`, not `wvlet.uni.fuzz`, because the page
+  decoders it calls are `private[parquet]`. The nightly `*FuzzTest` pattern from #1211 picks it up.
+- Five targets, with `ParquetException` as the only accepted rejection: whole files (writer output
+  under each codec plus small Apache and DuckDB fixtures, read with `readRows` and with `readAs`
+  through `VectorUnpacker`); the footer alone, framed around a real file's pages so its offsets
+  still point somewhere; page values (`ValueDecoder` for every encoding and type, including
+  dictionary indices past a dictionary); and RLE/bit-packed levels. Page seeds are pages cut out
+  of the seed files, so DELTA and BYTE_STREAM_SPLIT bodies come from the fixtures; a separate test
+  checks that every encoding has a seed, since a silent seed failure would only exercise the
+  first check.
+- A round trip writes `fuzzGen` schemas (primitives and lists, maps, and structs nested through
+  `Gen.recursive`, each optional or required) with random codecs, dictionary settings, and page
+  sizes, and reads the rows back. It also checks that `VectorUnpacker` gives the values
+  `RowPacker` packs, the two paths `readAs` picks between. This target accepts no exception at
+  all: with `ParquetException` accepted, a writer that rejected every row would pass.
+- Bugs found: a DELTA_BYTE_ARRAY or DELTA_LENGTH_BYTE_ARRAY page on a non-binary column threw
+  `ClassCastException`; and a page header could claim any uncompressed size, which every codec
+  allocated before decoding (2 GB from a 50-byte page). `Codecs.checkUncompressedSize` now bounds
+  the claim by each format's largest expansion (Snappy 32x, LZ4 256x, DEFLATE 1032x, zstd 32768x)
+  before a buffer is borrowed. Brotli can expand past any useful bound, so it stays unbounded.
+  On Scala.js only, a corrupt gzip page escaped as a JavaScript `Error` from Node's zlib;
+  `Gzip.decompress` now throws `IOException` there, as `java.util.zip` does on the JVM and Native.
+- Not bounded: value and level counts. An RLE run encodes a million nulls in a few bytes, so a
+  page's count cannot be checked against its size; the batch limit (`MaxArrayLength`) caps it.

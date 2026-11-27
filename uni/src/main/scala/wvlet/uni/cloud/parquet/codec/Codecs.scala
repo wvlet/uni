@@ -19,6 +19,36 @@ private[parquet] object Codecs:
     decompressPage(codec, src, offset, length, uncompressedSize)
   )
 
+  /**
+    * Rejects a page whose header claims more bytes than `length` compressed bytes of `codec` can
+    * decode to. Decoders allocate the claimed size up front, so without this a few corrupt bytes
+    * could ask for 2 GB. The bounds are each format's largest expansion: a 3-byte Snappy copy of 64
+    * bytes, a 255-byte LZ4 match per length byte, DEFLATE's 1032:1, and a 4-byte zstd RLE block of
+    * 128 KiB. Brotli can expand further than any useful bound, so only its sign is checked.
+    */
+  def checkUncompressedSize(codec: CompressionCodec, length: Int, uncompressedSize: Int): Unit =
+    if uncompressedSize < 0 then
+      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    val ratio =
+      codec match
+        case CompressionCodec.SNAPPY =>
+          Some(32L)
+        case CompressionCodec.LZ4_RAW | CompressionCodec.LZ4 =>
+          Some(256L)
+        case CompressionCodec.GZIP =>
+          Some(1032L)
+        case CompressionCodec.ZSTD =>
+          Some(32768L)
+        case _ =>
+          // UNCOMPRESSED pages are checked for an exact length where they are read
+          None
+    ratio.foreach { r =>
+      if uncompressedSize > math.max(0, length).toLong * r + 64 then
+        throw ParquetException.corrupt(
+          s"a page of ${length} ${codec} bytes cannot hold ${uncompressedSize} uncompressed bytes"
+        )
+    }
+
   /** Whether [[decompressInto]] can decode pages of `codec` into a caller's buffer */
   def decodesInto(codec: CompressionCodec): Boolean =
     codec match
@@ -40,8 +70,7 @@ private[parquet] object Codecs:
       out: Array[Byte],
       uncompressedSize: Int
   ): Unit = ParquetException.fromCodec {
-    if uncompressedSize < 0 then
-      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    checkUncompressedSize(codec, length, uncompressedSize)
     codec match
       case CompressionCodec.SNAPPY =>
         Snappy.decompressInto(src, offset, length, out, uncompressedSize)
@@ -62,8 +91,7 @@ private[parquet] object Codecs:
       length: Int,
       uncompressedSize: Int
   ): Array[Byte] =
-    if uncompressedSize < 0 then
-      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    checkUncompressedSize(codec, length, uncompressedSize)
     codec match
       case CompressionCodec.UNCOMPRESSED =>
         if length != uncompressedSize then

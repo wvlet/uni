@@ -49,7 +49,13 @@ trait GzipCompat extends GzipApi:
         "Gzip decompression is not supported in browser environments"
       )
     val input        = byteArrayToUint8Array(data)
-    val decompressed = NodeZlibModule.gunzipSync(input)
+    val decompressed =
+      try
+        NodeZlibModule.gunzipSync(input)
+      catch
+        // zlib throws a JavaScript Error on corrupt data; the JVM and Native throw ZipException
+        case e: js.JavaScriptException =>
+          throw java.io.IOException(s"Corrupt gzip data: ${e.getMessage}", e)
     uint8ArrayToByteArray(decompressed)
 
   override def compressFile(source: IOPath, target: IOPath): Unit =
