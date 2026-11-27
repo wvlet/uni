@@ -98,9 +98,12 @@ private[parquet] object ValueDecoder:
           b.size += n
         case Encoding.DELTA_BINARY_PACKED =>
           DeltaDecoder.decodeBinaryPacked(tpe, buf, start, end, n, out)
-        case Encoding.DELTA_LENGTH_BYTE_ARRAY =>
+        // The column's type comes from the file, so an encoding for byte arrays may arrive on a
+        // column of numbers
+        case Encoding.DELTA_LENGTH_BYTE_ARRAY if tpe == PhysicalType.BYTE_ARRAY =>
           DeltaDecoder.decodeLengthByteArray(buf, start, end, n, out.asInstanceOf[BinaryBuffer])
-        case Encoding.DELTA_BYTE_ARRAY =>
+        case Encoding.DELTA_BYTE_ARRAY
+            if tpe == PhysicalType.BYTE_ARRAY || tpe == PhysicalType.FIXED_LEN_BYTE_ARRAY =>
           DeltaDecoder.decodeByteArray(buf, start, end, n, out.asInstanceOf[BinaryBuffer])
         case Encoding.BYTE_STREAM_SPLIT =>
           decodeByteStreamSplit(tpe, typeLength, buf, start, end, n, out)
