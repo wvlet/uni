@@ -194,9 +194,9 @@ private[uni] object XmlReader:
                 case "apos" =>
                   sb.append('\'')
                 case e if e.startsWith("#x") || e.startsWith("#X") =>
-                  sb.appendAll(Character.toChars(Integer.parseInt(e.substring(2), 16)))
+                  sb.appendAll(Character.toChars(codePoint(e, e.substring(2), 16)))
                 case e if e.startsWith("#") =>
-                  sb.appendAll(Character.toChars(Integer.parseInt(e.substring(1))))
+                  sb.appendAll(Character.toChars(codePoint(e, e.substring(1), 10)))
                 case other =>
                   sb.append(s"&${other};")
               k = semi + 1
@@ -205,6 +205,25 @@ private[uni] object XmlReader:
             k += 1
         end while
         sb.toString
+
+    // The code point of a character reference: digits only, at most U+10FFFF
+    private def codePoint(ref: String, digits: String, radix: Int): Int =
+      var cp = 0
+      var j  = 0
+      while j < digits.length && cp <= Character.MAX_CODE_POINT do
+        val c = digits.charAt(j)
+        val d =
+          if c < 0x80 then
+            Character.digit(c, radix)
+          else
+            -1
+        if d < 0 then
+          fail(s"invalid character reference &${ref};")
+        cp = cp * radix + d
+        j += 1
+      if digits.isEmpty || cp > Character.MAX_CODE_POINT then
+        fail(s"invalid character reference &${ref};")
+      cp
 
   end Parser
 

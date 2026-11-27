@@ -32,6 +32,12 @@ class CommandLineTokenizerTest extends UniTest:
     tokens shouldBe Array("--message", "hello world", "file.txt")
   }
 
+  test("keep an unknown escape inside double quotes as written") {
+    CommandLineTokenizer.tokenize(""""a\qb" "C:\dir"""") shouldBe Array("a\\qb", "C:\\dir")
+    // As in a POSIX shell, \$ and \` drop the backslash
+    CommandLineTokenizer.tokenize(""""\$HOME \`x\`"""") shouldBe Array("$HOME `x`")
+  }
+
   test("tokenize with single quotes") {
     val tokens = CommandLineTokenizer.tokenize("--message 'hello world' file.txt")
     tokens shouldBe Array("--message", "hello world", "file.txt")

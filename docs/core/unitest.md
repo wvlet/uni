@@ -1078,8 +1078,8 @@ Override `fuzzConfig` on the test class to share settings across targets.
 There is no code-coverage feedback; features stand in for it.
 
 In the Uni repository, the [Fuzz workflow](https://github.com/wvlet/uni/actions/workflows/fuzz.yml)
-runs the targets under `uni/src/test/scala/wvlet/uni/fuzz/` for two minutes
-each every night, with a fresh seed, and uploads crash files as an artifact.
+runs every `*FuzzTest` suite (parsers, decompressors, and protocol readers) for two
+minutes each every night, with a fresh seed, and uploads crash files as an artifact.
 
 ## Running Tests
 

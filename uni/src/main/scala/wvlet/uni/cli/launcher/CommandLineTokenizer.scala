@@ -31,7 +31,8 @@ object CommandLineTokenizer:
     *   if the command line has unclosed quotes
     */
   def tokenize(line: String): Array[String] =
-    if line == null || line.trim.isEmpty then
+    // tokenize splits only on whitespace; `trim` would also drop control characters
+    if line == null then
       Array.empty
     else
       ProcessApi.tokenize(line).toArray

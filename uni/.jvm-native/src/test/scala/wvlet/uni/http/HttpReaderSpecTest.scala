@@ -26,12 +26,39 @@ import java.nio.charset.StandardCharsets
   * which the reader must reject or close the connection after.
   */
 class HttpReaderSpecTest extends UniTest:
+  import HttpReaderSpecTest.*
 
+  // The first 40 bytes, with CR, LF, and HTAB escaped so each test name stays on one line
+  private def label(input: String): String = input
+    .take(40)
+    .replace("\r", "\\r")
+    .replace("\n", "\\n")
+    .replace("\t", "\\t")
+
+  private def replay(name: String, cases: Seq[String]): Unit = cases
+    .zipWithIndex
+    .foreach { (c, i) =>
+      val Array(input, expected) = c.split("␞", 2)
+      test(s"${name} ${i}: ${label(input)}") {
+        val bytes = input.getBytes(StandardCharsets.ISO_8859_1)
+        readSizes.foreach { size =>
+          outcomes(bytes, size) shouldBe expected.split("␟").toSeq
+        }
+      }
+    }
+
+  replay("case", HttpReaderSpecCases.cases)
+  // Inputs a lenient front proxy could frame differently, which the reader must reject or close after
+  replay("smuggling case", HttpReaderSpecCases.smugglingCases)
+
+end HttpReaderSpecTest
+
+object HttpReaderSpecTest:
   // 1: every byte in its own read. Large: the whole stream in one read.
-  private val readSizes = Seq(1, 2, 3, 5, 8, 13, 64, 1 << 16)
+  val readSizes = Seq(1, 2, 3, 5, 8, 13, 64, 1 << 16)
 
   /** Run the reader over `input`, delivered at most `readSize` bytes per read. */
-  private def outcomes(input: Array[Byte], readSize: Int): Seq[String] =
+  def outcomes(input: Array[Byte], readSize: Int): Seq[String] =
     var pos    = 0
     val reader = HttpConnectionReader(
       (buf, off, len, _) =>
@@ -75,28 +102,5 @@ class HttpReaderSpecTest extends UniTest:
     out.result()
 
   end outcomes
-
-  // The first 40 bytes, with CR, LF, and HTAB escaped so each test name stays on one line
-  private def label(input: String): String = input
-    .take(40)
-    .replace("\r", "\\r")
-    .replace("\n", "\\n")
-    .replace("\t", "\\t")
-
-  private def replay(name: String, cases: Seq[String]): Unit = cases
-    .zipWithIndex
-    .foreach { (c, i) =>
-      val Array(input, expected) = c.split("␞", 2)
-      test(s"${name} ${i}: ${label(input)}") {
-        val bytes = input.getBytes(StandardCharsets.ISO_8859_1)
-        readSizes.foreach { size =>
-          outcomes(bytes, size) shouldBe expected.split("␟").toSeq
-        }
-      }
-    }
-
-  replay("case", HttpReaderSpecCases.cases)
-  // Inputs a lenient front proxy could frame differently, which the reader must reject or close after
-  replay("smuggling case", HttpReaderSpecCases.smugglingCases)
 
 end HttpReaderSpecTest

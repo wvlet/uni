@@ -162,7 +162,7 @@ object ProcessApi:
         else if c == '\\' && i + 1 < commandLine.length then
           val next = commandLine(i + 1)
           next match
-            case '"' | '\\' =>
+            case '"' | '\\' | '$' | '`' =>
               current.append(next)
             case 'n' =>
               current.append('\n')
@@ -171,7 +171,8 @@ object ProcessApi:
             case 'r' =>
               current.append('\r')
             case _ =>
-              current.append(c)
+              // Any other escape stays as written, as in a POSIX shell
+              current.append(c).append(next)
           i += 1
         else
           current.append(c)

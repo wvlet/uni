@@ -58,7 +58,7 @@ coverage guidance; this ADR records the first step that shipped.
 - **Slow inputs, not hangs.** `withSlowInputMillis` times each input after it finishes and fails
   only when a second run is also slow, so JIT and GC pauses do not count. It catches quadratic
   behavior on every platform; a true hang still needs a thread and stays out of scope.
-- **Nightly job.** `.github/workflows/fuzz.yml` runs the targets in `uni/src/test/scala/wvlet/uni/fuzz/`
+- **Nightly job.** `.github/workflows/fuzz.yml` runs every `*FuzzTest` suite of the `uni` module
   for two minutes each with a fresh seed and uploads `target/fuzz/` on failure. It is not a required
   check.
 - The new targets (YAML, CSV, TSV, cron, Markdown, and round trips over generated records and
@@ -95,3 +95,19 @@ coverage guidance; this ADR records the first step that shipped.
 - On a 4-byte keyword, guidance finds a match in about 5,000 to 100,000 inputs depending on the
   seed; unguided mutation does not find it in 200,000. Rejection messages work only as well as
   they differ: two positions that report the same message look like one state.
+
+## Update: decoders, protocol readers, and split invariance
+
+- New targets cover the Snappy, LZ4, LZ4 frame, zstd, gzip, DEFLATE, and Brotli decoders
+  (`CodecException` only, plus compressor round trips), the HTTP/1.1 request reader, WebSocket
+  frames, server-sent events, the terminal escape parser, the command-line tokenizer, and the
+  cloud storage XML reader. Suites live next to the code they test when they need package-private
+  access (`wvlet.uni.http`), so the nightly job selects `*FuzzTest` rather than one package.
+- Incremental readers get a second oracle besides "no unexpected exception": the same bytes fed in
+  one read, byte by byte, and in reads of 3 and 7 bytes must decode to the same events. The escape
+  parser compares its byte input with the same input decoded as text.
+- The codecs survived minutes of fuzzing; they already had corruption tests. The new targets found
+  three bugs elsewhere: `&#;` in an XML response threw `NumberFormatException`; a line at the SSE
+  length limit failed when a read ended between its CR and LF; and the command-line tokenizer
+  dropped a line holding only a control character (`trim` strips it) and the character after an
+  unknown escape inside double quotes (`"\q"`).
