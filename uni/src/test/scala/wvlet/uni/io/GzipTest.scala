@@ -64,6 +64,14 @@ class GzipTest extends UniTest:
     Gzip.decompress(Gzip.compress(a) ++ Gzip.compress(b)) shouldBe (a ++ b)
   }
 
+  test("reject corrupt data with IOException on every platform") {
+    val bad = Gzip.compress("hello".getBytes("UTF-8")).clone()
+    bad(0) = 0
+    intercept[java.io.IOException] {
+      Gzip.decompress(bad)
+    }
+  }
+
   test("compressFile and decompressFile") {
     val originalPath   = tempDir / "original.txt"
     val compressedPath = tempDir / "original.txt.gz"

@@ -10,8 +10,8 @@
 
 - The reader plan (plans/2026-11-20-parquet-reader.md) already requires that every length from the file be checked against the file size and `uncompressed_page_size` before allocating, and asks for fuzz tests. No Parquet fuzz target exists yet.
 - `ParquetException` is the reader's own error: `ParquetException.corrupt(...)` for bad data, `unsupported(...)` for features Uni lacks, and `fromCodec` turns codec errors into it.
-- The decompressor half (Snappy, LZ4, zstd, gzip, DEFLATE, Brotli) is fuzzed in #1211 (not yet merged), whose `CodecFuzzTest` is the model here. This PR fuzzes the codecs only as page payloads inside Parquet files. (`CliFuzzTest` does not exist in the repo.)
-- The page decoders are `private[parquet]`, so the suite must live in the `wvlet.uni.cloud.parquet` test package. #1211 changes the nightly job from `wvlet.uni.fuzz.*` to `*FuzzTest` for the same reason; this PR makes the same one-line change so it does not wait on #1211.
+- The decompressor half (Snappy, LZ4, zstd, gzip, DEFLATE, Brotli) is fuzzed in #1211, whose `CodecFuzzTest` is the model here. This PR fuzzes the codecs only as page payloads inside Parquet files. (`CliFuzzTest` does not exist in the repo.)
+- The page decoders are `private[parquet]`, so the suite must live in the `wvlet.uni.cloud.parquet` test package. #1211 changed the nightly job from `wvlet.uni.fuzz.*` to `*FuzzTest` for the same reason.
 - Uni's writer emits only PLAIN, RLE_DICTIONARY, and RLE levels. DELTA_*, BYTE_STREAM_SPLIT, and page v2 seeds must come from the committed Apache and DuckDB fixture files (most under 3 KB).
 
 ## Design

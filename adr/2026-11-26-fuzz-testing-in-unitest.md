@@ -134,5 +134,7 @@ coverage guidance; this ADR records the first step that shipped.
   allocated before decoding (2 GB from a 50-byte page). `Codecs.checkUncompressedSize` now bounds
   the claim by each format's largest expansion (Snappy 32x, LZ4 256x, DEFLATE 1032x, zstd 32768x)
   before a buffer is borrowed. Brotli can expand past any useful bound, so it stays unbounded.
+  On Scala.js only, a corrupt gzip page escaped as a JavaScript `Error` from Node's zlib;
+  `Gzip.decompress` now throws `IOException` there, as `java.util.zip` does on the JVM and Native.
 - Not bounded: value and level counts. An RLE run encodes a million nulls in a few bytes, so a
   page's count cannot be checked against its size; the batch limit (`MaxArrayLength`) caps it.
