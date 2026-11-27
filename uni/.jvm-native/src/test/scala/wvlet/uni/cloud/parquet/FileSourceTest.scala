@@ -17,7 +17,7 @@ class FileSourceTest extends UniTest:
 
   private val dir: IOPath       = FileSystem.createTempDirectory("uni-file-source")
   private val path: IOPath      = dir / "bytes.bin"
-  private val data: Array[Byte] = Array.tabulate(1 << 20)(i => ((i * 31) ^ (i >>> 8)).toByte)
+  private val data: Array[Byte] = Array.tabulate(3 << 20)(i => ((i * 31) ^ (i >>> 8)).toByte)
   FileSystem.writeBytes(path, data)
 
   override def afterAll: Unit = FileSystem.deleteRecursively(dir)
@@ -55,6 +55,26 @@ class FileSourceTest extends UniTest:
       tasks.forall(_.get()) shouldBe true
     finally
       pool.shutdown()
+      src.close()
+  }
+
+  test("should keep reading after a read on an interrupted thread") {
+    val src = ByteSource.ofFile(path)
+    try
+      // On the JVM, an interrupted read closes the channel; the source reopens it for later reads
+      val reader: Runnable =
+        () =>
+          Thread.currentThread().interrupt()
+          try
+            src.read(4096, 2 * FileChannelSource.MaxReadBytes + 10)
+          catch
+            case _: java.io.IOException =>
+      val t = Thread(reader)
+      t.start()
+      t.join()
+      src.read(100, 3 * FileChannelSource.MaxReadBytes / 2).toSeq shouldBe
+        expected(100, 3 * FileChannelSource.MaxReadBytes / 2)
+    finally
       src.close()
   }
 
