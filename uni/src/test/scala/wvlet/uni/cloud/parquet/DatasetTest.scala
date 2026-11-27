@@ -199,6 +199,25 @@ class DatasetTest extends UniTest:
     }
   }
 
+  test("tell plain files of folders: a partitioned folder's files lack its partition values") {
+    skipInBrowser()
+    withDataset(datasetDir(lake*)) { ds =>
+      ds.files.map(ds.readsAsPlainFile).toSet shouldBe Set(false)
+    }
+    val plain = datasetDir(
+      "a.parquet" -> visits(0 until 2, "a"),
+      "b.parquet" -> visits(2 until 4, "b")
+    )
+    withDataset(plain) { ds =>
+      ds.files.map(ds.readsAsPlainFile).toSet shouldBe Set(true)
+      intercept[IllegalArgumentException](
+        ds.readsAsPlainFile(
+          DatasetFile("other.parquet", 0L, scala.collection.immutable.VectorMap.empty)
+        )
+      )
+    }
+  }
+
   test("read columns added in newer files as nulls in older ones") {
     skipInBrowser()
     val root = datasetDir(

@@ -224,28 +224,46 @@ class ParquetDataset private[parquet] (
   )
 
   /**
-    * Whether this file read alone as a plain Parquet file, its columns matched by name, holds the
-    * dataset's rows of the file: no delete removes its rows (Iceberg position or equality deletes,
-    * deletion vectors), its columns have the dataset's names (no Iceberg column was renamed or
-    * dropped since it was written), no column it lacks has an `initial-default`, and it holds every
-    * partition column. Columns it lacks are nulls in the dataset, and narrower types are widened,
-    * as [[schema]] describes. Lets a reader split such files into row groups and read them with
-    * [[ParquetFile]], sharing what the dataset knows only for the other files. Reads the file's
-    * footer, which the dataset then keeps for its own reads.
+    * Whether this file of [[files]] read alone as a plain Parquet file, its columns matched by
+    * name, holds the dataset's rows of the file: no delete removes its rows (Iceberg position or
+    * equality deletes, deletion vectors), its columns have the dataset's names (no Iceberg column
+    * was renamed or dropped since it was written; row lineage columns aside), no column it lacks
+    * has an `initial-default`, and it holds every column the dataset needs from it. A dataset of
+    * `key=value` folders takes partition values from the folders, so its files are plain only
+    * without partitions; an Iceberg table's identity partition columns are in its files. Top-level
+    * and nested columns a file lacks are nulls in the dataset, and narrower types are widened, as
+    * [[schema]] describes. Lets a reader split such files into row groups and read them with
+    * [[ParquetFile]], reading only the other files through the dataset. Reads the file's footer
+    * synchronously (not in browsers), which the dataset then keeps for its own reads.
     */
   def readsAsPlainFile(file: DatasetFile): Boolean =
+    require(filePaths.contains(file.path), s"${file.path} is not a file of ${root}")
     !rowDeletes.get(file.path).exists(_.nonEmpty) &&
-      !equalityDeletes.get(file.path).exists(_.nonEmpty) && {
-        // The cached footer has the table's names already: read the file's own
-        val f    = wrapErrors(file)(ParquetFile.open(openSource(file)))
-        val meta =
-          try f.metadata
-          finally f.close()
-        val names = topLevelNames(meta)
-        names == topLevelNames(cache(file, meta)) &&
-        partitionColumns.forall(c => names.contains(c.name)) &&
-        columnDefaults.keys.forall(names.contains)
-      }
+    !equalityDeletes.get(file.path).exists(_.nonEmpty) && {
+      val raw =
+        if fieldIds.known.isEmpty then
+          // No field ID mapping: the cached footer is the file's own
+          footer(file)
+        else
+          // The cached footer has the table's names already: read the file's own
+          val f = wrapErrors(file)(ParquetFile.open(openSource(file)))
+          val m =
+            try f.metadata
+            finally f.close()
+          cache(file, m)
+          m
+      val renamed = byFieldId(file, raw)
+      val tops    = topLevel(raw)
+      val names   = tops.map(raw.schema(_).name)
+      tops.forall(j =>
+        raw.schema(j).fieldId.exists(isReservedId) || renamed.schema(j).name == raw.schema(j).name
+      ) && (
+        partitionColumns.isEmpty ||
+          tableFields.isDefined && partitionColumns.forall(c => names.contains(c.name))
+      ) && requiredInFiles.forall(names.contains) && columnDefaults.keys.forall(names.contains)
+    }
+
+  private lazy val filePaths: Set[String] = files.map(_.path).toSet
 
   /** The files a filter may match, by partition values and statistics, without reading them */
   private[cloud] def candidateFiles(filter: ParquetFilter): Set[String] =
@@ -1023,10 +1041,6 @@ class ParquetDataset private[parquet] (
         pending += meta.schema(i).numChildren.getOrElse(0) - 1
         i += 1
     top.result()
-
-  private def topLevelNames(meta: FileMetaData): IndexedSeq[String] = topLevel(meta).map(
-    meta.schema(_).name
-  )
 
   private def footer(file: DatasetFile): FileMetaData = cachedFooter(file).getOrElse {
     val f = wrapErrors(file)(ParquetFile.open(openSource(file)))
