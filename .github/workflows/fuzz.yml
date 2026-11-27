@@ -1,6 +1,6 @@
 name: Fuzz
 
-# Long fuzz sessions for Uni's parsers and writers (uni/src/test/scala/wvlet/uni/fuzz/). Pull
+# Long fuzz sessions for Uni's parsers, decoders, and writers (every *FuzzTest suite). Pull
 # request CI runs each target for a fixed, short budget; this job gives every target minutes and a
 # fresh seed each night. A failure prints the seed and the reduced input, and the crash files are
 # uploaded as an artifact: add one to uni/src/test/resources/fuzz/<target>/ with the fix. It runs
@@ -45,7 +45,7 @@ jobs:
           UNI_FUZZ_SEED: ${{ inputs.seed }}
         run: |
           set -o pipefail
-          ./sbt "uniJVM/testOnly wvlet.uni.fuzz.*" 2>&1 | tee fuzz.log
+          ./sbt "uniJVM/testOnly *FuzzTest" 2>&1 | tee fuzz.log
       - name: Summarize failures
         if: failure()
         run: |

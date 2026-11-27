@@ -251,6 +251,18 @@ class ServerSentEventParserTest extends UniTest:
     }
   }
 
+  test("accept a line at the limit whose CRLF is split across chunks") {
+    val parser = ServerSentEventParser(maxLineLength = 16)
+    parser.feed("data: 0123456789\r") shouldBe Seq.empty
+    parser.feed("\n\n").map(_.data) shouldBe Seq("0123456789")
+  }
+
+  test("end a stream whose last line ends with a lone CR") {
+    val parser = ServerSentEventParser(maxLineLength = 16)
+    parser.feed("data: 0123456789\r") shouldBe Seq.empty
+    parser.flush().map(_.data) shouldBe Some("0123456789")
+  }
+
   test("reject an event whose data exceeds the limit") {
     val parser = ServerSentEventParser(maxEventSize = 10)
     parser.feed("data: 01234\ndata: 5678\n\n").map(_.data) shouldBe Seq("01234\n5678")

@@ -100,7 +100,13 @@ class ServerSentEventParser(
         lineStart = i + 1
       i += 1
     buffer.append(chunk, lineStart, chunk.length)
-    checkLineLength()
+    // A trailing CR may be the first half of a CRLF line end, which doesn't count toward the line
+    checkLineLength(
+      if buffer.length > 0 && buffer.charAt(buffer.length - 1) == '\r' then
+        1
+      else
+        0
+    )
     events.toSeq
 
   end feed
@@ -133,6 +139,10 @@ class ServerSentEventParser(
       // Decode a truncated character at the end of the stream as U+FFFD
       buffer.append(String(pendingBytes, StandardCharsets.UTF_8))
       pendingBytes = Array.emptyByteArray
+    // A CR at the end of the stream ends the last line, as the first half of a CRLF would
+    if buffer.length > 0 && buffer.charAt(buffer.length - 1) == '\r' then
+      buffer.setLength(buffer.length - 1)
+    checkLineLength()
     if buffer.length > 0 then
       val line = buffer.toString
       buffer.setLength(0)
@@ -152,8 +162,8 @@ class ServerSentEventParser(
     pendingBytes = Array.emptyByteArray
     hasFieldsForCurrentEvent = false
 
-  private def checkLineLength(): Unit =
-    if buffer.length > maxLineLength then
+  private def checkLineLength(pendingLineEnd: Int = 0): Unit =
+    if buffer.length - pendingLineEnd > maxLineLength then
       buffer.setLength(0)
       throw ServerSentEventParser.EventTooLargeException(
         s"SSE line exceeds the maximum length of ${maxLineLength} chars"
