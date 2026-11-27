@@ -4,6 +4,7 @@ import type { Theme } from 'vitepress'
 import BlogPostMeta from './components/BlogPostMeta.vue'
 import ImageZoom from './components/ImageZoom.vue'
 import UiGallery from './components/UiGallery.vue'
+import UniHome from './UniHome.vue'
 import { oldAnchorTarget } from './oldAnchors'
 import { revealActiveSidebarLink } from './sidebarScroll'
 import './custom.css'
@@ -19,6 +20,8 @@ export default {
   enhanceApp({ app, router, siteData }) {
     // <UiGallery story="overlays/menu" /> embeds the uni-ui gallery in a page
     app.component('UiGallery', UiGallery)
+    // <UniHome /> renders the top page (docs/index.md)
+    app.component('UniHome', UniHome)
     if (typeof window === 'undefined') return
     const redirect = () => {
       const target = oldAnchorTarget(siteData.value.base, window.location.pathname, window.location.hash)
