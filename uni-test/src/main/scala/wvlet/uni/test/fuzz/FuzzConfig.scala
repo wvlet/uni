@@ -52,6 +52,9 @@ import java.nio.charset.StandardCharsets
   * @param genSize
   *   the size passed to generators in [[wvlet.uni.test.FuzzCheck.fuzzGen]], which bounds the length
   *   of generated lists and strings
+  * @param featureGuidance
+  *   keep inputs that show a new feature (a rejection message, or a label from
+  *   [[wvlet.uni.test.FuzzCheck.fuzzFeature]]) and mutate them further (on by default)
   * @param slowInputMillis
   *   fail on an input that runs longer than this twice in a row, to catch inputs that make the
   *   target quadratic or worse. An input that never finishes still blocks the test.
@@ -69,7 +72,8 @@ final case class FuzzConfig(
     maxReduceSteps: Int = 10000,
     useEnvOverrides: Boolean = true,
     genSize: Int = 32,
-    slowInputMillis: Option[Long] = None
+    slowInputMillis: Option[Long] = None,
+    featureGuidance: Boolean = true
 ):
   def withIterations(n: Int): FuzzConfig                    = copy(iterations = math.max(0, n))
   def withTimeBudgetMillis(millis: Long): FuzzConfig        = copy(timeBudgetMillis = Some(millis))
@@ -97,6 +101,8 @@ final case class FuzzConfig(
   def withMaxReduceSteps(n: Int): FuzzConfig            = copy(maxReduceSteps = math.max(0, n))
   def withGenSize(n: Int): FuzzConfig                   = copy(genSize = math.max(0, n))
   def withSlowInputMillis(millis: Long): FuzzConfig     = copy(slowInputMillis = Some(millis))
+  def withFeatureGuidance: FuzzConfig                   = copy(featureGuidance = true)
+  def noFeatureGuidance: FuzzConfig                     = copy(featureGuidance = false)
   def noSlowInputMillis: FuzzConfig                     = copy(slowInputMillis = None)
   def withExpected(p: Throwable => Boolean): FuzzConfig = copy(expected = p)
 

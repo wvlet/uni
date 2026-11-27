@@ -259,6 +259,10 @@ test("JSON strings read back the same") {
 }
 ```
 
+Inputs that show a new feature are kept and mutated further: each distinct
+expected-exception message counts, and a target can report states with
+`fuzzFeature("label")`, which guides the search into deeper branches.
+
 For trees and ASTs, `Gen.recursive(leaf)(child => branch)` builds finite
 values (at most `size` branches, `maxDepth` deep), and failing trees reduce
 toward leaves under `fuzzGen`.

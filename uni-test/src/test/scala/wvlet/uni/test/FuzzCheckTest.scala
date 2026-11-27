@@ -209,4 +209,47 @@ class FuzzCheckTest extends UniTest:
     ex.getMessage shouldContain "input (4 bytes, reduced from 5)"
   }
 
+  // A target that fails only on inputs starting with "FUZZ"
+  private def magic(reportFeatures: Boolean)(bytes: Array[Byte]): Unit =
+    val n = bytes.iterator.zip("FUZZ".iterator).takeWhile((b, c) => b == c.toByte).size
+    if reportFeatures && n > 0 then
+      fuzzFeature(s"prefix-${n}")
+    if n == 4 then
+      throw IllegalStateException("found FUZZ")
+
+  test("fuzzFeature guides the search toward deeper states") {
+    val config = base.withSeed(3L).withIterations(50000).withSeeds("abcd")
+    val ex     = intercept[AssertionFailure] {
+      fuzz("guided", config)(magic(reportFeatures = true))
+    }
+    ex.getMessage shouldContain "found FUZZ"
+    ex.getMessage shouldContain "explored: "
+    // Without features, the same budget does not find it
+    fuzz("unguided", config.noFeatureGuidance)(magic(reportFeatures = true))
+  }
+
+  test("rejection messages guide the search without fuzzFeature calls") {
+    val config = base
+      .withSeed(3L)
+      .withIterations(50000)
+      .withSeeds("abcd")
+      .withExpectedCases { case _: IllegalArgumentException =>
+      }
+    val ex = intercept[AssertionFailure] {
+      // A parser of the keyword CAFE whose error names the next expected letter
+      fuzz("rejections", config) { bytes =>
+        val n = bytes.iterator.zip("CAFE".iterator).takeWhile((b, c) => b == c.toByte).size
+        if n == 4 then
+          throw IllegalStateException("found CAFE")
+        else
+          throw IllegalArgumentException(s"expected ${"CAFE".charAt(n)}")
+      }
+    }
+    ex.getMessage shouldContain "found CAFE"
+  }
+
+  test("fuzzFeature outside a fuzz target does nothing") {
+    fuzzFeature("ignored")
+  }
+
 end FuzzCheckTest
