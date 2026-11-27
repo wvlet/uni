@@ -3,149 +3,217 @@ package wvlet.uni.json
 import wvlet.uni.json.JSON.*
 
 /**
-  * Convert JSON as Yaml
+  * Write JSON as block-style YAML that reads back as the same value:
+  *
+  * {{{
+  *   YAMLFormatter.toYaml("""{"name":"api","ports":[80,443],"tags":[]}""")
+  *   // name: api
+  *   // ports:
+  *   //   - 80
+  *   //   - 443
+  *   // tags: []
+  * }}}
+  *
+  * Words are written plain unless YAML would read them as a number, boolean, or null; other
+  * one-line text is single-quoted, multi-line text is a literal block (`|` or `|-`), and text with
+  * control characters is double-quoted with escapes. Empty objects and arrays are written as `{}`
+  * and `[]`.
   */
 object YAMLFormatter:
-  def toYaml(json: String): String =
-    val visitor = new YamlWriter
-    JSONTraverser.traverse(json, visitor)
-    visitor.toYaml
+  def toYaml(json: String): String = toYaml(JSON.parseAny(json))
 
-  private sealed trait YamlContext:
-    def getAndAdd: Int
+  def toYaml(value: JSONValue): String =
+    val lines = Seq.newBuilder[String]
+    value match
+      case c if isNonEmptyCollection(c) =>
+        block(c, 0, lines)
+      case other =>
+        val (head, rest) = scalar(other, 1)
+        lines += head
+        lines ++= rest
+    val out = lines.result()
+    // A `|` block keeps its final line break only if the text has one after the block's last line
+    if lastScalarIsClipBlock(value) then
+      out.mkString("", "\n", "\n")
+    else
+      out.mkString("\n")
 
-  private case class OBJECT(private var count: Int) extends YamlContext:
-    def getAndAdd: Int =
-      val v = count
-      count += 1
-      v
+  /** Is the last scalar of the value a literal block with `|`, which ends in a line break? */
+  private def lastScalarIsClipBlock(v: JSONValue): Boolean =
+    v match
+      case o: JSONObject =>
+        o.v.lastOption.exists((_, child) => lastScalarIsClipBlock(child))
+      case a: JSONArray =>
+        a.v.lastOption.exists(lastScalarIsClipBlock)
+      case s: JSONString =>
+        literalBlock(s.v, 0).exists(_._1 == "|")
+      case _ =>
+        false
 
-  private case class OBJECT_ARRAY(private var count: Int) extends YamlContext:
-    def getAndAdd: Int =
-      val v = count
-      count += 1
-      v
+  private def pad(indent: Int): String = "  " * indent
 
-  private case class ARRAY(private var count: Int) extends YamlContext:
-    def getAndAdd: Int =
-      val v = count
-      count += 1
-      v
+  private def isNonEmptyCollection(v: JSONValue): Boolean =
+    v match
+      case o: JSONObject =>
+        o.v.nonEmpty
+      case a: JSONArray =>
+        a.v.nonEmpty
+      case _ =>
+        false
 
-  class YamlWriter() extends JSONVisitor:
-    private val lines                           = Seq.newBuilder[String]
-    def toYaml: String                          = lines.result().mkString("\n")
-    private var contextStack: List[YamlContext] = Nil
+  /** The lines of a non-empty object or array whose entries start at `indent` */
+  private def block(v: JSONValue, indent: Int, lines: collection.mutable.Builder[String, ?]): Unit =
+    v match
+      case o: JSONObject =>
+        o.v
+          .foreach { (k, child) =>
+            val key = quote(k)
+            if isNonEmptyCollection(child) then
+              lines += s"${pad(indent)}${key}:"
+              block(child, indent + 1, lines)
+            else
+              val (head, rest) = scalar(child, indent + 1)
+              lines += s"${pad(indent)}${key}: ${head}"
+              lines ++= rest
+          }
+      case a: JSONArray =>
+        a.v
+          .foreach { child =>
+            if isNonEmptyCollection(child) then
+              // Write the child one level deeper, then put `- ` in place of its first indent
+              val nested = Seq.newBuilder[String]
+              block(child, indent + 1, nested)
+              val childLines = nested.result()
+              lines += s"${pad(indent)}- ${childLines.head.drop(pad(indent + 1).length)}"
+              lines ++= childLines.tail
+            else
+              val (head, rest) = scalar(child, indent + 1)
+              lines += s"${pad(indent)}- ${head}"
+              lines ++= rest
+          }
+      case _ =>
 
-    private def indent(levelOffset: Int = 0): String =
-      "  " * (contextStack.length - 1 + levelOffset)
+  /**
+    * A scalar or an empty collection: the text after `key: ` or `- `, and the lines of a literal
+    * block indented at `indent`
+    */
+  private def scalar(v: JSONValue, indent: Int): (String, Seq[String]) =
+    v match
+      case _: JSONObject =>
+        ("{}", Nil)
+      case _: JSONArray =>
+        ("[]", Nil)
+      case s: JSONString =>
+        literalBlock(s.v, indent).getOrElse((quote(s.v), Nil))
+      case other =>
+        (other.toJSON, Nil)
 
-    private def emitKey(k: String): Unit                    = lines += s"${indent()}${quoteKey(k)}:"
-    private def emitKeyValue(k: String, v: JSONValue): Unit =
-      lines += s"${indent()}${quoteKey(k)}: ${quoteValue(v)}"
+  /** Words YAML 1.1 or 1.2 readers resolve to something other than a string */
+  private val reservedWords = Set(
+    "null",
+    "true",
+    "false",
+    "yes",
+    "no",
+    "on",
+    "off",
+    "y",
+    "n",
+    "<<",
+    "="
+  )
 
-    private def emitArrayKeyValue(k: String, v: JSONValue): Unit =
-      lines += s"${"  " * (contextStack.length - 2)}- ${quoteKey(k)}: ${quoteValue(v)}"
+  // Characters that start something other than a plain scalar, plus the starts of numbers (digits,
+  // signs, and `.` for .inf and .nan)
+  private val unsafeFirst = "-?:,[]{}#&*!|>'\"%@`~+.0123456789"
 
-    private def emitArrayElement(v: JSONValue): Unit = lines += s"${indent()}- ${quoteValue(v)}"
-    private def quoteKey(k: String): String          =
-      def isNumber(k: String): Boolean = k.forall {
-        case '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
-          true
-        case _ =>
-          false
-      }
+  /**
+    * Can the text be written plain (unquoted) and read back as the same string? It must not start
+    * with an indicator or look like a number, contain `: ` or ` #`, or have spaces at either end.
+    */
+  private def isPlain(s: String): Boolean =
+    s.nonEmpty && unsafeFirst.indexOf(s.head) < 0 && s.forall(isPrintable) && s.head != ' ' &&
+      s.last != ' ' && s.last != ':' && !s.contains(": ") && !s.contains(" #") &&
+      !reservedWords.contains(s.toLowerCase)
 
-      if isNumber(k) then
-        s"'${k}'"
+  /** Characters that every quoting style except double quotes can hold as they are */
+  private def isPrintable(c: Char): Boolean =
+    c >= ' ' && c != '\u007f' &&
+      !(c >= '\u0080' && c <= '\u009f') && !Character.isSurrogate(c) && c != '﻿' && c != '￾' &&
+      c != '￿'
+
+  /** A key or one-line string: plain, single-quoted, or double-quoted */
+  private def quote(s: String): String =
+    if isPlain(s) then
+      s
+    else if s.forall(isPrintable) then
+      s"'${s.replace("'", "''")}'"
+    else
+      doubleQuoted(s)
+
+  private def doubleQuoted(s: String): String =
+    val sb = StringBuilder(s.length + 2)
+    sb.append('"')
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      c match
+        case '"' =>
+          sb.append("\\\"")
+        case '\\' =>
+          sb.append("\\\\")
+        case '\n' =>
+          sb.append("\\n")
+        case '\r' =>
+          sb.append("\\r")
+        case '\t' =>
+          sb.append("\\t")
+        case c
+            if Character.isHighSurrogate(c) && i + 1 < s.length &&
+              Character.isLowSurrogate(s.charAt(i + 1)) =>
+          sb.append(c).append(s.charAt(i + 1))
+          i += 1
+        case c if isPrintable(c) =>
+          sb.append(c)
+        case c =>
+          wvlet.uni.msgpack.spi.Value.escapeChar(sb, c)
+      i += 1
+    sb.append('"')
+    sb.result()
+
+  /**
+    * Multi-line text as a literal block, when it can be one: printable lines, at most one final
+    * line break, and a first non-empty line that does not start with a space (which would be read
+    * as the block's indentation)
+    */
+  private def literalBlock(s: String, indent: Int): Option[(String, Seq[String])] =
+    val body =
+      if s.endsWith("\n") then
+        s.dropRight(1)
       else
-        k
-
-    private def blockString(s: String): String = s
-      .split("\n")
-      .map { line =>
-        if line.isEmpty then
-          ""
+        s
+    val lines = body.split("\n", -1).toSeq
+    val ok    =
+      body.contains('\n') && !body.endsWith("\n") &&
+        lines.forall(l => l.forall(c => isPrintable(c) || c == '\t')) &&
+        lines.find(_.nonEmpty).exists(l => !l.startsWith(" ") && !l.startsWith("\t")) &&
+        !lines.exists(l => l.nonEmpty && l.isBlank)
+    if !ok then
+      None
+    else
+      val header =
+        if s.endsWith("\n") then
+          "|"
         else
-          s"${indent(1)}${line}"
-      }
-      .mkString("\n")
-
-    private def quoteValue(v: JSONValue): String =
-      val letterPattern                = """[\w]+""".r
-      def isLetter(s: String): Boolean =
-        s match
-          case letterPattern() =>
-            true
-          case _ =>
-            false
-      def hasNewLine(s: String): Boolean      = s.contains('\n')
-      def hasSingleQuotes(s: String): Boolean = s.contains("'")
-
-      val str = v.toString
-      v match
-        case s: JSONString if hasNewLine(str) || hasSingleQuotes(str) =>
-          // output literal
-          s"|\n${blockString(str)}"
-        case s: JSONString if !isLetter(str) =>
-          s"'${str}'"
-        case _ =>
-          str
-
-    override def visitObject(o: JSON.JSONObject): Unit =
-      contextStack.headOption match
-        case Some(a: ARRAY) =>
-          contextStack = OBJECT_ARRAY(0) :: contextStack
-        case _ =>
-          contextStack = OBJECT(0) :: contextStack
-
-    override def leaveObject(o: JSON.JSONObject): Unit =
-      contextStack = contextStack.tail
-      contextStack.headOption.map(_.getAndAdd)
-
-    private def isPrimitive(v: JSON.JSONValue): Boolean =
-      v match
-        case o: JSONObject =>
-          false
-        case a: JSONArray =>
-          false
-        case _ =>
-          true
-
-    override def visitKeyValue(k: String, v: JSON.JSONValue): Unit =
-      if isPrimitive(v) then
-        contextStack.head match
-          case OBJECT_ARRAY(0) =>
-            // The first object element inside array should have `-` prefix
-            emitArrayKeyValue(k, v)
-          case _ =>
-            emitKeyValue(k, v)
-      else
-        v match
-          case o: JSONObject if o.isEmpty =>
-          // do not output empty key-value pair
-          case _ =>
-            emitKey(k)
-
-    override def leaveKeyValue(k: String, v: JSON.JSONValue): Unit = {}
-
-    override def visitArray(a: JSON.JSONArray): Unit = contextStack = ARRAY(0) :: contextStack
-    override def leaveArray(a: JSONArray): Unit      =
-      contextStack = contextStack.tail
-      contextStack.headOption.map(_.getAndAdd)
-
-    private def emitPrimitive(v: JSONValue): Unit =
-      contextStack.head match
-        case a: ARRAY =>
-          emitArrayElement(v)
-        case _ =>
-      contextStack.headOption.map(_.getAndAdd)
-
-    override def visitString(v: JSONString): Unit   = emitPrimitive(v)
-    override def visitNumber(n: JSONNumber): Unit   = emitPrimitive(n)
-    override def visitBoolean(n: JSONBoolean): Unit = emitPrimitive(n)
-    override def visitNull: Unit                    = emitPrimitive(JSONNull())
-
-  end YamlWriter
+          "|-"
+      Some(
+        header ->
+          lines.map { l =>
+            if l.isEmpty then
+              ""
+            else
+              s"${pad(indent)}${l}"
+          }
+      )
 
 end YAMLFormatter

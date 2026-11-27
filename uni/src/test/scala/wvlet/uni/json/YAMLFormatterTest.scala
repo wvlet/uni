@@ -10,14 +10,36 @@ class YAMLFormatterTest extends UniTest:
 
   val testData = Seq(
     // json, yaml
-    Test("""{}""", """"""),
+    // Empty objects and arrays are kept, so they read back as themselves, not null
+    Test("""{}""", """{}"""),
+    Test("""{"a":[]}""", """a: []"""),
+    // Words YAML would read as another type are quoted
+    Test(
+      """{"a":"true","b":"null","c":"123","d":"yes"}""",
+      """a: 'true'
+b: 'null'
+c: '123'
+d: 'yes'"""
+    ),
+    Test(
+      """{"a":"tab\there","b":"it's"}""",
+      """a: "tab\there"
+b: it's"""
+    ),
     Test("""{"a":1}""", """a: 1"""),
     Test("""{"a":true}""", """a: true"""),
     Test("""{"a":false}""", """a: false"""),
     Test("""{"a":null}""", """a: null"""),
     Test("""{"a":1.1}""", """a: 1.1"""),
     Test("""{"a":"hello"}""", """a: hello"""),
-    Test("""{"a":"hello world"}""", """a: 'hello world'"""),
+    Test("""{"a":"hello world"}""", """a: hello world"""),
+    Test(
+      """{"/v1/users/{id}":{"$ref":"#/c"},"a":"x: y","b":" pad"}""",
+      """/v1/users/{id}:
+  $ref: '#/c'
+a: 'x: y'
+b: ' pad'"""
+    ),
     Test(
       json = """{"a":[1, 2]}""",
       yaml =
@@ -42,9 +64,9 @@ class YAMLFormatterTest extends UniTest:
                |  - null
                |  - 1.1
                |  - hello
-               |  - 'hello world'""".stripMargin
+               |  - hello world""".stripMargin
     ),
-    Test(json = """{"a":{}}""", yaml = """""".stripMargin),
+    Test(json = """{"a":{}}""", yaml = """a: {}"""),
     Test(
       json = """{"a":{"b":1}}""",
       yaml =
@@ -92,18 +114,22 @@ class YAMLFormatterTest extends UniTest:
                |  - b: 3
                |    c: 4""".stripMargin
     ),
+    // A final `|` block needs a line break after it to keep its own
+    Test(json = """{"a":"line 1\nline 2\n"}""", yaml = "a: |\n  line 1\n  line 2\n"),
+    Test(
+      json = """{"description":"ends with a line break\n"}""",
+      yaml = """description: "ends with a line break\n"""".stripMargin
+    ),
     Test(
       json = """{"description":"multi-line\nstrings"}""",
       yaml =
-        """description: |
+        """description: |-
           |  multi-line
           |  strings""".stripMargin
     ),
     Test(
       json = """{"description":"with quote(')"}""",
-      yaml =
-        """description: |
-          |  with quote(')""".stripMargin
+      yaml = """description: with quote(')""".stripMargin
     )
   )
 

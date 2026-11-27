@@ -66,3 +66,18 @@ coverage guidance; this ADR records the first step that shipped.
   add a document; one-empty-field records written as blank lines; an out-of-range timestamp
   throwing `DateTimeException`; and unpaired surrogates in JSON strings written raw, which UTF-8
   cannot encode. `quoteJSONString` now escapes them as `\uXXXX`.
+
+## Update: recursive generators and round trips over JSON trees
+
+- **`Gen.recursive(leaf, maxDepth)(branch)`** bounds a value by a branch budget (the generator
+  size) and a depth cap, and halves the size for children so wide lists of subtrees stay small. A
+  node is a leaf when `nextBoolean()` is false, so zero bytes give a leaf and reduction under
+  `fuzzGen` shrinks trees toward leaves. `Gen.lzy` covers mutually recursive generators.
+- Round trips over generated JSON trees found that `YAMLFormatter` was a lossy pretty-printer:
+  empty objects were dropped, empty arrays and `|` blocks without a final line break changed value,
+  and strings like `true` or `123` were left plain. It was rewritten as a direct walk over
+  `JSONValue` that keeps the block layout and quotes only what YAML would misread. This matters
+  for `OpenAPI.toYAML`, where `security: []` means no authentication.
+- Scala.js prints whole doubles without `.0`, so `JSONDouble(1e12).toJSON` read back as a
+  `JSONLong` there only; `toJSON` now adds `.0`. Running the same targets on every platform is
+  what caught it.
