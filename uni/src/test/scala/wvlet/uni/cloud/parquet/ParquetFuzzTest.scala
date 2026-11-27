@@ -389,7 +389,7 @@ class ParquetFuzzTest extends UniTest:
     )
   }
 
-  private def written: Seq[Array[Byte]] =
+  private lazy val written: Seq[Array[Byte]] =
     for
       codec <- writerCodecs
       dict  <- Seq(true, false)
@@ -416,7 +416,7 @@ class ParquetFuzzTest extends UniTest:
     "duckdb/variant_array.parquet"
   )
 
-  private def fixtures: Seq[Array[Byte]] = fixtureNames.map(TestFiles.bytes)
+  private lazy val fixtures: Seq[Array[Byte]] = fixtureNames.map(TestFiles.bytes)
 
   private def readAll(bytes: Array[Byte]): Unit =
     val f = Parquet.open(bytes)

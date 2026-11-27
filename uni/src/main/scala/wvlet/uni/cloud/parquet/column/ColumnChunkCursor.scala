@@ -721,8 +721,8 @@ private[parquet] final class ColumnChunkCursor(
       length: Int,
       uncompressedSize: Int
   ): Array[Byte] =
-    if uncompressedSize < 0 then
-      throw ParquetException.corrupt(s"negative uncompressed page size ${uncompressedSize}")
+    // Before any buffer is sized by the header
+    Codecs.checkUncompressedSize(meta.codec, length, uncompressedSize)
     if meta.codec == CompressionCodec.UNCOMPRESSED then
       if length != uncompressedSize then
         throw ParquetException.corrupt(
@@ -731,8 +731,6 @@ private[parquet] final class ColumnChunkCursor(
       pageOffset = start
       chunk
     else if Codecs.decodesInto(meta.codec) then
-      // Before the buffer is sized by the header
-      Codecs.checkUncompressedSize(meta.codec, length, uncompressedSize)
       if pageBuffer == null || pageBuffer.length < uncompressedSize then
         PageBuffers.release(pageBuffer)
         pageBuffer = PageBuffers.borrow(uncompressedSize)

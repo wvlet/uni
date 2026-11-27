@@ -32,19 +32,22 @@ private[parquet] object Codecs:
     val ratio =
       codec match
         case CompressionCodec.SNAPPY =>
-          32L
+          Some(32L)
         case CompressionCodec.LZ4_RAW | CompressionCodec.LZ4 =>
-          256L
+          Some(256L)
         case CompressionCodec.GZIP =>
-          1032L
+          Some(1032L)
         case CompressionCodec.ZSTD =>
-          32768L
+          Some(32768L)
         case _ =>
-          Long.MaxValue / Int.MaxValue
-    if uncompressedSize > math.max(0, length).toLong * ratio + 64 then
-      throw ParquetException.corrupt(
-        s"a page of ${length} ${codec} bytes cannot hold ${uncompressedSize} uncompressed bytes"
-      )
+          // UNCOMPRESSED pages are checked for an exact length where they are read
+          None
+    ratio.foreach { r =>
+      if uncompressedSize > math.max(0, length).toLong * r + 64 then
+        throw ParquetException.corrupt(
+          s"a page of ${length} ${codec} bytes cannot hold ${uncompressedSize} uncompressed bytes"
+        )
+    }
 
   /** Whether [[decompressInto]] can decode pages of `codec` into a caller's buffer */
   def decodesInto(codec: CompressionCodec): Boolean =
