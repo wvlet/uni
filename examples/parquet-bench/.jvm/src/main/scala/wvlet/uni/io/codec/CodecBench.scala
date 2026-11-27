@@ -35,7 +35,7 @@ object CodecBench:
           sys.error(s"${name}: chunk ${i} differs")
         i += 1
 
-    check("uni snappy", i => Snappy.decompress(snappy(i), 0, snappy(i).length, chunks(i).length))
+    check("uni snappy", i => Snappy.decode(snappy(i), 0, snappy(i).length, chunks(i).length))
     check("uni zstd", i => Zstd.decompress(zstd(i), 0, zstd(i).length, chunks(i).length))
 
     def time(name: String)(decode: Int => Array[Byte]): Unit = if name.contains(filter) then
@@ -52,7 +52,7 @@ object CodecBench:
       val sorted = times.result().drop(rounds / 3).sorted
       println(f"${name}%-16s median ${sorted(sorted.length / 2)}%7.1f ms  min ${sorted.head}%7.1f ms")
 
-    time("uni snappy")(i => Snappy.decompress(snappy(i), 0, snappy(i).length, chunks(i).length))
+    time("uni snappy")(i => Snappy.decode(snappy(i), 0, snappy(i).length, chunks(i).length))
     time("snappy-java")(i => org.xerial.snappy.Snappy.uncompress(snappy(i)))
     time("uni zstd")(i => Zstd.decompress(zstd(i), 0, zstd(i).length, chunks(i).length))
     time("zstd-jni")(i => com.github.luben.zstd.Zstd.decompress(zstd(i), chunks(i).length))

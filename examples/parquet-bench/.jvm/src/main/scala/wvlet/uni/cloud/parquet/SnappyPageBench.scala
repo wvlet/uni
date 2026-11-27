@@ -63,11 +63,13 @@ object SnappyPageBench:
       )
 
     val direct = new Array[Byte](out.length)
-    time("uni snappy")(p => Snappy.decompressInto(p.src, p.offset, p.length, out, p.rawSize))
+    time("uni snappy")(p => Snappy.decodeInto(p.src, p.offset, p.length, out, p.rawSize))
     time("snappy-java")(p =>
       org.xerial.snappy.Snappy.uncompress(p.src, p.offset, p.length, direct, 0)
     )
-    time("uni snappy")(p => Snappy.decompressInto(p.src, p.offset, p.length, out, p.rawSize))
+    // What Parquet reads call: snappy-java here, unless -Dwvlet.uni.snappy.useSnappyJava=false
+    time("uni dispatch")(p => Snappy.decompressInto(p.src, p.offset, p.length, out, p.rawSize))
+    time("uni snappy")(p => Snappy.decodeInto(p.src, p.offset, p.length, out, p.rawSize))
 
   end main
 

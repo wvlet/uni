@@ -72,7 +72,7 @@ class SnappyDecodeTest extends UniTest:
 
   private def check(s: TagStream): Unit =
     val c = s.bytes
-    Snappy.decompress(c, 0, c.length, s.out.length).toSeq shouldBe s.out.toSeq
+    Snappy.decode(c, 0, c.length, s.out.length).toSeq shouldBe s.out.toSeq
 
   test("copies at every offset from 1 to 64 and every length, in each form") {
     for
@@ -110,7 +110,7 @@ class SnappyDecodeTest extends UniTest:
     check(s)
     // The stream inside a longer array, with bytes before and after it
     val padded = Array.fill[Byte](7)(1) ++ c ++ Array.fill[Byte](40)(2)
-    Snappy.decompress(padded, 7, c.length, s.out.length).toSeq shouldBe s.out.toSeq
+    Snappy.decode(padded, 7, c.length, s.out.length).toSeq shouldBe s.out.toSeq
   }
 
   test("leaves the bytes of a longer output buffer past expectedSize as they were") {
@@ -120,7 +120,7 @@ class SnappyDecodeTest extends UniTest:
     val c   = s.bytes
     val n   = s.out.length
     val out = Array.fill[Byte](n + 200)(0x5a.toByte)
-    Snappy.decompressInto(c, 0, c.length, out, n)
+    Snappy.decodeInto(c, 0, c.length, out, n)
     out.take(n).toSeq shouldBe s.out.toSeq
     out.drop(n).forall(_ == 0x5a.toByte) shouldBe true
   }
@@ -152,7 +152,7 @@ class SnappyDecodeTest extends UniTest:
       val n = s.out.length
       for fill <- Seq(0, 0x5a) do
         val out = Array.fill[Byte](n + 64)(fill.toByte)
-        Snappy.decompressInto(c, 0, c.length, out, n)
+        Snappy.decodeInto(c, 0, c.length, out, n)
         out.take(n).toSeq shouldBe s.out.toSeq
         out.drop(n).forall(_ == fill.toByte) shouldBe true
   }
@@ -184,7 +184,7 @@ class SnappyDecodeTest extends UniTest:
       s.literal(40)
       val c = s.bytes
       val e = intercept[CodecException] {
-        Snappy.decompress(c, 0, c.length, s.out.length + 4)
+        Snappy.decode(c, 0, c.length, s.out.length + 4)
       }
       e.getMessage shouldContain message
   }
@@ -192,7 +192,7 @@ class SnappyDecodeTest extends UniTest:
   test("rejects copies outside the output and literals past the input") {
     def corrupt(c: Array[Byte], n: Int, message: String = ""): Unit =
       val e = intercept[CodecException] {
-        Snappy.decompress(c, 0, c.length, n)
+        Snappy.decode(c, 0, c.length, n)
       }
       e.getMessage shouldContain message
     val base = TagStream().literal(100)

@@ -11,8 +11,83 @@ private[uni] object Snappy:
   /**
     * Decodes into `out(0)` to `out(expectedSize - 1)`, so a caller can reuse one buffer for many
     * pages. `out` may be longer than `expectedSize`; bytes past it are left as they were.
+    *
+    * On the JVM, when the application has snappy-java on its classpath and its native library
+    * loads, the native decoder does the work: it is about 1.5x faster than [[decodeInto]], which C2
+    * can't match on one stream (adr/2026-11-24-snappy-jvm-window-loop.md).
     */
   def decompressInto(
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      out: Array[Byte],
+      expectedSize: Int
+  ): Unit =
+    if SnappyJava.available then
+      checkArgs(src, offset, length, out, expectedSize)
+      // The length check before the call keeps the native decoder inside out(0 until expectedSize)
+      checkPreamble(src, offset, offset + length, expectedSize)
+      val n =
+        try
+          SnappyJava.decompressInto(src, offset, length, out)
+        catch
+          case e: java.io.IOException =>
+            throw CodecException.corrupt(s"Snappy: ${e.getMessage}")
+      if n != expectedSize then
+        fail(s"decoded ${n} bytes, expected ${expectedSize}")
+    else
+      decodeInto(src, offset, length, out, expectedSize)
+
+  /** [[decompress]] with the pure-Scala decoder on every platform */
+  def decode(src: Array[Byte], offset: Int, length: Int, expectedSize: Int): Array[Byte] =
+    val out = new Array[Byte](expectedSize)
+    decodeInto(src, offset, length, out, expectedSize)
+    out
+
+  private def checkArgs(
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      out: Array[Byte],
+      expectedSize: Int
+  ): Unit =
+    if offset < 0 || length < 0 || length > src.length - offset then
+      throw IndexOutOfBoundsException(
+        s"Snappy: input range ${offset} + ${length} is outside an array of ${src.length} bytes"
+      )
+    if expectedSize < 0 || out.length < expectedSize then
+      throw IllegalArgumentException(
+        s"Snappy: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
+      )
+
+  /**
+    * Reads the stream's preamble, the uncompressed length as a varint, checks that it states
+    * `expectedSize`, and returns the input position after it
+    */
+  private def checkPreamble(src: Array[Byte], offset: Int, end: Int, expectedSize: Int): Int =
+    var ip     = offset
+    var outLen = 0L
+    var shift  = 0
+    var b      = 0
+    while
+      if shift > 28 then
+        fail("length varint is too long")
+      if ip >= end then
+        fail("input ends early")
+      b = src(ip) & 0xff
+      ip += 1
+      outLen |= (b & 0x7fL) << shift
+      shift += 7
+      (b & 0x80) != 0
+    do
+      (
+    )
+    if outLen != expectedSize then
+      fail(s"uncompressed length ${outLen} does not match the expected ${expectedSize}")
+    ip
+
+  /** [[decompressInto]] with the pure-Scala decoder on every platform */
+  def decodeInto(
       src: Array[Byte],
       offset: Int,
       length: Int,
@@ -24,32 +99,8 @@ private[uni] object Snappy:
         s"Snappy: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
       )
     val end = offset + length
-    var ip  = offset
-
-    def byteAt(i: Int): Int =
-      if i >= end then
-        fail("input ends early")
-      src(i) & 0xff
-
-    // Preamble: the uncompressed length as a varint
-    var outLen = 0L
-    var shift  = 0
-    var b      = 0
-    while
-      if shift > 28 then
-        fail("length varint is too long")
-      b = byteAt(ip)
-      ip += 1
-      outLen |= (b & 0x7fL) << shift
-      shift += 7
-      (b & 0x80) != 0
-    do
-      (
-    )
-    if outLen != expectedSize then
-      fail(s"uncompressed length ${outLen} does not match the expected ${expectedSize}")
-
-    var op = 0
+    var ip  = checkPreamble(src, offset, end, expectedSize)
+    var op  = 0
 
     if SnappyLoop.enabled then
       // The JVM's loop decodes the common tags; each tag it stops at is decoded here, with checks
@@ -111,7 +162,7 @@ private[uni] object Snappy:
     if op != expectedSize then
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
 
-  end decompressInto
+  end decodeInto
 
   private def fail(msg: String): Nothing = throw CodecException.corrupt(s"Snappy: ${msg}")
 

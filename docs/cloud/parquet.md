@@ -973,7 +973,10 @@ For browser pages that only read files and need a small bundle,
   pages v1 and v2.
 - **Compression**: UNCOMPRESSED, SNAPPY, GZIP, ZSTD, LZ4_RAW, the deprecated LZ4 (Hadoop framing),
   and BROTLI. The decoders are written in Scala, so every codec works on every platform. On the
-  JVM, Scala Native, and Node.js, GZIP uses the platform's zlib.
+  JVM, Scala Native, and Node.js, GZIP uses the platform's zlib. On the JVM, adding
+  [snappy-java](https://github.com/xerial/snappy-java) to your dependencies makes SNAPPY pages
+  decode with its native library, about 1.5x faster than the Scala decoder; set the system property
+  `wvlet.uni.snappy.useSnappyJava=false` to keep the Scala decoder.
 - **Types**: all physical types and the logical types listed above, nested lists, maps, and
   structs, VARIANT (shredded or not), GEOMETRY and GEOGRAPHY (as WKB), and the legacy list and
   map layouts that older writers produce.
