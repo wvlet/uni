@@ -42,3 +42,27 @@ coverage guidance; this ADR records the first step that shipped.
   and query-engine oracles (result bags, TLP, NoREC).
 - No hang detection: a target that loops forever blocks the test. A timeout needs a thread, which
   Scala.js lacks.
+
+## Update: typed targets, slow inputs, nightly runs
+
+- **`fuzzGen` decodes bytes with a `Gen`.** The generator gets a `scala.util.Random` whose bits
+  come from the input bytes (`ByteRandom`), with 0 past the end, as Hypothesis and libFuzzer's
+  `FuzzedDataProvider` do. Mutation, reduction, and corpus files stay byte-based, so typed targets
+  need no second engine and no `Shrink`: lowering bytes toward 0 shortens lists and lowers numbers.
+  Shrinking is coarser than `Shrink` (`chooseNum` maps 8 bytes through `%`), which is acceptable for
+  a fuzzer that reports a value instead of proving minimality. A corpus file replays only while its
+  generator is unchanged.
+- **Reduction lowers bytes by binary search** instead of only zeroing them, then runs ddmin again.
+  Zeroing a length byte usually stops the failure; lowering it finds the shortest length that
+  still fails.
+- **Slow inputs, not hangs.** `withSlowInputMillis` times each input after it finishes and fails
+  only when a second run is also slow, so JIT and GC pauses do not count. It catches quadratic
+  behavior on every platform; a true hang still needs a thread and stays out of scope.
+- **Nightly job.** `.github/workflows/fuzz.yml` runs the targets in `uni/src/test/scala/wvlet/uni/fuzz/`
+  for two minutes each with a fresh seed and uploads `target/fuzz/` on failure. It is not a required
+  check.
+- The new targets (YAML, CSV, TSV, cron, Markdown, and round trips over generated records and
+  strings) found: content after `...` crashing the YAML parser; a lone `\r` making `writeStream`
+  add a document; one-empty-field records written as blank lines; an out-of-range timestamp
+  throwing `DateTimeException`; and unpaired surrogates in JSON strings written raw, which UTF-8
+  cannot encode. `quoteJSONString` now escapes them as `\uXXXX`.

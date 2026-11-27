@@ -934,23 +934,67 @@ A run has two phases:
    byte order), inserts, deletes, duplicated ranges, splices of two inputs,
    and dictionary tokens, stacked 1 to 4 at a time.
 
+Now and then a mutated input is replaced with fresh random bytes, so a target
+without seeds still gets varied input.
+
 On a failure, the input is reduced while it still fails with the same
-exception class (delta debugging, then zeroing bytes that do not matter),
-written to `target/fuzz/<target>/crash-<hash>` with a `.report` file, and
-reported with the seed:
+exception class (delta debugging, then lowering each byte to the smallest
+value that still fails), written to `target/fuzz/<target>/crash-<hash>` with a
+`.report` file, and reported with the seed:
 
 ```text
 Fuzz target json-parse failed on input 20 with java.lang.ArrayIndexOutOfBoundsException: ...
   input (1 bytes, reduced from 6): 22
   as text: """
   seed=733437378479625 (replay with UNI_FUZZ_SEED=733437378479625)
-  saved to target/fuzz/json-parse/crash-af639f4c860184e5; copy it into src/test/resources/fuzz/json-parse/ to keep it as a regression case
+  crash_id: java.lang.ArrayIndexOutOfBoundsException@wvlet.uni.json.JSONScanner.scanString:412
+  saved to target/fuzz/json-parse/crash-af639f4c860184e5
+  keep it as a regression case: mkdir -p src/test/resources/fuzz/json-parse && cp target/fuzz/json-parse/crash-af639f4c860184e5 src/test/resources/fuzz/json-parse/
 ```
 
-Copy the crash file into the corpus directory, fix the bug, and the replay
-phase checks it from then on. Corpus files are read where a file system is
+Run the printed command, fix the bug, and the replay phase checks it from then
+on. Corpus files are read where a file system is
 available (JVM, Scala Native, Scala.js on Node); seeds in code run
 everywhere.
+
+### Typed values with `fuzzGen`
+
+`fuzzGen` fuzzes a target over the values of a [generator](#property-based-testing),
+the same `Gen` that `forAll` uses. It suits writers and round trips, where
+the input is a value rather than bytes:
+
+```scala
+import wvlet.uni.test.check.Gen
+import wvlet.uni.text.csv.CSV
+
+class CSVFuzzTest extends UniTest:
+  test("written records read back the same") {
+    val records = Gen.listOf(Gen.nonEmptyListOf(Gen.asciiStr).map(_.toIndexedSeq))
+    fuzzGen("csv-write", records) { rs =>
+      CSV.parse(CSV.writeRecords(rs)) shouldBe rs
+    }
+  }
+```
+
+The generator draws its random choices from the input bytes, so the runner
+still mutates and reduces bytes, and the report shows the generated value
+(with control and surrogate characters escaped). When the bytes run out,
+every draw is 0, which generators map to their first or smallest choice, so
+reducing the bytes shrinks the value: shorter lists, smaller numbers. Inputs
+for which the generator throws, such as a `filter` that never matches, are
+skipped. A saved crash file replays as long as the generator stays the same.
+For a type with an `Arbitrary`, pass `Arbitrary.arbitrary[A]`.
+
+`forAll` and `fuzzGen` complement each other: `forAll` samples a fixed
+number of values and shrinks with `Shrink`; `fuzzGen` keeps going for a time
+budget (`UNI_FUZZ_SECONDS`) and keeps failures as corpus files.
+
+### Slow inputs
+
+`withSlowInputMillis(ms)` fails on an input that runs longer than the limit,
+which catches inputs that make a parser quadratic. A slow input is run again
+before it counts, so a JIT compilation or GC pause does not fail the test. An
+input that never finishes still blocks the test.
 
 ### Longer runs
 
@@ -975,9 +1019,15 @@ UNI_FUZZ_SEED=733437378479625 ./sbt "uniJVM/testOnly *FuzzTest"  # replay a fail
 | Expected rejections | `withExpectedCases { case ... => }` | none |
 | RNG seed | `withSeed(s)` | `System.nanoTime()` |
 | Ignore `UNI_FUZZ_*` | `noEnvOverrides` | overrides on |
+| Generator size (`fuzzGen`) | `withGenSize(n)` | 32 |
+| Slow-input limit | `withSlowInputMillis(ms)` / `noSlowInputMillis` | none |
 
 Override `fuzzConfig` on the test class to share settings across targets.
-Fuzzing does not yet use coverage feedback, and it does not detect hangs.
+Fuzzing does not yet use coverage feedback.
+
+In the Uni repository, the [Fuzz workflow](https://github.com/wvlet/uni/actions/workflows/fuzz.yml)
+runs the targets under `uni/src/test/scala/wvlet/uni/fuzz/` for two minutes
+each every night, with a fresh seed, and uploads crash files as an artifact.
 
 ## Running Tests
 

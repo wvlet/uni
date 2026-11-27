@@ -19,9 +19,13 @@ import scala.util.Random
 import scala.util.control.NonFatal
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
+import wvlet.uni.test.check.Gen
+import wvlet.uni.test.check.Params
 import wvlet.uni.test.fuzz.ByteMutator
+import wvlet.uni.test.fuzz.ByteRandom
 import wvlet.uni.test.fuzz.FuzzConfig
 import wvlet.uni.test.fuzz.Reduce
+import wvlet.uni.test.fuzz.SlowInput
 
 /**
   * Mutation-based fuzz testing, mixed into [[UniTest]].
@@ -58,12 +62,40 @@ trait FuzzCheck:
   /** Fuzz a target that reads bytes. */
   def fuzz(target: String, config: FuzzConfig = fuzzConfig)(body: Array[Byte] => Any)(using
       source: TestSource
-  ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), body, source)
+  ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), Some(_), body, source)
 
   /** Fuzz a target that reads text. Inputs are mutated as bytes and decoded as UTF-8. */
   def fuzzString(target: String, config: FuzzConfig = fuzzConfig)(body: String => Any)(using
       source: TestSource
   ): Unit = fuzz(target, config)(bytes => body(String(bytes, StandardCharsets.UTF_8)))
+
+  /**
+    * Fuzz a target over values of a generator, such as a `Gen` built for property tests:
+    *
+    * {{{
+    *   fuzzGen("round-trip", Gen.nonEmptyListOf(Gen.alphaNumStr)) { names =>
+    *     CSV.parse(CSV.writeRecords(Seq(names))) shouldBe Seq(names)
+    *   }
+    * }}}
+    *
+    * The generator draws its random choices from the input bytes, so mutating the bytes changes the
+    * value, and reducing them shrinks it: once the bytes run out every draw is 0, which generators
+    * map to their first or smallest choice. A failure reports the generated value, and a saved
+    * crash file replays as long as the generator stays the same. An input for which the generator
+    * throws (for example, a `filter` that never matches) is skipped.
+    */
+  def fuzzGen[A](target: String, gen: Gen[A], config: FuzzConfig = fuzzConfig)(body: A => Any)(using
+      source: TestSource
+  ): Unit =
+    val c = config.applyEnv(FuzzCheck.env)
+    FuzzCheck.run(
+      target,
+      c,
+      bytes => FuzzCheck.generate(gen, bytes, c.genSize),
+      body,
+      source,
+      bytes => FuzzCheck.generate(gen, bytes, c.genSize).map(FuzzCheck.show)
+    )
 
 end FuzzCheck
 
@@ -76,37 +108,94 @@ object FuzzCheck:
       case NonFatal(_) =>
         None
 
-  /** A failure of the target: the input and what it threw. */
-  private final case class Crash(input: Array[Byte], cause: Throwable)
+  /** Generate a value from the bytes, or None when the generator itself fails. */
+  private[test] def generate[A](gen: Gen[A], bytes: Array[Byte], size: Int): Option[A] =
+    try
+      Some(gen(Params(Random(ByteRandom(bytes)), size)))
+    catch
+      case NonFatal(_) =>
+        None
 
-  private[test] def run(
+  /**
+    * The value as text, with control and surrogate characters escaped so that values differing only
+    * in invisible characters look different
+    */
+  private[test] def show(value: Any): String =
+    val s     = String.valueOf(value)
+    val shown = s
+      .take(500)
+      .flatMap { c =>
+        if c < ' ' || c == '\u007f' || Character.isSurrogate(c) then
+          f"\\u${c.toInt}%04x"
+        else
+          c.toString
+      }
+    if s.length > 500 then
+      s"${shown} …(+${s.length - 500} chars)"
+    else
+      shown
+
+  /** At most this many candidates are tried when reducing a slow input, since each one is slow. */
+  private val maxSlowReduceSteps = 30
+
+  /**
+    * @param decode
+    *   turns an input into the target's argument, or None to skip it; its time does not count
+    *   against the slow-input limit
+    */
+  private[test] def run[A](
       target: String,
       config: FuzzConfig,
-      body: Array[Byte] => Any,
-      source: TestSource
+      decode: Array[Byte] => Option[A],
+      body: A => Any,
+      source: TestSource,
+      describe: Array[Byte] => Option[String] = _ => None
   ): Unit =
     val seed = config.seed.getOrElse(System.nanoTime())
     val rng  = Random(seed)
 
-    def check(input: Array[Byte]): Option[Throwable] =
-      try
-        body(input)
-        None
-      catch
-        // Skip/pending/cancel from the body are test control, not crashes.
-        case e: TestException if !e.isInstanceOf[AssertionFailure] =>
-          throw e
-        case e: Throwable if config.expected(e) =>
+    def runOnce(input: Array[Byte]): Option[Throwable] =
+      val arg    = decode(input)
+      val start  = System.nanoTime()
+      val result =
+        try
+          arg.foreach(body)
           None
-        case e: Throwable =>
-          Some(e)
+        catch
+          // Skip/pending/cancel from the body are test control, not crashes.
+          case e: TestException if !e.isInstanceOf[AssertionFailure] =>
+            throw e
+          case e: Throwable if config.expected(e) =>
+            None
+          case e: Throwable =>
+            Some(e)
+      result.orElse {
+        config
+          .slowInputMillis
+          .flatMap { limit =>
+            val millis = (System.nanoTime() - start) / 1000000
+            Option.when(millis > limit)(SlowInput(millis, limit))
+          }
+      }
+
+    def check(input: Array[Byte]): Option[Throwable] =
+      runOnce(input) match
+        case Some(_: SlowInput) =>
+          // Run a slow input again: JIT compilation and GC pauses can slow down a single run
+          runOnce(input)
+        case other =>
+          other
 
     def fail(input: Array[Byte], cause: Throwable, executed: Long): Nothing =
       val crashClass = cause.getClass
       val reduced    = Reduce.bytes(
         input,
         candidate => check(candidate).exists(_.getClass == crashClass),
-        config.maxReduceSteps
+        cause match
+          case _: SlowInput =>
+            math.min(config.maxReduceSteps, maxSlowReduceSteps)
+          case _ =>
+            config.maxReduceSteps
       )
       val reducedCause = check(reduced).getOrElse(cause)
       val saved        = saveCrash(config, target, reduced, reducedCause, seed)
@@ -114,6 +203,7 @@ object FuzzCheck:
         target,
         input,
         reduced,
+        describe(reduced),
         reducedCause,
         seed,
         executed,
@@ -139,9 +229,16 @@ object FuzzCheck:
     val deadline = config.timeBudgetMillis.map(System.currentTimeMillis() + _)
     var i        = 0
     while i < config.iterations && deadline.forall(System.currentTimeMillis() < _) do
-      val base  = pool(rng.nextInt(pool.length))
-      val other = pool(rng.nextInt(pool.length))
-      val input = ByteMutator.mutate(base, other, dictionary, rng, config.maxLength)
+      val input =
+        if rng.nextInt(16) == 0 then
+          // Fresh random bytes now and then, so a target without seeds still gets varied inputs
+          val b = new Array[Byte](rng.nextInt(math.min(config.maxLength, 256) + 1))
+          rng.nextBytes(b)
+          b
+        else
+          val base  = pool(rng.nextInt(pool.length))
+          val other = pool(rng.nextInt(pool.length))
+          ByteMutator.mutate(base, other, dictionary, rng, config.maxLength)
       executed += 1
       check(input).foreach(e => fail(input, e, executed))
       i += 1
@@ -233,6 +330,7 @@ object FuzzCheck:
       target: String,
       original: Array[Byte],
       reduced: Array[Byte],
+      value: Option[String],
       cause: Throwable,
       seed: Long,
       executed: Long,
@@ -248,17 +346,18 @@ object FuzzCheck:
     val lines =
       Seq(
         s"Fuzz target ${target} failed on input ${executed} with ${cause}",
-        s"  input (${reduced.length} bytes, reduced from ${original.length}): ${hex(reduced)}",
-        s"  as text: \"${text}\"",
-        s"  seed=${seed} (replay with UNI_FUZZ_SEED=${seed})",
-        s"  crash_id: ${crashId(cause)}"
-      ) ++
-        saved.map { p =>
-          val keep = corpusDir
-            .map(d => s"; copy it into ${d}/${target}/ to keep it as a regression case")
-            .getOrElse("")
-          s"  saved to ${p}${keep}"
-        }
+        s"  input (${reduced.length} bytes, reduced from ${original.length}): ${hex(reduced)}"
+      ) ++ value.map(v => s"  value: ${v}") ++
+        Seq(
+          s"  as text: \"${text}\"",
+          s"  seed=${seed} (replay with UNI_FUZZ_SEED=${seed})",
+          s"  crash_id: ${crashId(cause)}"
+        ) ++ saved.map(p => s"  saved to ${p}") ++ (
+          for
+            p <- saved
+            d <- corpusDir
+          yield s"  keep it as a regression case: mkdir -p ${d}/${target} && cp ${p} ${d}/${target}/"
+        )
     lines.mkString("\n")
 
   end failureMessage

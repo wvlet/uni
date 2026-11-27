@@ -49,6 +49,12 @@ import java.nio.charset.StandardCharsets
   *   how many candidate inputs the reducer may try when shrinking a failure
   * @param useEnvOverrides
   *   apply the `UNI_FUZZ_*` environment overrides (on by default)
+  * @param genSize
+  *   the size passed to generators in [[wvlet.uni.test.FuzzCheck.fuzzGen]], which bounds the length
+  *   of generated lists and strings
+  * @param slowInputMillis
+  *   fail on an input that runs longer than this twice in a row, to catch inputs that make the
+  *   target quadratic or worse. An input that never finishes still blocks the test.
   */
 final case class FuzzConfig(
     iterations: Int = 1000,
@@ -61,7 +67,9 @@ final case class FuzzConfig(
     crashDir: String = "target/fuzz",
     expected: Throwable => Boolean = _ => false,
     maxReduceSteps: Int = 10000,
-    useEnvOverrides: Boolean = true
+    useEnvOverrides: Boolean = true,
+    genSize: Int = 32,
+    slowInputMillis: Option[Long] = None
 ):
   def withIterations(n: Int): FuzzConfig                    = copy(iterations = math.max(0, n))
   def withTimeBudgetMillis(millis: Long): FuzzConfig        = copy(timeBudgetMillis = Some(millis))
@@ -87,6 +95,9 @@ final case class FuzzConfig(
   def noEnvOverrides: FuzzConfig = copy(useEnvOverrides = false)
 
   def withMaxReduceSteps(n: Int): FuzzConfig            = copy(maxReduceSteps = math.max(0, n))
+  def withGenSize(n: Int): FuzzConfig                   = copy(genSize = math.max(0, n))
+  def withSlowInputMillis(millis: Long): FuzzConfig     = copy(slowInputMillis = Some(millis))
+  def noSlowInputMillis: FuzzConfig                     = copy(slowInputMillis = None)
   def withExpected(p: Throwable => Boolean): FuzzConfig = copy(expected = p)
 
   /**

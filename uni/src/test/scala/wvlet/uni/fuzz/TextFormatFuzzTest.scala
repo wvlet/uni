@@ -14,7 +14,10 @@
 package wvlet.uni.fuzz
 
 import java.time.Instant
+import wvlet.uni.json.JSON
+import wvlet.uni.json.JSON.JSONString
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.check.Gen
 import wvlet.uni.test.fuzz.FuzzConfig
 import wvlet.uni.text.cron.Cron
 import wvlet.uni.text.csv.CSV
@@ -165,6 +168,29 @@ class TextFormatFuzzTest extends UniTest:
       Markdown.toHtml(s)
       val md = doc.toMarkdown
       Markdown.parse(md).toMarkdown shouldBe md
+    }
+  }
+
+  // Text with the characters writers must escape: quotes, separators, backslashes, line breaks
+  private val trickyStr: Gen[String] = Gen.stringOf(
+    Gen.frequency(
+      4 -> Gen.alphaNumChar,
+      2 -> Gen.oneOf(',', '"', '\t', '\\', '\n', '\r', ' ', '\'', '=', 'N'),
+      1 -> Gen.chooseNum(0, 0xffff).map(_.toChar)
+    )
+  )
+
+  test("CSV and TSV write any records so that they read back the same") {
+    val records = Gen.listOf(Gen.nonEmptyListOf(trickyStr).map(_.toIndexedSeq))
+    for (name, format) <- Seq("csv" -> CSV, "tsv" -> TSV) do
+      fuzzGen(s"${name}-write", records) { rs =>
+        format.parse(format.writeRecords(rs)) shouldBe rs
+      }
+  }
+
+  test("JSON writes any string so that it reads back the same") {
+    fuzzGen("json-string-write", trickyStr) { s =>
+      JSON.parseAny(JSONString(s).toJSON) shouldBe JSONString(s)
     }
   }
 
