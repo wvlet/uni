@@ -847,6 +847,8 @@ lazy val docSnippets = project
             MarkdownSnippets.generate(
               Seq(
                 base / "plugins/uni/skills/uni"             -> "snippets.skill",
+                base / "docs/index.md"                      -> "snippets.home",
+                base / "docs/guide/index.md"                -> "snippets.guide",
                 base / "docs/guide/uni-vs-scala-toolkit.md" -> "snippets.guide",
                 base / "docs/core/unitest.md"               -> "snippets.core",
                 base / "docs/core/settings.md"              -> "snippets.core",
