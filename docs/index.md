@@ -124,11 +124,21 @@ All of these come with the one `uni` dependency, except the uni-ui components
   [Delta Lake](/cloud/delta), and [Arrow IPC](/cloud/arrow)
 - **AI:** typed [LLM APIs](/ai/) (Anthropic, OpenAI, Gemini),
   [MCP servers](/mcp/), and [UiAgent](/dom/agents)
-- **UI & CLI:** [uni-dom and uni-ui](/dom/) (Scala.js), the
+- **Web UI & CLI:** [uni-dom and uni-ui](/dom/) (Scala.js), the
   [UI gallery](https://wvlet.org/uni/gallery/), [Electron apps](/http/electron),
   and [CLI tools](/cli/)
 - **Testing & Build:** [UniTest](/core/unitest) and the
   [sbt plugins](/build/sbt-uni)
+
+## Web UI
+
+Uni builds browser and desktop UIs in Scala.js. [uni-dom](/dom/rxelement)
+(in `uni`) renders plain Scala classes with a type-checked HTML DSL, and an `Rx`
+value in the markup re-renders only its part of the DOM. [uni-ui](/dom/ui) adds
+ready-made, accessible components styled by one CSS file. The same code runs in
+an [Electron](/http/electron) app, and [UiAgent](/dom/agents) lets an AI agent
+operate the screen. The [UI gallery](https://wvlet.org/uni/gallery/) runs every
+component live next to its code.
 
 ## Artifacts
 

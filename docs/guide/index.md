@@ -135,7 +135,7 @@ components (`uni-ui`). The groups match the cards on the [home page](/);
 | [MCP Servers](/mcp/) | A Scala trait as an MCP server whose methods AI agents call as tools |
 | [UiAgent](/dom/agents) | Let an AI agent read and operate a uni-ui screen (`uni-ui`) |
 
-#### UI & CLI
+#### Web UI & CLI
 
 | Module | Description |
 |--------|-------------|

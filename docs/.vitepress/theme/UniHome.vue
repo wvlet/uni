@@ -145,7 +145,7 @@ const areas: Area[] = [
     ]
   },
   {
-    name: 'UI & CLI',
+    name: 'Web UI & CLI',
     link: '/dom/',
     description:
       'Reactive web UIs and ready-made components on Scala.js, Electron desktop apps, and terminal tools with colors, progress bars, and line editing.',
@@ -197,6 +197,40 @@ const steps = [
   }
 ]
 
+// From the Hello World section of docs/dom/index.md, which docSnippetsJS compiles
+const uiHtml = highlight(`import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
+import wvlet.uni.rx.Rx
+import wvlet.uni.ui.*
+
+class Greeter extends RxElement:
+  private val name = Rx.variable("")
+  override def render: RxElement =
+    div(
+      Input(name).withLabel("Name").withPlaceholder("Your name"),
+      p(name.map(n => s"Hello, \${if n.isEmpty then "World" else n}!"))
+    )
+
+Greeter().renderTo("app")`)
+
+const uiPoints = [
+  {
+    title: 'uni-dom',
+    link: '/dom/rxelement',
+    body: 'Components are plain Scala classes with a type-checked HTML DSL. An Rx value in the markup re-renders only its part of the DOM, with no virtual DOM.'
+  },
+  {
+    title: 'uni-ui',
+    link: '/dom/ui',
+    body: 'Ready-made, accessible components: buttons, inputs, tabs, overlays, virtualized lists, trees, tables, and a dock, styled by one CSS file with light and dark themes.'
+  },
+  {
+    title: 'Desktop and agents',
+    link: '/http/electron',
+    body: 'The same code runs in an Electron app with typed RPC to the main process, and UiAgent lets an AI agent read and operate the screen.'
+  }
+]
+
 const agentDocs = [
   { name: 'llms.txt', detail: 'Page index', href: 'https://wvlet.org/uni/llms.txt' },
   { name: 'llms-full.txt', detail: 'All docs in one file', href: 'https://wvlet.org/uni/llms-full.txt' },
@@ -236,6 +270,7 @@ const agentHtml = [
         </p>
         <div class="uh-ctas">
           <a class="uh-btn uh-btn-solid" :href="withBase('/guide/')">Get started →</a>
+          <a class="uh-btn uh-btn-ghost" :href="withBase('/gallery/index.html')" target="_self">UI Gallery</a>
           <a class="uh-btn uh-btn-ghost" :href="withBase('/modules')">Browse modules</a>
           <a class="uh-btn uh-btn-ghost" href="https://github.com/wvlet/uni">GitHub</a>
         </div>
@@ -336,6 +371,52 @@ const agentHtml = [
           <code>uni-netty</code>.
         </figcaption>
       </figure>
+    </section>
+
+    <section class="uh-ui">
+      <div class="uh-ui-head">
+        <p class="uh-kicker">Web UI · Scala.js</p>
+        <h2>Reactive UIs in Scala, <em class="uh-shimmer">with the components ready</em></h2>
+        <p>
+          Build browser and desktop UIs with the same Rx, codecs, and RPC as your server. Every
+          component runs live next to its code in the gallery, so you can try it before you write
+          a line.
+        </p>
+      </div>
+      <div class="uh-ui-body">
+        <div class="uh-ui-text">
+          <ol class="uh-steps">
+            <li v-for="u in uiPoints" :key="u.title">
+              <b>→</b>
+              <div>
+                <h3><a :href="withBase(u.link)">{{ u.title }}</a></h3>
+                <p>{{ u.body }}</p>
+              </div>
+            </li>
+          </ol>
+          <div class="uh-ctas">
+            <a class="uh-btn uh-btn-solid" :href="withBase('/gallery/index.html')" target="_self">Open the UI gallery →</a>
+            <a class="uh-btn uh-btn-ghost" :href="withBase('/dom/')">Web UI docs</a>
+          </div>
+        </div>
+        <div class="uh-ui-visual">
+          <a class="uh-window uh-ui-shot" :href="withBase('/gallery/index.html')" target="_self">
+            <img
+              :src="withBase('/uni-gallery-1280x640.png')"
+              alt="The Uni UI Gallery: a Button story with its live preview next to its Scala source"
+              loading="lazy"
+            />
+          </a>
+          <div class="uh-window">
+            <div class="uh-bar">
+              <i /><i /><i />
+              <span class="uh-bar-title">Greeter.scala</span>
+              <span class="uh-badge">scala.js</span>
+            </div>
+            <pre class="uh-code"><code v-html="uiHtml" /></pre>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="uh-areas">
@@ -993,6 +1074,49 @@ const agentHtml = [
   line-height: 1.6;
 }
 
+/* ---------- Web UI ---------- */
+
+.uh-ui {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 40px clamp(16px, 5vw, 72px) 96px;
+}
+
+.uni-home .uh-ui-head h2 { font-size: clamp(34px, 4vw, 54px); }
+.uh-ui-head h2 em { white-space: nowrap; }
+
+.uh-ui-head h2 + p {
+  max-width: 40em;
+  margin: 22px 0 0;
+  color: var(--uh-ink-2);
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.uh-ui-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 48px;
+  margin-top: 40px;
+}
+
+.uh-ui-text .uh-steps { margin-top: 0; }
+.uni-home .uh-ui-text h3 a { text-decoration: none; }
+.uh-ui-text .uh-ctas { margin-top: 32px; }
+
+.uh-ui-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.uh-ui-shot {
+  display: block;
+  transition: transform 0.25s;
+}
+
+.uh-ui-shot:hover { transform: translateY(-3px); }
+
 /* ---------- Module areas ---------- */
 
 .uh-areas {
@@ -1211,6 +1335,7 @@ const agentHtml = [
 @media (max-width: 960px) {
   .uh-hero,
   .uh-why,
+  .uh-ui-body,
   .uh-agents {
     grid-template-columns: minmax(0, 1fr);
     gap: 40px;
