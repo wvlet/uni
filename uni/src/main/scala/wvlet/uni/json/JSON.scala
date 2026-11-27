@@ -215,7 +215,14 @@ object JSON extends LogSupport:
 
   sealed trait JSONNumber                extends JSONValue
   final case class JSONDouble(v: Double) extends JSONNumber:
-    override def toJSON: String = v.toString
+    // Scala.js prints whole doubles without `.0` (1.0E12 as 1000000000000), which would read back
+    // as a JSONLong, so add it there
+    override def toJSON: String =
+      val s = v.toString
+      if s.exists(c => c == '.' || c == 'e' || c == 'E' || c == 'N' || c == 'I') then
+        s
+      else
+        s"${s}.0"
 
   final case class JSONLong(v: Long) extends JSONNumber:
     override def toJSON: String = v.toString

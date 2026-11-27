@@ -738,6 +738,8 @@ Common combinators:
 | `Gen.alphaStr` / `.numStr` / `.alphaNumStr` / `.asciiStr` | Size-aware string |
 | `Gen.identifier` | `[A-Za-z][A-Za-z0-9]*` |
 | `Gen.sized(n => g)` / `Gen.resize(n, g)` | Read or override the current size |
+| `Gen.recursive(leaf)(child => branch)` | Finite trees and ASTs (see below) |
+| `Gen.lzy(g)` | Defers `g`, for generators that refer to each other |
 
 Generators compose like `Option`s: `g.map`, `g.flatMap`, `g.filter`, `g.zip`,
 plus for-comprehensions.
@@ -751,6 +753,27 @@ val labeledInt: Gen[(String, Int)] =
     value <- Gen.chooseNum(0, 100)
   yield (label, value)
 ```
+
+Recursive data such as trees and ASTs needs a generator that stops.
+`Gen.recursive` takes a leaf generator and builds a branch from a generator
+of its children:
+
+```scala
+enum Expr:
+  case Num(v: Int)
+  case Neg(e: Expr)
+  case Add(args: List[Expr])
+
+val expr: Gen[Expr] = Gen.recursive(Gen.chooseNum(0, 9).map(Expr.Num(_))) { child =>
+  Gen.oneOfGen(child.map(Expr.Neg(_)), Gen.listOf(child).map(Expr.Add(_)))
+}
+```
+
+A value has at most `size` branch nodes and is at most `maxDepth` (default 8)
+branches deep, and children get half their parent's size, so lists of
+subtrees stay small. Leaves are the first choice, so with
+[`fuzzGen`](#typed-values-with-fuzzgen) a failing tree reduces toward leaves:
+a planted bug in negating a sum reduces to `Neg(Add(List(Num(0))))`.
 
 ### Arbitrary and derivation
 

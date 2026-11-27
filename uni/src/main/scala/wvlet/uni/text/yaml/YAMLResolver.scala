@@ -60,7 +60,14 @@ private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long, base: Int = 
           m.entries
             .foreach { e =>
               val k = key(e.key, m.flow)
-              builder.add(k, value(e.value), e.key.source.offset)
+              // Only a plain `<<` is a merge key; a quoted '<<' is an ordinary key
+              val isMerge =
+                e.key match
+                  case Scalar("<<", ScalarStyle.Plain, _, None, _) =>
+                    true
+                  case _ =>
+                    false
+              builder.add(k, value(e.value), e.key.source.offset, isMerge)
             }
           builder.result()
         case s: Sequence =>
@@ -68,6 +75,8 @@ private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long, base: Int = 
           JSONArray(s.items.map(value).toIndexedSeq)
     n.anchorOf.foreach(a => anchors(a) = (v, (nodeCount - countStart).max(1)))
     v
+
+  end value
 
   private def key(k: YAMLNode, flow: Boolean): String =
     def complex: Nothing = error("Complex (non-scalar) mapping keys are not supported", k)
@@ -155,8 +164,8 @@ private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long, base: Int = 
     private val keys    = mutable.Set.empty[String]
     private val merges  = mutable.ArrayBuffer.empty[JSONObject]
 
-    def add(key: String, value: JSONValue, keyOffset: Int): Unit =
-      if key == "<<" then
+    def add(key: String, value: JSONValue, keyOffset: Int, isMerge: Boolean): Unit =
+      if isMerge then
         value match
           case o: JSONObject =>
             merges += o

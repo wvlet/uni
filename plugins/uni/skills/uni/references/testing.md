@@ -259,6 +259,10 @@ test("JSON strings read back the same") {
 }
 ```
 
+For trees and ASTs, `Gen.recursive(leaf)(child => branch)` builds finite
+values (at most `size` branches, `maxDepth` deep), and failing trees reduce
+toward leaves under `fuzzGen`.
+
 `UNI_FUZZ_SECONDS`, `UNI_FUZZ_ITERATIONS`, and `UNI_FUZZ_SEED` override the
 budget and seed for long runs and replays. `withSlowInputMillis(ms)` fails on
 inputs that run too long. A failure prints a `cp` command that keeps the

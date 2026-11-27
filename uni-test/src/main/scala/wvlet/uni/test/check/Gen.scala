@@ -90,6 +90,52 @@ object Gen:
     gen.run(p.copy(size = math.max(0, size)))
   )
 
+  // ---- Recursive structures ----
+
+  /**
+    * Defer building a generator until it runs, for generators that refer to each other:
+    * {{{
+    *   lazy val expr: Gen[Expr] = Gen.oneOfGen(literal, Gen.lzy(call))
+    *   lazy val call: Gen[Expr] = Gen.listOf(expr).map(Call(_))
+    * }}}
+    */
+  def lzy[A](gen: => Gen[A]): Gen[A] =
+    lazy val g = gen
+    Gen(p => g.run(p))
+
+  /**
+    * Generate a recursive structure, such as a tree or an AST, that stays finite. `branch` builds
+    * one node from a generator of its children:
+    * {{{
+    *   enum Tree:
+    *     case Leaf(v: Int)
+    *     case Node(children: List[Tree])
+    *
+    *   val tree: Gen[Tree] = Gen.recursive(Gen.chooseNum(0, 9).map(Tree.Leaf(_))) { child =>
+    *     Gen.listOf(child).map(Tree.Node(_))
+    *   }
+    * }}}
+    *
+    * Each value has at most `size` branch nodes and is at most `maxDepth` branches deep; past
+    * either limit, children are leaves. Children of a node get half its size, so wide lists of
+    * subtrees stay small. A node is a leaf or a branch with equal odds, and a leaf is the first
+    * choice, so a fuzz input reduced toward zero bytes (see `fuzzGen` in uni-test) shrinks the tree
+    * toward leaves.
+    */
+  def recursive[A](leaf: Gen[A], maxDepth: Int = 8)(branch: Gen[A] => Gen[A]): Gen[A] = Gen { p =>
+    var branches               = 0
+    val limit                  = p.size
+    def at(depth: Int): Gen[A] = Gen { q =>
+      if depth >= maxDepth || branches >= limit || !q.rng.nextBoolean() then
+        leaf.run(q)
+      else
+        branches += 1
+        val child = at(depth + 1)
+        branch(Gen(c => child.run(c.copy(size = c.size / 2)))).run(q)
+    }
+    at(0).run(p)
+  }
+
   // ---- Choice ----
 
   /**

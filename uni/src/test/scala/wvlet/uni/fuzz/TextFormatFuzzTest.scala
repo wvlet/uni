@@ -15,7 +15,8 @@ package wvlet.uni.fuzz
 
 import java.time.Instant
 import wvlet.uni.json.JSON
-import wvlet.uni.json.JSON.JSONString
+import wvlet.uni.json.JSON.*
+import wvlet.uni.json.YAMLFormatter
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.check.Gen
 import wvlet.uni.test.fuzz.FuzzConfig
@@ -175,7 +176,12 @@ class TextFormatFuzzTest extends UniTest:
   private val trickyStr: Gen[String] = Gen.stringOf(
     Gen.frequency(
       4 -> Gen.alphaNumChar,
-      2 -> Gen.oneOf(',', '"', '\t', '\\', '\n', '\r', ' ', '\'', '=', 'N'),
+      2 ->
+        Gen.oneOf(
+          Seq(',', '"', '\t', '\\', '\n', '\r', ' ', '\'', '=', 'N') ++
+            // YAML indicators and the starts of numbers
+            ":#-?{}[]<&*!|>%@.~0+".toSeq
+        ),
       1 -> Gen.chooseNum(0, 0xffff).map(_.toChar)
     )
   )
@@ -191,6 +197,36 @@ class TextFormatFuzzTest extends UniTest:
   test("JSON writes any string so that it reads back the same") {
     fuzzGen("json-string-write", trickyStr) { s =>
       JSON.parseAny(JSONString(s).toJSON) shouldBe JSONString(s)
+    }
+  }
+
+  // JSON trees: scalars at the leaves, arrays and objects with unique keys as branches
+  private val jsonScalar: Gen[JSONValue] = Gen.frequency(
+    1 -> Gen.const(JSONNull()),
+    1 -> Gen.oneOf(JSONTrue, JSONFalse),
+    2 -> Gen.chooseNum(Long.MinValue, Long.MaxValue).map(JSONLong(_)),
+    2 -> Gen.chooseNum(-1e12, 1e12).map(JSONDouble(_)),
+    4 -> trickyStr.map(JSONString(_))
+  )
+
+  private val jsonValue: Gen[JSONValue] =
+    Gen.recursive(jsonScalar) { child =>
+      Gen.oneOfGen(
+        Gen.listOf(child).map(xs => JSONArray(xs.toIndexedSeq)),
+        Gen.listOf(trickyStr.zip(child)).map(kvs => JSONObject(kvs.distinctBy(_._1)))
+      )
+    }
+
+  test("JSON writes any value so that it reads back the same") {
+    fuzzGen("json-value-write", jsonValue) { v =>
+      JSON.parseAny(v.toJSON) shouldBe v
+    }
+  }
+
+  test("YAML writes any JSON value so that it reads back the same") {
+    // YAMLFormatter takes an object or an array at the top
+    fuzzGen("yaml-from-json", jsonValue.map(v => JSONObject(Seq("v" -> v)))) { v =>
+      YAML.parse(YAMLFormatter.toYaml(v.toJSON)) shouldBe v
     }
   }
 

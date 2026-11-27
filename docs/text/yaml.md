@@ -184,7 +184,7 @@ The tree is a `YAMLNode` (`Scalar`, `Mapping`, `Sequence`, `Alias`), and you can
 
 ## Writing YAML
 
-To edit an existing YAML text, use `YAMLDocument` (above). To write a value as YAML, use `YAMLFormatter.toYaml` from `wvlet.uni.json`. It converts a JSON string to YAML:
+To edit an existing YAML text, use `YAMLDocument` (above). To write a value as YAML, use `YAMLFormatter.toYaml` from `wvlet.uni.json`. It takes a JSON string or a `JSONValue` and writes block-style YAML that `YAML.parse` reads back as the same value, using the same writer as `YAMLNode.fromJSON`: text and keys that would read as a number, boolean (including YAML 1.1 `yes`/`no`/`on`/`off`), or null are double-quoted, multi-line text becomes a literal block, and empty objects and arrays are written as `{}` and `[]`:
 
 ```scala
 import wvlet.uni.json.YAMLFormatter

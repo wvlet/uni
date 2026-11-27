@@ -203,7 +203,7 @@ Convert JSON to YAML format:
 ```scala
 import wvlet.uni.json.YAMLFormatter
 
-// toYaml takes a JSON string
+// toYaml takes a JSON string or a JSONValue, and the YAML reads back as the same value
 val yaml = YAMLFormatter.toYaml(jsonString)
 // user:
 //   id: 123

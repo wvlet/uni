@@ -436,7 +436,8 @@ private[yaml] object YAMLWriter:
         val body =
           n match
             case s: Scalar =>
-              scalar(s, col, flow || key, key)
+              // A block mapping key may hold flow indicators such as `{` (`/users/{id}: ...`)
+              scalar(s, col, flow, key)
             case Alias(name, _) =>
               "*" + name
             case m: Mapping =>
@@ -764,14 +765,25 @@ private[yaml] object YAMLWriter:
 
   def key(k: String): YAMLNode = Scalar(
     k,
-    if isPlainSafe(k, flow = false) then
+    if isPlainSafe(k, flow = false) && readsAsString(k) then
       ScalarStyle.Plain
     else
       ScalarStyle.DoubleQuoted
   )
 
+  // Words that YAML 1.1 readers such as SnakeYAML and PyYAML still read as booleans
+  private val yaml11Booleans = Set("yes", "no", "on", "off")
+
+  /**
+    * Does plain text read back as this string in YAML 1.2, and not as a boolean in YAML 1.1? Keys
+    * are checked too: OpenAPI tools read a plain `200:` as a number.
+    */
+  private def readsAsString(s: String): Boolean =
+    YAMLParser.resolvePlain(s).isInstanceOf[JSONString] &&
+      !yaml11Booleans.contains(s.toLowerCase) && s != "<<" // a merge key
+
   def stringStyle(s: String): ScalarStyle =
-    if isPlainSafe(s, flow = false) && YAMLParser.resolvePlain(s).isInstanceOf[JSONString] then
+    if isPlainSafe(s, flow = false) && readsAsString(s) then
       ScalarStyle.Plain
     else if s.contains('\n') then
       ScalarStyle.Literal
