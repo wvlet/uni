@@ -47,7 +47,7 @@ class OpenAPIGeneratorMainTest extends UniTest:
     )
     val yaml = Files.readString(out, StandardCharsets.UTF_8)
     yaml shouldContain "title: Ping"
-    yaml shouldContain "version: '2.0'"
+    yaml shouldContain "version: \"2.0\""
     yaml shouldContain "/ping:"
   }
 

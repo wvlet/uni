@@ -176,7 +176,12 @@ class TextFormatFuzzTest extends UniTest:
   private val trickyStr: Gen[String] = Gen.stringOf(
     Gen.frequency(
       4 -> Gen.alphaNumChar,
-      2 -> Gen.oneOf(',', '"', '\t', '\\', '\n', '\r', ' ', '\'', '=', 'N'),
+      2 ->
+        Gen.oneOf(
+          Seq(',', '"', '\t', '\\', '\n', '\r', ' ', '\'', '=', 'N') ++
+            // YAML indicators and the starts of numbers
+            ":#-?{}[]<&*!|>%@.~0+".toSeq
+        ),
       1 -> Gen.chooseNum(0, 0xffff).map(_.toChar)
     )
   )

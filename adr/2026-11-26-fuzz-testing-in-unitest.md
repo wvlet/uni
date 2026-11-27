@@ -75,9 +75,12 @@ coverage guidance; this ADR records the first step that shipped.
   `fuzzGen` shrinks trees toward leaves. `Gen.lzy` covers mutually recursive generators.
 - Round trips over generated JSON trees found that `YAMLFormatter` was a lossy pretty-printer:
   empty objects were dropped, empty arrays and `|` blocks without a final line break changed value,
-  and strings like `true` or `123` were left plain. It was rewritten as a direct walk over
-  `JSONValue` that keeps the block layout and quotes only what YAML would misread. This matters
-  for `OpenAPI.toYAML`, where `security: []` means no authentication.
+  and strings like `true` or `123` were left plain. It now delegates to the writer that
+  `YAMLDocument` already uses (`YAMLNode.fromJSON`), so there is one set of quoting rules. That
+  writer now also quotes keys that would not read back as strings (`"200":`, which OpenAPI tools
+  read as a number) and YAML 1.1 booleans (`yes`, `no`, `on`, `off`), and writes block keys such
+  as `/users/{id}` plain. The resolver merges only a plain `<<`, so a quoted `"<<"` key stays an
+  ordinary key. This matters for `OpenAPI.toYAML`, where `security: []` means no authentication.
 - Scala.js prints whole doubles without `.0`, so `JSONDouble(1e12).toJSON` read back as a
   `JSONLong` there only; `toJSON` now adds `.0`. Running the same targets on every platform is
   what caught it.

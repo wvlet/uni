@@ -262,7 +262,7 @@ class OpenAPITest extends UniTest:
 
   test("render YAML") {
     val yaml = OpenAPI.of(Router.of[UserApi]).toYAML
-    yaml shouldContain "openapi: '3.0.3'"
+    yaml shouldContain "openapi: 3.0.3"
     yaml shouldContain "/v1/users/{id}:"
   }
 
