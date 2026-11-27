@@ -254,7 +254,7 @@ test("comparisons") {
 ### Rx Subscription Leaks
 
 `assertNoRxLeaks` fails when its block leaves an Rx subscription active, one
-that was neither cancelled nor ended with `OnError` / `OnCompletion`:
+that was neither cancelled nor ended with `OnCompletion` / `OnFailure`:
 
 ```scala test
 test("cancels its binding") {

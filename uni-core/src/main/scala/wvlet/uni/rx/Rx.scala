@@ -48,11 +48,10 @@ trait RxOps[+A]:
   def recoverWith[A](f: PartialFunction[Throwable, RxOps[A]]): Rx[A] = RecoverWithOp(this, f)
 
   /**
-    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values
-    * instead of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)`
-    * becomes `Result.Failure(e)` followed by `OnCompletion` — the resulting stream always
-    * terminates cleanly, so downstream operators like `toSeq` and `lastOption` work on errored
-    * sources.
+    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values.
+    * `OnNext(v)` becomes `Result.Success(v)`, and the first `OnError(e)` or `OnFailure(e)` becomes
+    * `Result.Failure(e)` followed by `OnCompletion`. The resulting stream never fails, so
+    * downstream operators like `toSeq` and `lastOption` work on failing sources.
     */
   def materialize: Rx[Result[A]] = MaterializeOp(this)
 
@@ -104,9 +103,9 @@ trait RxOps[+A]:
   })
 
   /**
-    * Run `f` when a subscription is cancelled before it observes OnError or OnCompletion, for
-    * example to abort a request or tell a server to stop a stream. `f` runs at most once per
-    * subscription, and not when the stream ends by itself.
+    * Run `f` when a subscription is cancelled before the stream ends (`OnCompletion` or
+    * `OnFailure`), for example to abort a request or tell a server to stop a stream. `f` runs at
+    * most once per subscription, and not when the stream ends by itself.
     *
     * {{{
     *   source.onCancel(controller.abort())
@@ -118,12 +117,9 @@ trait RxOps[+A]:
   def onCancel(f: => Unit): Rx[A] = OnCancelOp(this, () => f)
 
   /**
-    * Evaluate this Rx[A] and apply the given effect function. Once OnError(e) or OnCompletion is
-    * observed, it will stop the evaluation.
-    *
-    * @param effect
-    * @tparam U
-    * @return
+    * Evaluate this Rx[A] and apply the given effect function to each value. The run stops at the
+    * end of the stream (`OnCompletion` or `OnFailure`) or at the first `OnError`. An error, which
+    * arrives as `OnFailure(e)`, is thrown.
     */
   def run[U](effect: A => U = Rx.doNothing): Cancelable =
     RxRunner.run(self) {
@@ -638,7 +634,7 @@ trait Rx[+A] extends RxOps[A]:
     * Emit the most recent item of the source at most once per frame of the [[RxFrameProvider]], so
     * a burst of updates within one frame yields only its last value. In a browser a frame is a
     * `requestAnimationFrame` callback. When the source ends, a value still waiting for its frame is
-    * emitted before the `OnError` or `OnCompletion`.
+    * emitted before the `OnCompletion` or `OnFailure`.
     */
   def sampleFrame(using frames: RxFrameProvider): Rx[A] = SampleFrameOp[A](this, frames)
 
@@ -720,8 +716,8 @@ object Rx extends LogSupport:
   def fromTry[A](t: Try[A]): Rx[A] = TryOp(LazyF0(t))
 
   /**
-    * Convert a [[wvlet.uni.util.Result]] into a single-element Rx, propagating `Failure(e)` as
-    * `OnError(e)`.
+    * Convert a [[wvlet.uni.util.Result]] into a single-element Rx. `Failure(e)` ends the stream
+    * with `OnFailure(e)`.
     */
   def fromResult[A](r: Result[A]): Rx[A] =
     r match

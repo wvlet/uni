@@ -209,7 +209,7 @@ makes frames from a time provider, manual or not.
 ## Finding Leaked Subscriptions
 
 `RxTracker` records the subscriptions that are still active: neither cancelled
-nor ended by `OnError` / `OnCompletion`. A `subscribe` keeps running until it is
+nor ended by `OnCompletion` / `OnFailure`. A `subscribe` keeps running until it is
 cancelled, so a binding that nobody cancels shows up here:
 
 ```scala
