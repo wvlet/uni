@@ -305,6 +305,15 @@ must fit the table schema. A file that is no longer live fails the commit; if an
 removed one while this write ran, the commit fails instead of bringing the file's rows back.
 Delete files of the removed files stay live until a [compaction](#compacting-tables) removes them.
 
+## Reading Data Files Directly
+
+A reader that splits a table into its files' row groups (to read them in parallel, say) can read a data file with `Parquet.open` when `ds.readsAsPlainFile(file)` is true. That holds when no delete removes rows of the file, its columns have the table's names (no column was renamed or dropped since it was written), no column it lacks has an `initial-default`, and it holds every partition column. Columns the file lacks read as nulls through the dataset, and narrower types are widened. Read the other files with `ds.withFiles(Seq(file))`, which applies their deletes and column mapping.
+
+```scala skip
+val ds = Parquet.dataset("warehouse/visits/")
+val (plain, mapped) = ds.files.partition(ds.readsAsPlainFile)
+```
+
 ## Compacting Tables
 
 Every merge-on-read delete adds files that readers apply, and every small append adds a data file.

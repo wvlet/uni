@@ -209,6 +209,22 @@ class IcebergTableTest extends UniTest:
       ds.close()
   }
 
+  test("tell which data files read as plain Parquet files") {
+    def plain(name: String): Seq[Boolean] =
+      val ds = Parquet.dataset(fixture(name))
+      try ds.files.map(ds.readsAsPlainFile)
+      finally ds.close()
+    plain("v1").forall(identity) shouldBe true
+    plain("events").forall(identity) shouldBe true
+    // Deleted rows: a plain read would return them
+    plain("v2_deletes").contains(false) shouldBe true
+    plain("equality_deletes").contains(false) shouldBe true
+    plain("v3_deletes").contains(false) shouldBe true
+    // A renamed column, and a file still holding a dropped one
+    plain("renamed").contains(false) shouldBe true
+    plain("evolved").contains(false) shouldBe true
+  }
+
   test("a column that stopped being a partition is read from the files") {
     val ds = Parquet.dataset(fixture("respec"))
     try
