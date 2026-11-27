@@ -30,11 +30,17 @@ class SnappyJavaTest extends UniTest:
 
     test(s"uni reads snappy-java output: ${name}") {
       val c = org.xerial.snappy.Snappy.compress(data)
-      Snappy.decompress(c, 0, c.length, data.length).toSeq shouldBe data.toSeq
+      // The pure decoder, since decompress hands the stream to snappy-java here
+      Snappy.decode(c, 0, c.length, data.length).toSeq shouldBe data.toSeq
     }
 
   test("Snappy decodes with snappy-java when it is on the classpath") {
-    SnappyJava.available shouldBe true
+    // Unless the run turns it off to compare the decoders
+    val turnedOff = sys
+      .props
+      .get("wvlet.uni.snappy.useSnappyJava")
+      .exists(_.equalsIgnoreCase("false"))
+    SnappyJava.available shouldBe !turnedOff
   }
 
   test("the snappy-java path leaves bytes of a longer buffer past expectedSize as they were") {

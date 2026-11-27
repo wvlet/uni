@@ -26,9 +26,7 @@ private[uni] object Snappy:
     if SnappyJava.available then
       checkArgs(src, offset, length, out, expectedSize)
       // The length check before the call keeps the native decoder inside out(0 until expectedSize)
-      val claimed = preambleLength(src, offset, offset + length)
-      if claimed != expectedSize then
-        fail(s"uncompressed length ${claimed} does not match the expected ${expectedSize}")
+      checkPreamble(src, offset, offset + length, expectedSize)
       val n =
         try
           SnappyJava.decompressInto(src, offset, length, out)
@@ -62,8 +60,11 @@ private[uni] object Snappy:
         s"Snappy: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
       )
 
-  /** The uncompressed length that the stream's varint preamble states */
-  private def preambleLength(src: Array[Byte], offset: Int, end: Int): Long =
+  /**
+    * Reads the stream's preamble, the uncompressed length as a varint, checks that it states
+    * `expectedSize`, and returns the input position after it
+    */
+  private def checkPreamble(src: Array[Byte], offset: Int, end: Int, expectedSize: Int): Int =
     var ip     = offset
     var outLen = 0L
     var shift  = 0
@@ -81,7 +82,9 @@ private[uni] object Snappy:
     do
       (
     )
-    outLen
+    if outLen != expectedSize then
+      fail(s"uncompressed length ${outLen} does not match the expected ${expectedSize}")
+    ip
 
   /** [[decompressInto]] with the pure-Scala decoder on every platform */
   def decodeInto(
@@ -96,32 +99,8 @@ private[uni] object Snappy:
         s"Snappy: the output buffer holds ${out.length} bytes, fewer than ${expectedSize}"
       )
     val end = offset + length
-    var ip  = offset
-
-    def byteAt(i: Int): Int =
-      if i >= end then
-        fail("input ends early")
-      src(i) & 0xff
-
-    // Preamble: the uncompressed length as a varint
-    var outLen = 0L
-    var shift  = 0
-    var b      = 0
-    while
-      if shift > 28 then
-        fail("length varint is too long")
-      b = byteAt(ip)
-      ip += 1
-      outLen |= (b & 0x7fL) << shift
-      shift += 7
-      (b & 0x80) != 0
-    do
-      (
-    )
-    if outLen != expectedSize then
-      fail(s"uncompressed length ${outLen} does not match the expected ${expectedSize}")
-
-    var op = 0
+    var ip  = checkPreamble(src, offset, end, expectedSize)
+    var op  = 0
 
     if SnappyLoop.enabled then
       // The JVM's loop decodes the common tags; each tag it stops at is decoded here, with checks
