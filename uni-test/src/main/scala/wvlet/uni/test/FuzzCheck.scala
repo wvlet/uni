@@ -172,10 +172,24 @@ object FuzzCheck:
     if features != null then
       features += label
 
-  /** A rejection as a feature: the exception class and its message with digits removed */
+  // Quoted text, hex, and numbers in a rejection message usually echo the input or a position,
+  // which would make one parser state look like many
+  private val quotedText = java.util.regex.Pattern.compile("'[^']*'|\"[^\"]*\"")
+  private val numbers    = java.util.regex.Pattern.compile("0[xX][0-9a-fA-F]+|[0-9]+")
+
+  /** A rejection as a feature: the exception class and its message without input echoes */
   private def rejectionFeature(e: Throwable): String =
-    val msg = String.valueOf(e.getMessage).take(200).replaceAll("[0-9]+", "#")
-    s"reject:${e.getClass.getName}:${msg}"
+    val msg        = String.valueOf(e.getMessage).take(200)
+    val normalized = numbers.matcher(quotedText.matcher(msg).replaceAll("_")).replaceAll("#")
+    s"${rejectPrefix}${e.getClass.getName}:${normalized}"
+
+  private val rejectPrefix = "reject:"
+
+  /**
+    * At most this many rejection features per run, so messages that still vary with the input
+    * cannot fill the pool with near-copies
+    */
+  private val maxRejectionFeatures = 256
 
   /**
     * @param decode
@@ -194,9 +208,10 @@ object FuzzCheck:
     val rng  = Random(seed)
 
     // Features of the last input run, every feature seen so far, and the inputs to mutate
-    val features = mutable.Set.empty[String]
-    val seen     = mutable.Set.empty[String]
-    val pool     = ArrayBuffer.empty[Array[Byte]]
+    val features   = mutable.Set.empty[String]
+    val seen       = mutable.Set.empty[String]
+    var rejections = 0
+    val pool       = ArrayBuffer.empty[Array[Byte]]
     // The inputs that most recently showed a new feature
     val recent = mutable.ArrayDeque.empty[Array[Byte]]
 
@@ -204,26 +219,34 @@ object FuzzCheck:
       features.clear()
       val arg    = decode(input)
       val start  = System.nanoTime()
+      val guided = config.featureGuidance
       val prev   = currentFeatures.get()
       val result =
-        currentFeatures.set(features)
+        if guided then
+          currentFeatures.set(features)
         try
-          if arg.isEmpty then
-            features += "undecodable"
-          arg.foreach(body)
-          features += "ok"
+          arg match
+            case Some(a) =>
+              body(a)
+              if guided then
+                features += "ok"
+            case None =>
+              if guided then
+                features += "undecodable"
           None
         catch
           // Skip/pending/cancel from the body are test control, not crashes.
           case e: TestException if !e.isInstanceOf[AssertionFailure] =>
             throw e
           case e: Throwable if config.expected(e) =>
-            features += rejectionFeature(e)
+            if guided then
+              features += rejectionFeature(e)
             None
           case e: Throwable =>
             Some(e)
         finally
-          currentFeatures.set(prev)
+          if guided then
+            currentFeatures.set(prev)
       result.orElse {
         config
           .slowInputMillis
@@ -266,8 +289,14 @@ object FuzzCheck:
           executed,
           saved,
           config.corpusDir
-        ) + s"\n  explored: ${seen.size} features, ${pool.size} inputs kept"
+        ) + (
+          if config.featureGuidance then
+            s"\n  explored: ${seen.size} features, ${pool.size} inputs kept"
+          else
+            ""
+        )
       throw AssertionFailure(msg, source)
+    end fail
 
     // 1. Replay seeds and the saved corpus. These run on every test run, so a fixed crash
     //    stays fixed.
@@ -304,7 +333,11 @@ object FuzzCheck:
           ByteMutator.mutate(base, other, dictionary, rng, config.maxLength)
       executed += 1
       check(input).foreach(e => fail(input, e, executed))
-      if config.featureGuidance && !features.forall(seen.contains) then
+      val fresh = features.filterNot(seen.contains)
+      if fresh.nonEmpty then
+        rejections += fresh.count(_.startsWith(rejectPrefix))
+      // Past the cap, only features other than rejections count as new
+      if fresh.exists(f => rejections <= maxRejectionFeatures || !f.startsWith(rejectPrefix)) then
         seen ++= features
         if pool.size < maxPoolSize then
           pool += input
@@ -314,6 +347,7 @@ object FuzzCheck:
         if recent.size > maxRecent then
           recent.removeHead()
       i += 1
+    end while
 
   end run
 
