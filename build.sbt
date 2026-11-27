@@ -238,8 +238,9 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(
     jvmNativeSharedSources,
-    // Checks that the reference Snappy implementation reads what the pure-Scala compressor writes
-    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Test,
+    // Optional: applications that add snappy-java get its native Snappy decoder (SnappyJava.java).
+    // Provided keeps it out of uni's runtime dependencies; tests also check the codecs against it
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Provided,
     // A library jar has no single entry point (uni ships several CLI mains, such as
     // OpenAPIGeneratorMain), so its manifest names none and packaging does not warn about the choice
     Compile / packageBin / mainClass := None
