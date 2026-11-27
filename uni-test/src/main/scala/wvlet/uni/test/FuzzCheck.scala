@@ -14,6 +14,7 @@
 package wvlet.uni.test
 
 import java.nio.charset.StandardCharsets
+import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 import scala.util.Random
 import scala.util.control.NonFatal
@@ -97,6 +98,25 @@ trait FuzzCheck:
       bytes => FuzzCheck.generate(gen, bytes, c.genSize).map(FuzzCheck.show)
     )
 
+  /**
+    * Report that the current fuzz input reached a state worth exploring further, such as a branch
+    * of a parser. An input that reports a label no earlier input reported is kept and mutated
+    * again, which guides the search toward deeper code without coverage instrumentation:
+    *
+    * {{{
+    *   fuzz("header") { bytes =>
+    *     if bytes.startsWith("PK".getBytes) then
+    *       fuzzFeature("zip-magic")
+    *       ...
+    *   }
+    * }}}
+    *
+    * Rejections also count as features: each expected exception class and message (with digits
+    * removed) is one, so a parser that fails differently along different paths guides the search
+    * without any calls. Outside a fuzz target, this does nothing.
+    */
+  def fuzzFeature(label: String): Unit = FuzzCheck.feature(label)
+
 end FuzzCheck
 
 object FuzzCheck:
@@ -138,6 +158,39 @@ object FuzzCheck:
   /** At most this many candidates are tried when reducing a slow input, since each one is slow. */
   private val maxSlowReduceSteps = 30
 
+  /** The most inputs kept for mutation; past it, a new input replaces a random one. */
+  private val maxPoolSize = 1024
+
+  /** How many of the latest new-feature inputs are favored as mutation bases */
+  private val maxRecent = 8
+
+  // Features reported by the input running on this thread, or null outside a fuzz target
+  private val currentFeatures = ThreadLocal[mutable.Set[String] | Null]()
+
+  private[test] def feature(label: String): Unit =
+    val features = currentFeatures.get()
+    if features != null then
+      features += label
+
+  // Quoted text, hex, and numbers in a rejection message usually echo the input or a position,
+  // which would make one parser state look like many
+  private val quotedText = java.util.regex.Pattern.compile("'[^']*'|\"[^\"]*\"")
+  private val numbers    = java.util.regex.Pattern.compile("0[xX][0-9a-fA-F]+|[0-9]+")
+
+  /** A rejection as a feature: the exception class and its message without input echoes */
+  private def rejectionFeature(e: Throwable): String =
+    val msg        = String.valueOf(e.getMessage).take(200)
+    val normalized = numbers.matcher(quotedText.matcher(msg).replaceAll("_")).replaceAll("#")
+    s"${rejectPrefix}${e.getClass.getName}:${normalized}"
+
+  private val rejectPrefix = "reject:"
+
+  /**
+    * At most this many rejection features per run, so messages that still vary with the input
+    * cannot fill the pool with near-copies
+    */
+  private val maxRejectionFeatures = 256
+
   /**
     * @param decode
     *   turns an input into the target's argument, or None to skip it; its time does not count
@@ -154,21 +207,46 @@ object FuzzCheck:
     val seed = config.seed.getOrElse(System.nanoTime())
     val rng  = Random(seed)
 
+    // Features of the last input run, every feature seen so far, and the inputs to mutate
+    val features   = mutable.Set.empty[String]
+    val seen       = mutable.Set.empty[String]
+    var rejections = 0
+    val pool       = ArrayBuffer.empty[Array[Byte]]
+    // The inputs that most recently showed a new feature
+    val recent = mutable.ArrayDeque.empty[Array[Byte]]
+
     def runOnce(input: Array[Byte]): Option[Throwable] =
+      features.clear()
       val arg    = decode(input)
       val start  = System.nanoTime()
+      val guided = config.featureGuidance
+      val prev   = currentFeatures.get()
       val result =
+        if guided then
+          currentFeatures.set(features)
         try
-          arg.foreach(body)
+          arg match
+            case Some(a) =>
+              body(a)
+              if guided then
+                features += "ok"
+            case None =>
+              if guided then
+                features += "undecodable"
           None
         catch
           // Skip/pending/cancel from the body are test control, not crashes.
           case e: TestException if !e.isInstanceOf[AssertionFailure] =>
             throw e
           case e: Throwable if config.expected(e) =>
+            if guided then
+              features += rejectionFeature(e)
             None
           case e: Throwable =>
             Some(e)
+        finally
+          if guided then
+            currentFeatures.set(prev)
       result.orElse {
         config
           .slowInputMillis
@@ -177,6 +255,7 @@ object FuzzCheck:
             Option.when(millis > limit)(SlowInput(millis, limit))
           }
       }
+    end runOnce
 
     def check(input: Array[Byte]): Option[Throwable] =
       runOnce(input) match
@@ -199,30 +278,38 @@ object FuzzCheck:
       )
       val reducedCause = check(reduced).getOrElse(cause)
       val saved        = saveCrash(config, target, reduced, reducedCause, seed)
-      val msg          = failureMessage(
-        target,
-        input,
-        reduced,
-        describe(reduced),
-        reducedCause,
-        seed,
-        executed,
-        saved,
-        config.corpusDir
-      )
+      val msg          =
+        failureMessage(
+          target,
+          input,
+          reduced,
+          describe(reduced),
+          reducedCause,
+          seed,
+          executed,
+          saved,
+          config.corpusDir
+        ) + (
+          if config.featureGuidance then
+            s"\n  explored: ${seen.size} features, ${pool.size} inputs kept"
+          else
+            ""
+        )
       throw AssertionFailure(msg, source)
+    end fail
 
     // 1. Replay seeds and the saved corpus. These run on every test run, so a fixed crash
     //    stays fixed.
-    val corpus   = config.seeds ++ loadCorpus(config.corpusDir, target)
+    val corpus = config.seeds ++ loadCorpus(config.corpusDir, target)
+    pool ++= corpus.filter(_.length <= config.maxLength)
     var executed = 0L
     corpus.foreach { input =>
       executed += 1
       check(input).foreach(e => fail(input, e, executed))
+      seen ++= features
     }
 
-    // 2. Mutate.
-    val pool       = ArrayBuffer.from(corpus.filter(_.length <= config.maxLength))
+    // 2. Mutate. With feature guidance, an input that shows a new feature joins the pool.
     val dictionary = config.dictionary.toIndexedSeq
     if pool.isEmpty then
       pool += Array.emptyByteArray
@@ -236,12 +323,31 @@ object FuzzCheck:
           rng.nextBytes(b)
           b
         else
-          val base  = pool(rng.nextInt(pool.length))
+          // Half the time, build on a recent find: the inputs that reached the newest states
+          val base =
+            if recent.nonEmpty && rng.nextBoolean() then
+              recent(rng.nextInt(recent.size))
+            else
+              pool(rng.nextInt(pool.length))
           val other = pool(rng.nextInt(pool.length))
           ByteMutator.mutate(base, other, dictionary, rng, config.maxLength)
       executed += 1
       check(input).foreach(e => fail(input, e, executed))
+      val fresh = features.filterNot(seen.contains)
+      if fresh.nonEmpty then
+        rejections += fresh.count(_.startsWith(rejectPrefix))
+      // Past the cap, only features other than rejections count as new
+      if fresh.exists(f => rejections <= maxRejectionFeatures || !f.startsWith(rejectPrefix)) then
+        seen ++= features
+        if pool.size < maxPoolSize then
+          pool += input
+        else
+          pool(rng.nextInt(pool.size)) = input
+        recent += input
+        if recent.size > maxRecent then
+          recent.removeHead()
       i += 1
+    end while
 
   end run
 

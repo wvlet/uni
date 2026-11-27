@@ -84,3 +84,14 @@ coverage guidance; this ADR records the first step that shipped.
 - Scala.js prints whole doubles without `.0`, so `JSONDouble(1e12).toJSON` read back as a
   `JSONLong` there only; `toJSON` now adds `.0`. Running the same targets on every platform is
   what caught it.
+
+## Update: feature guidance without coverage
+
+- Plain Scala on three platforms has no coverage instrumentation, so the runner uses features as a
+  stand-in: each expected-exception class with its message (digits removed, so positions do not
+  multiply features) and each `fuzzFeature(label)` call. An input with an unseen feature joins the
+  pool (at most 1,024, then random replacement), and half of the mutations start from the 8 most
+  recent such inputs, which keeps the search at the frontier.
+- On a 4-byte keyword, guidance finds a match in about 5,000 to 100,000 inputs depending on the
+  seed; unguided mutation does not find it in 200,000. Rejection messages work only as well as
+  they differ: two positions that report the same message look like one state.

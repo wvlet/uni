@@ -1012,6 +1012,34 @@ For a type with an `Arbitrary`, pass `Arbitrary.arbitrary[A]`.
 number of values and shrinks with `Shrink`; `fuzzGen` keeps going for a time
 budget (`UNI_FUZZ_SECONDS`) and keeps failures as corpus files.
 
+### Feature guidance
+
+Without coverage instrumentation, the runner still learns which inputs are
+worth mutating further: an input that shows a *feature* no earlier input
+showed joins the pool, and half of the mutations build on the latest such
+finds. Two kinds of features count:
+
+- **Rejections.** Each expected exception class and message, with digits
+  removed, is a feature. A parser that fails with `expected ':'` on one input
+  and `unterminated string` on another tells the runner the second got
+  further, with no extra code.
+- **`fuzzFeature(label)`.** A target reports a state it reached, such as a
+  branch of a parser or a header it recognized:
+
+```scala skip
+fuzz("archive") { bytes =>
+  if bytes.startsWith("PK".getBytes) then
+    fuzzFeature("zip")
+  Archive.read(bytes)
+}
+```
+
+On a keyword that must match byte by byte, guidance finds a 4-byte match
+within 5,000 to 100,000 inputs, depending on the seed; unguided mutation
+misses it in 200,000. Failure
+reports end with `explored: N features, M inputs kept`.
+`noFeatureGuidance` turns it off.
+
 ### Slow inputs
 
 `withSlowInputMillis(ms)` fails on an input that runs longer than the limit,
@@ -1044,9 +1072,10 @@ UNI_FUZZ_SEED=733437378479625 ./sbt "uniJVM/testOnly *FuzzTest"  # replay a fail
 | Ignore `UNI_FUZZ_*` | `noEnvOverrides` | overrides on |
 | Generator size (`fuzzGen`) | `withGenSize(n)` | 32 |
 | Slow-input limit | `withSlowInputMillis(ms)` / `noSlowInputMillis` | none |
+| Feature guidance | `withFeatureGuidance` / `noFeatureGuidance` | on |
 
 Override `fuzzConfig` on the test class to share settings across targets.
-Fuzzing does not yet use coverage feedback.
+There is no code-coverage feedback; features stand in for it.
 
 In the Uni repository, the [Fuzz workflow](https://github.com/wvlet/uni/actions/workflows/fuzz.yml)
 runs the targets under `uni/src/test/scala/wvlet/uni/fuzz/` for two minutes
