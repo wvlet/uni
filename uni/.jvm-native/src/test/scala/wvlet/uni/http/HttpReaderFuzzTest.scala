@@ -22,7 +22,10 @@ import java.nio.charset.StandardCharsets
   * Fuzz the HTTP/1.1 request reader of the JVM and Native servers. It reads bytes from any client,
   * so it must answer every input with requests, a 4xx/5xx error, or a closed connection, never an
   * exception. And as in [[HttpReaderSpecTest]], where a read ends must never change where a request
-  * ends: every read size gives the same outcomes.
+  * ends: every read size gives the same outcomes. A request the reader keeps the connection open
+  * after must be framed the same way by every lenient parser of [[HttpSmuggleModel]] that accepts
+  * it, so no front proxy among them can smuggle a request past the reader. And every accepted
+  * request must keep the RFC 9112 rules that hold for any input (see `requestRules`).
   */
 class HttpReaderFuzzTest extends UniTest:
   import HttpReaderSpecTest.*
@@ -63,6 +66,8 @@ class HttpReaderFuzzTest extends UniTest:
           ":"
         )
     ) { bytes =>
+      smuggling(bytes).foreach(fail(_))
+      requestRules(bytes).foreach(fail(_))
       val whole = outcomes(bytes, 1 << 16)
       readSizes.foreach { size =>
         val split = outcomes(bytes, size)

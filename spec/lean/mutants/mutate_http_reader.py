@@ -11,18 +11,23 @@ cases generated from spec/lean/UniSpec/HttpReader.lean), and restores the file. 
 
 Run it from the repository root, on demand or after changing the model:
 
-    python3 spec/lean/mutants/mutate_http_reader.py [name ...]
+    python3 spec/lean/mutants/mutate_http_reader.py [--fuzz] [name ...]
 
-With names, only those mutants run. It refuses to start when the reader has uncommitted changes,
+With names, only those mutants run. With --fuzz, each mutant runs HttpReaderFuzzTest instead, with a
+fixed UNI_FUZZ_SEED (override it in the environment), to measure what fuzzing finds on its own: the
+smuggling rule of HttpSmuggle.lean checked on mutated inputs, and the same outcomes for every read
+size. It refuses to start when the reader has uncommitted changes,
 and always restores the file, so the working tree is left as it was.
 """
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 TARGET = Path("uni/.jvm-native/src/main/scala/wvlet/uni/http/SocketHttpProtocol.scala")
-TEST = ["./sbt", "uniJVM/testOnly wvlet.uni.http.HttpReaderSpecTest"]
+SPEC_TEST = ["./sbt", "uniJVM/testOnly wvlet.uni.http.HttpReaderSpecTest"]
+FUZZ_TEST = ["./sbt", "uniJVM/testOnly wvlet.uni.http.HttpReaderFuzzTest"]
 
 # (name, what the bug does, [(old, new), ...]); each `old` must occur exactly once
 MUTANTS = [
@@ -142,9 +147,10 @@ MUTANTS = [
 ]
 
 
-def run_test() -> tuple[str, str]:
-    """Run the spec test: ("pass" | "fail" | "invalid", the last lines of its output)."""
-    p = subprocess.run(TEST, capture_output=True, text=True, errors="replace")
+def run_test(test: list[str]) -> tuple[str, str]:
+    """Run the test: ("pass" | "fail" | "invalid", the last lines of its output)."""
+    env = {**os.environ, "UNI_FUZZ_SEED": os.environ.get("UNI_FUZZ_SEED", "1")}
+    p = subprocess.run(test, capture_output=True, text=True, errors="replace", env=env)
     out = p.stdout + p.stderr
     ran = any("Total:" in line for line in out.splitlines())
     tail = "\n".join([line for line in out.splitlines() if "Total:" in line or "[error]" in line][:5])
@@ -162,7 +168,12 @@ def main() -> int:
         print(f"{TARGET} has uncommitted changes; commit or revert them first", file=sys.stderr)
         return 2
 
-    selected = [m for m in MUTANTS if not sys.argv[1:] or m[0] in sys.argv[1:]]
+    args = sys.argv[1:]
+    fuzz = "--fuzz" in args
+    names = [a for a in args if a != "--fuzz"]
+    test = FUZZ_TEST if fuzz else SPEC_TEST
+    test_name = test[1].split()[-1].rsplit(".", 1)[-1]
+    selected = [m for m in MUTANTS if not names or m[0] in names]
     original = TARGET.read_text()
     for name, _, edits in selected:
         for old, _ in edits:
@@ -170,9 +181,9 @@ def main() -> int:
                 print(f"{name}: expected one occurrence of {old!r}, found {original.count(old)}", file=sys.stderr)
                 return 2
 
-    status, tail = run_test()
+    status, tail = run_test(test)
     if status != "pass":
-        print(f"The unmutated reader does not pass HttpReaderSpecTest ({status}):\n{tail}", file=sys.stderr)
+        print(f"The unmutated reader does not pass {test_name} ({status}):\n{tail}", file=sys.stderr)
         return 2
 
     results = []
@@ -182,7 +193,7 @@ def main() -> int:
             for old, new in edits:
                 mutated = mutated.replace(old, new)
             TARGET.write_text(mutated)
-            status, _ = run_test()
+            status, _ = run_test(test)
             verdict = {"fail": "killed", "pass": "SURVIVED", "invalid": "invalid"}[status]
             results.append((name, verdict))
             print(f"{verdict:9} {name}: {what}", flush=True)
