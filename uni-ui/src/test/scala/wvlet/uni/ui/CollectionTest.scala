@@ -1046,6 +1046,153 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a data table header shows a subtitle under its label") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "method", cell = c => span(c.method))
+            .withSubtitle("varchar")
+            .sortBy(_.method),
+          Column[Call]("millis", "millis", cell = c => span(f"${c.millis}%.1f"))
+            .withSubtitle("double")
+            .alignEnd,
+          Column[Call]("id", "id", cell = c => span(c.id.toString))
+        )
+      ).withLabel("Results")
+    )
+    settle().map { _ =>
+      val headers = m.queryAll("[role=columnheader]")
+      m.queryAll(".uni-table__subtitle").map(_.textContent) shouldBe Seq("varchar", "double")
+      // A sortable header: the sort button holds both lines, named by the label alone
+      val sortButton = headers(0).querySelector("button")
+      sortButton.querySelector(".uni-table__subtitle") shouldNotBe null
+      sortButton.getAttribute("aria-label") shouldBe "method"
+      val sub = headers(0).querySelector(".uni-table__subtitle")
+      sub.getAttribute("aria-hidden") shouldBe "true"
+      sortButton.getAttribute("aria-describedby") shouldBe sub.id
+      // An unsortable header is named and described itself
+      headers(1).getAttribute("aria-label") shouldBe "millis"
+      headers(1).getAttribute("aria-describedby") shouldBe
+        headers(1).querySelector(".uni-table__subtitle").id
+      // An end-aligned header puts both lines at the end
+      val heading = headers(1).querySelector(".uni-table__heading")
+      dom.window.getComputedStyle(heading).getPropertyValue("align-items") shouldBe "flex-end"
+      // A header without a subtitle stays as before, and the header row grows to fit two lines
+      headers(2).getAttribute("aria-label") shouldBe null
+      headers(2).querySelector(".uni-table__heading") shouldBe null
+      val row = m.get(".uni-table__header-row").asInstanceOf[dom.HTMLElement]
+      (row.offsetHeight > 32) shouldBe true
+      // A click on the subtitle sorts, as on the label
+      fireEvent.click(sub)
+      headers(0).getAttribute("aria-sort") shouldBe "ascending"
+    }
+  }
+
+  test("a data table with noSelection selects nothing and still runs onSelect") {
+    val rowSel  = Rx.variable(Option.empty[Int])
+    val keys    = Rx.variable(Set.empty[Int])
+    val cellVar = Rx.variable(Option.empty[CellKey[Int]])
+    val changes = scala.collection.mutable.ArrayBuffer.empty[String]
+    var chosen  = Seq.empty[Int]
+    val m       = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+        )
+      ).withSelected(rowSel)
+        .withMultiSelect(keys)
+        .withSelectedCell(cellVar)
+        .noSelection()
+        .onSelect(c => chosen :+= c.id)
+        .onChange(d => changes += d.key)
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.getAttribute("aria-multiselectable") shouldBe null
+      fireEvent.click(m.getByText("send"))
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "ArrowRight")
+      fireEvent.keyDown(table, "Enter")
+      fireEvent.keyDown(table, " ")
+      fireEvent.keyDown(table, "a", ctrlKey = true)
+      fireEvent.click(m.getByText("list"), shiftKey = true)
+      // Clicks and Enter activate rows, but nothing is selected or written
+      chosen shouldBe Seq(2, 3, 3, 1)
+      m.queryAll("[aria-selected]").size shouldBe 0
+      rowSel.get shouldBe None
+      keys.get shouldBe Set.empty
+      cellVar.get shouldBe None
+      changes shouldBe Seq.empty
+      // The keys still move the active cell
+      table.getAttribute("aria-activedescendant") shouldBe
+        m.getByText("list").closest("[role=gridcell]").id
+    }
+  }
+
+  test("a data table with noSelection starts focus at the first row, not a cell variable") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+        )
+      ).withSelectedCell(Rx.variable(Some(CellKey(2, "millis")))).noSelection()
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.focus()
+      table.getAttribute("aria-activedescendant") shouldBe
+        m.getByText("list").closest("[role=gridcell]").id
+    }
+  }
+
+  test("a data table centers its headers with withCenteredHeaders") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "method", cell = c => span(c.method))
+            .withSubtitle("varchar")
+            .sortBy(_.method),
+          Column[Call]("millis", "millis", cell = c => span(f"${c.millis}%.1f")).alignEnd
+        )
+      ).withCenteredHeaders()
+    )
+    settle().map { _ =>
+      val headers = m.queryAll("[role=columnheader]")
+      headers.map(h => dom.window.getComputedStyle(h).getPropertyValue("justify-content")) shouldBe
+        Seq("center", "center")
+      val heading = headers(0).querySelector(".uni-table__heading")
+      dom.window.getComputedStyle(heading).getPropertyValue("align-items") shouldBe "center"
+      // Cells keep their own alignment
+      val cell = m.getByText("4.0").closest("[role=gridcell]")
+      dom.window.getComputedStyle(cell).getPropertyValue("justify-content") shouldBe "flex-end"
+    }
+  }
+
+  test("a list keeps vertical scrolls but lets sideways scrolls reach an outer scroller") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(Column[Call]("method", "Method", cell = c => span(c.method)))
+      )
+    )
+    settle().map { _ =>
+      val style = dom.window.getComputedStyle(m.get(".uni-list"))
+      style.getPropertyValue("overscroll-behavior-y") shouldBe "contain"
+      style.getPropertyValue("overscroll-behavior-x") shouldBe "auto"
+    }
+  }
+
   test("focus starts at the selected cell") {
     val m = mount(
       DataTable(

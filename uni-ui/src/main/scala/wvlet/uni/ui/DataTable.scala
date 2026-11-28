@@ -40,6 +40,7 @@ case class CellKey[K](row: K, column: String)
   * {{{
   *   Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method)
   *   Column[Call]("millis", "Time", cell = c => f"\${c.millis}%.1f ms").sortBy(_.millis).withWidth("96px").alignEnd
+  *   Column[Row]("total", "total", cell = r => span(r.total)).withSubtitle("bigint").alignEnd
   * }}}
   *
   * @param width
@@ -52,13 +53,15 @@ class Column[A] private (
     val cell: A => DomNode,
     val ordering: Option[Ordering[A]],
     val width: String,
-    val end: Boolean
+    val end: Boolean,
+    val subtitle: Option[String]
 ):
   private def copy(
       ordering: Option[Ordering[A]] = ordering,
       width: String = width,
-      end: Boolean = end
-  ): Column[A] = new Column(id, header, cell, ordering, width, end)
+      end: Boolean = end,
+      subtitle: Option[String] = subtitle
+  ): Column[A] = new Column(id, header, cell, ordering, width, end, subtitle)
 
   /** Let the user sort by this column, comparing rows by `f`. */
   def sortBy[B](f: A => B)(using o: Ordering[B]): Column[A] = copy(ordering = Some(o.on(f)))
@@ -72,12 +75,28 @@ class Column[A] private (
   /** Align the header and cells to the end, as for numbers. */
   def alignEnd: Column[A] = copy(end = true)
 
+  /**
+    * A second, smaller line under the header, such as the column's type in a grid of query results.
+    * It describes the column header (`aria-describedby`) but is not part of its name, which stays
+    * `header`.
+    */
+  def withSubtitle(s: String): Column[A] = copy(subtitle = Some(s))
+  def noSubtitle(): Column[A]            = copy(subtitle = None)
+
 end Column
 
 object Column:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   def apply[A](id: String, header: String, cell: A => DomNode): Column[A] =
-    new Column(id, header, cell, ordering = None, width = "minmax(0, 1fr)", end = false)
+    new Column(
+      id,
+      header,
+      cell,
+      ordering = None,
+      width = "minmax(0, 1fr)",
+      end = false,
+      subtitle = None
+    )
 
 /**
   * A table of rows with a sticky header, sortable columns, and row selection. Only the rows in view
@@ -124,7 +143,9 @@ class DataTable[A, K] private (
     reorderable: Option[RxVar[Seq[A]]],
     rowLabel: Option[A => String],
     agentConfirm: Option[A => Option[String]],
-    selectedCell: Option[RxVar[Option[CellKey[K]]]]
+    selectedCell: Option[RxVar[Option[CellKey[K]]]],
+    selectable: Boolean,
+    centerHeaders: Boolean
 ) extends RxElement:
 
   private def copy(
@@ -138,7 +159,9 @@ class DataTable[A, K] private (
       reorderable: Option[RxVar[Seq[A]]] = reorderable,
       rowLabel: Option[A => String] = rowLabel,
       agentConfirm: Option[A => Option[String]] = agentConfirm,
-      selectedCell: Option[RxVar[Option[CellKey[K]]]] = selectedCell
+      selectedCell: Option[RxVar[Option[CellKey[K]]]] = selectedCell,
+      selectable: Boolean = selectable,
+      centerHeaders: Boolean = centerHeaders
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -154,7 +177,9 @@ class DataTable[A, K] private (
       reorderable,
       rowLabel,
       agentConfirm,
-      selectedCell
+      selectedCell,
+      selectable,
+      centerHeaders
     )
 
   /** The accessible name of the table. */
@@ -187,6 +212,26 @@ class DataTable[A, K] private (
 
   /** Selects rows again, as [[withSelected]] or [[withMultiSelect]] set them (the default). */
   def noSelectedCell(): DataTable[A, K] = copy(selectedCell = None)
+
+  /**
+    * Selects nothing, as in a read-only grid of query results: a click, Enter, or Space leaves no
+    * row or cell selected (no `aria-selected`, no selected background) and only runs [[onSelect]].
+    * Hover, the active cell, the keys, and sorting work as before. It overrides [[withSelected]],
+    * [[withMultiSelect]], and [[withSelectedCell]], whose variables the table then leaves alone.
+    */
+  def noSelection(): DataTable[A, K] = copy(selectable = false)
+
+  /** Selects rows or a cell, as the other options set (the default). */
+  def withSelection(): DataTable[A, K] = copy(selectable = true)
+
+  /**
+    * Centers each header over its column, as in a grid of query results; cells keep their own
+    * alignment.
+    */
+  def withCenteredHeaders(): DataTable[A, K] = copy(centerHeaders = true)
+
+  /** Aligns each header as its column's cells (the default). */
+  def noCenteredHeaders(): DataTable[A, K] = copy(centerHeaders = false)
 
   /**
     * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
@@ -378,6 +423,7 @@ class DataTable[A, K] private (
         onHeader := true
       else
         selectedCell
+          .filter(_ => selectable)
           .flatMap(_.get)
           .foreach { c =>
             val col = columns.indexWhere(_.id == c.column)
@@ -465,7 +511,7 @@ class DataTable[A, K] private (
     // the selection to the first or last row and the column stays.
     if !rowEnd && (e.altKey || e.shiftKey || toRow) then
       false
-    else if rowEnd && e.shiftKey && !toRow && !e.altKey && multiSelected.nonEmpty then
+    else if rowEnd && e.shiftKey && !toRow && !e.altKey && selectable && multiSelected.nonEmpty then
       false
     else
       DataTable.nextColumn(e.key, activeColumn.get, columns.size, TextDirection.mirrors(e)) match
@@ -504,7 +550,35 @@ class DataTable[A, K] private (
       DataTable.sortRows(xs, columns, s)
     }
 
+  private def subtitleId(i: Int): String = s"${tableId}-subtitle-${i}"
+
+  // The header's label, and its subtitle on a second line. The subtitle is left out of the name
+  // (`aria-hidden`, and the header's `aria-label`) and describes the header instead.
+  private def heading(c: Column[A], i: Int): DomNode =
+    c.subtitle match
+      case None =>
+        span(c.header)
+      case Some(sub) =>
+        span(
+          cls          -> "uni-table__heading",
+          data("slot") -> "data-table-heading",
+          span(cls -> "uni-table__label", c.header),
+          span(
+            id           -> subtitleId(i),
+            cls          -> "uni-table__subtitle",
+            data("slot") -> "data-table-subtitle",
+            ariaHidden   -> "true",
+            sub
+          )
+        )
+
   private def headerCell(core: => ListCore[A, K])(c: Column[A], i: Int): RxElement =
+    // With a subtitle, the element the label names (the sort button, or else the header cell) takes
+    // the label as its name and the subtitle as its description
+    val describedBy = c
+      .subtitle
+      .map(_ => DomNode.group(ariaLabel -> c.header, ariaDescribedby -> subtitleId(i)))
+      .getOrElse(DomNode.empty)
     val state = sort.map {
       case Some(SortBy(c.id, d)) =>
         Some(d)
@@ -531,7 +605,7 @@ class DataTable[A, K] private (
       ),
       c.ordering match
         case None =>
-          span(c.header): DomNode
+          Seq[DomNode](describedBy, heading(c, i))
         case Some(_) =>
           Seq[DomNode](
             ariaSort ->
@@ -553,7 +627,8 @@ class DataTable[A, K] private (
                 "click",
                 e => writeSort(c, ChangeCause.of(ChangeReason.Press, e))
               ),
-              span(c.header),
+              describedBy,
+              heading(c, i),
               span(
                 cls               -> "uni-table__sort-icon",
                 ariaHidden        -> "true",
@@ -603,7 +678,12 @@ class DataTable[A, K] private (
       key,
       rowHeight,
       VirtualList.defaultOverscan,
-      containerClass = "uni-table",
+      containerClass =
+        if centerHeaders then
+          "uni-table uni-table--center-headers"
+        else
+          "uni-table"
+      ,
       agentKind = "table",
       agentActions = () => sortActions,
       containerAttrs = Seq(
@@ -639,6 +719,7 @@ class DataTable[A, K] private (
                         None
                     },
                 selectedCell
+                  .filter(_ => selectable)
                   .map(s => ariaSelected -> s.map(_.contains(CellKey(k, c.id)).toString))
                   .getOrElse(DomNode.empty),
                 // The row's click handler then selects the row, or this cell
@@ -652,15 +733,19 @@ class DataTable[A, K] private (
               )
             },
       selection =
-        selectedCell.fold(
-          multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_))
-        )(s =>
-          ListSelection.Cell(
-            s,
-            column = () => columns.lift(activeColumn.get).map(_.id),
-            columns = columns.map(c => (c.id, c.header))
+        if !selectable then
+          ListSelection.Off()
+        else
+          selectedCell.fold(
+            multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_))
+          )(s =>
+            ListSelection.Cell(
+              s,
+              column = () => columns.lift(activeColumn.get).map(_.id),
+              columns = columns.map(c => (c.id, c.header))
+            )
           )
-        ),
+      ,
       onSelect = onSelectFn,
       changeHandler = changeHandler,
       slot = "data-table",
@@ -711,7 +796,9 @@ object DataTable:
       reorderable = None,
       rowLabel = None,
       agentConfirm = None,
-      selectedCell = None
+      selectedCell = None,
+      selectable = true,
+      centerHeaders = false
     )
 
   /**

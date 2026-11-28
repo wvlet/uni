@@ -150,7 +150,7 @@ private[ui] class ListCore[A, K](
         Some(s.map(_.contains(k)))
       case ListSelection.Multi(keys) =>
         Some(keys.map(_.contains(k)))
-      case ListSelection.Cell(_, _, _) =>
+      case ListSelection.Cell(_, _, _) | ListSelection.Off() =>
         None
 
   private def order: Seq[K] = current.map(key)
@@ -243,6 +243,9 @@ private[ui] class ListCore[A, K](
             .exists(c =>
               ChangeGate.write(s, "selectedCell", Some(CellKey(key(a), c)), cause, changeHandler)
             )
+        // Nothing to select: the press only activates the row
+        case ListSelection.Off() =>
+          true
     if accepted then
       ChangeCause.during(cause)(onSelect(a))
 
@@ -362,6 +365,8 @@ private[ui] class ListCore[A, K](
               .flatMap(_.anchor)
               .filter(k => keys.get.contains(k) && index.get.contains(k))
               .orElse(order.find(keys.get.contains))
+          case ListSelection.Off() =>
+            None
       active := start.orElse(current.headOption.map(key))
 
   override def onMount(node: Any): Unit =
@@ -442,17 +447,21 @@ private[ui] class ListCore[A, K](
           keys.get
         case ListSelection.Cell(s, _, _) =>
           s.get.map(_.row).toSet
+        case ListSelection.Off() =>
+          Set.empty
 
     override def states: Seq[AnyRef] =
       (
         selection match
           case ListSelection.Single(s) =>
-            s
+            Some(s)
           case ListSelection.Multi(keys) =>
-            keys
+            Some(keys)
           case ListSelection.Cell(s, _, _) =>
-            s
-      ) +: reorderable.toSeq
+            Some(s)
+          case ListSelection.Off() =>
+            None
+      ).toSeq ++ reorderable.toSeq
 
     // A cell is named by its row's label and its column's header: "list · Method"
     private def cellLabel(c: CellKey[?]): String =
@@ -689,6 +698,9 @@ end ListCore
 private[ui] enum ListSelection[K]:
   case Single(selected: RxVar[Option[K]])
   case Multi(selected: RxVar[Set[K]])
+
+  /** Nothing: a click or Enter only activates a row, as a read-only grid of results does. */
+  case Off()
 
   /**
     * One cell of a grid: `column` gives the id of the active column, and `columns` pairs each

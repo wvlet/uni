@@ -156,7 +156,11 @@ val table = DataTable(
   // Shift/Ctrl+click, Shift+Arrow, Space, Ctrl+A; withSelected(optionVar) for one row
   .withMultiSelect(pickedIds)
   // Up from the first row reaches the header (Enter sorts); Enter/F2 enter a widget in a cell,
-  // Escape returns. .withSelectedCell(cellVar) selects one CellKey(row, column) instead of rows
+  // Escape returns. .withSelectedCell(cellVar) selects one CellKey(row, column) instead of rows.
+  // For read-only results, .noSelection() selects nothing (onSelect still runs), and
+  // Column(...).withSubtitle("bigint") shows a muted second header line, such as the type;
+  // .withCenteredHeaders() centers the headers over their columns. ScrollArea(table) scrolls a
+  // wide table sideways with a hover-only thumb and no scrollbar strip below the last row
   // Drag a row or press Alt+ArrowUp/Down to move it; selected rows move together. The new order
   // goes to `calls` through onChange (key "order"); off while a column sort is applied. On touch,
   // drags start only from a Reorder.grip in the row (e.g. a Column cell = _ => Reorder.grip)

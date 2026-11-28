@@ -84,6 +84,92 @@ object CollectionStories:
   end dataTable
   // #endregion
 
+  // #region data-table/results
+  case class Sale(
+      region: String,
+      product: String,
+      channel: String,
+      units: Long,
+      revenue: Double,
+      discount: Double,
+      day: String,
+      store: Int
+  )
+
+  inline def dataTableResults: RxElement =
+    val sales = Rx.const(
+      Seq(
+        Sale("APAC", "Notebook", "online", 1204, 18060.0, 0.05, "2026-11-01", 12),
+        Sale("EMEA", "Pen", "retail", 8840, 4420.0, 0.0, "2026-11-01", 7),
+        Sale("AMER", "Backpack", "online", 312, 15600.0, 0.1, "2026-11-02", 3),
+        Sale("APAC", "Pen", "retail", 6120, 3060.0, 0.0, "2026-11-02", 12),
+        Sale("EMEA", "Notebook", "partner", 980, 14700.0, 0.15, "2026-11-03", 9)
+      )
+    )
+    val opened = Rx.variable("")
+
+    // A text column and a number column, each as wide as its values
+    def text(id: String, width: String, f: Sale => String) = Column[Sale](
+      id,
+      id,
+      cell = s => span(f(s))
+    ).withSubtitle("varchar").sortBy(f).withWidth(width)
+
+    def number[N: Ordering](
+        id: String,
+        tpe: String,
+        width: String,
+        f: Sale => N,
+        show: N => String
+    ) =
+      Column[Sale](id, id, cell = s => span(show(f(s))))
+        .withSubtitle(tpe)
+        .sortBy(f)
+        .withWidth(width)
+        .alignEnd
+
+    div(
+      cls -> "demo-stack",
+      // The area is as wide as the table, up to the page, and scrolls sideways past that: a wheel
+      // or trackpad swipe over the table reaches it, and a thumb shows on hover without taking
+      // room below the last row
+      ScrollArea(
+        DataTable(
+          sales,
+          key = s => (s.region, s.product, s.day),
+          columns = Seq(
+            text("region", "80px", _.region),
+            text("product", "96px", _.product),
+            text("channel", "88px", _.channel),
+            number("units", "bigint", "72px", _.units, _.toString),
+            number("revenue", "double", "96px", _.revenue, r => f"${r}%.2f"),
+            number("discount", "double", "88px", _.discount, d => f"${d}%.2f"),
+            Column[Sale]("day", "day", cell = s => span(s.day))
+              .withSubtitle("date")
+              .withWidth("104px"),
+            number("store", "int", "64px", _.store, _.toString)
+          )
+        ).withLabel("Query results")
+          .noSelection()
+          .withCenteredHeaders()
+          .onSelect(s => opened := s"${s.region} ${s.product} on ${s.day}")(
+            // As wide as its columns, and a max-height so the box ends at the last row
+            styleAttr += "width: max-content; max-height: 230px"
+          )
+      )(styleAttr += "border: 1px solid var(--uni-line); border-radius: 6px"),
+      p(
+        cls -> "demo-note",
+        opened.map(o =>
+          if o.isEmpty then
+            "Click a row: it opens without staying selected"
+          else
+            s"Opened ${o}"
+        )
+      )
+    )
+  end dataTableResults
+  // #endregion
+
   // #region virtual-list/reorder
   case class Task(id: Int, title: String)
 
@@ -409,7 +495,7 @@ object CollectionStories:
     ComponentPage(
       "data-table",
       "Data table",
-      "A sortable grid with a sticky header, cell navigation, widgets in cells, multi-select, and reordering.",
+      "A sortable grid with a sticky header, cell navigation, widgets in cells, multi-select, reordering, and a read-only mode for results.",
       Seq(
         Story(
           "data-table/basic",
@@ -430,9 +516,14 @@ object CollectionStories:
           "data-table/reorder",
           "Reorder rows",
           "Drag a grip, or press Alt+ArrowUp or Alt+ArrowDown on a row."
-        )(dataTableReorder)
+        )(dataTableReorder),
+        Story(
+          "data-table/results",
+          "Read-only results",
+          "Column types under each header, rows that a click doesn't select, and a sideways scroll over the table that moves its panel."
+        )(dataTableResults)
       ),
-      ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]],
+      ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]] ++ ApiDoc.of[ScrollArea],
       Seq(A11yCheck(AriaPattern.Grid, "[role=grid]"))
     ),
     ComponentPage(
