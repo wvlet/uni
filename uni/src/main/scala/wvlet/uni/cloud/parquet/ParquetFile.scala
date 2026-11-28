@@ -122,6 +122,19 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       fetchAsync(plan).map(in => wholeRowGroup(index, batches(plan, in, opts, whole = true, fl)))
     }
 
+  /**
+    * Reads one row group as batches of at most [[ParquetReadOptions.withBatchSize]] rows, as
+    * [[readBatches]] splits it, so that a caller reading row groups in parallel holds one batch of
+    * decoded values per row group at a time instead of the whole row group. The row group's column
+    * chunks and decompressed pages are still held until its last batch is read. Without a batch
+    * size, a row group is split only when a column's values in it pass 1 GiB. With a row filter, a
+    * batch may have no rows.
+    */
+  def readRowGroupBatches(
+      index: Int,
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Iterator[ColumnBatch] = rowGroupBatches(index, options)
+
   /** The batches of one row group, as [[readBatches]] splits them */
   private[parquet] def rowGroupBatches(
       index: Int,

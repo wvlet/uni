@@ -162,23 +162,8 @@ private[parquet] object ValueDecoder:
         Bytes.doublesLE(buf, start, b.values, b.size, n)
         b.size += n
       case PhysicalType.BYTE_ARRAY =>
-        val b = out.asInstanceOf[BinaryBuffer]
-        b.ensureValues(n)
-        // The values' bytes are the page's bytes less a 4-byte length per value. Reserving them
-        // up front saves doubling the data array as the values arrive; an empty buffer gets
-        // exactly that, so a one-page chunk's data needs no trimming or regrowth
-        val bytes = math.max(0, end - start - 4 * n)
-        if b.size == 0 then
-          b.reserveData(bytes)
-        else
-          b.ensureData(bytes)
-        var i = 0
-        while i < n do
-          val len = r.readIntLE()
-          r.ensure(len)
-          b.add(buf, r.pos, len)
-          r.pos += len
-          i += 1
+        // The values' bytes are the page's bytes less a 4-byte length per value
+        decodePlainBinary(buf, start, end, n, out.asInstanceOf[BinaryBuffer], end - start - 4 * n)
       case PhysicalType.INT96 | PhysicalType.FIXED_LEN_BYTE_ARRAY =>
         val w = fixedWidth(tpe, typeLength)
         ensureBytes(r, n.toLong * w)
@@ -192,6 +177,35 @@ private[parquet] object ValueDecoder:
     end match
 
   end decodePlain
+
+  /**
+    * Appends the next `n` PLAIN byte arrays at `start` to `b`, and returns where they end. `bytes`,
+    * the bytes the values hold, is reserved up front, which saves doubling the data array as the
+    * values arrive; an empty buffer gets exactly that, so a one-page chunk's data needs no trimming
+    * or regrowth.
+    */
+  def decodePlainBinary(
+      buf: Array[Byte],
+      start: Int,
+      end: Int,
+      n: Int,
+      b: BinaryBuffer,
+      bytes: Int
+  ): Int =
+    val r = ByteReader(buf, start, end)
+    b.ensureValues(n)
+    if b.size == 0 then
+      b.reserveData(math.max(0, bytes))
+    else
+      b.ensureData(math.max(0, bytes))
+    var i = 0
+    while i < n do
+      val len = r.readIntLE()
+      r.ensure(len)
+      b.add(buf, r.pos, len)
+      r.pos += len
+      i += 1
+    r.pos
 
   private def ensureBytes(r: ByteReader, n: Long): Unit =
     if n > r.remaining then

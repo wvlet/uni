@@ -83,7 +83,8 @@ def sumIds(path: String): Long =
 `readBatches` gives one batch per row group; `ParquetReadOptions.default.withBatchSize(rows)` caps
 the rows per batch. A row group whose column holds over 1 GiB of values is split automatically, so
 large files need no settings; `readRowGroup(i)` returns a whole row group and fails when one column
-passes 2 GiB.
+passes 2 GiB. `readRowGroupBatches(i, options)` reads one row group in batches of the batch size,
+decoding the values of one batch at a time.
 
 `file.schema`, `file.numRows`, and `file.rowGroups` (with statistics) come from the footer.
 `batch.row(i)` gives the same `Map[String, Any]` as `readRows`; `vector.getValue(i)` applies the
