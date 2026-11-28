@@ -79,6 +79,17 @@ class HttpReaderFuzzTest extends UniTest:
   override protected def afterAll: Unit = model.foreach(_.close())
 
   /**
+    * The model keeps the request target as bytes; the reader then decodes a UTF-8 target into
+    * Unicode (`Request.decodeRequestTarget`), a step after framing that the model leaves out
+    */
+  private def decodeTarget(outcome: String): String =
+    outcome.split(" ", 5) match
+      case Array("req", method, target, rest*) =>
+        (Seq("req", method, Request.decodeRequestTarget(target)) ++ rest).mkString(" ")
+      case _ =>
+        outcome
+
+  /**
     * A failure message when the reader's outcomes for `input`, `actual` with Latin-1 bodies, differ
     * from the Lean model's
     */
@@ -86,7 +97,7 @@ class HttpReaderFuzzTest extends UniTest:
     .filter(_ => modelError.isEmpty)
     .flatMap { m =>
       try
-        Some(m.ask(input).map(String(_, StandardCharsets.ISO_8859_1)))
+        Some(m.ask(input).map(o => decodeTarget(String(o, StandardCharsets.ISO_8859_1))))
       catch
         case NonFatal(e) =>
           modelError = Some(e)
