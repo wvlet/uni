@@ -45,9 +45,7 @@ class HttpReaderFuzzTest extends UniTest:
     )
     .withCorpusDir("uni/src/test/resources/fuzz")
 
-  /**
-    * The Lean model as a running process, or None (logged) when it is not built or not on the JVM
-    */
+  // The Lean model as a running process, None (logged) when it is not built or not on the JVM
   private def startModel(): Option[LeanOracle] =
     if !isScalaJVM then
       None
@@ -70,69 +68,71 @@ class HttpReaderFuzzTest extends UniTest:
           )
           None
 
+  private var model: Option[LeanOracle] = None
+
+  // An oracle that fails is not a reader bug: stop asking it and fail after the run, so the fuzz
+  // runner never reduces or saves an input for it
+  @volatile
+  private var modelError: Option[Throwable] = None
+
+  override protected def afterAll: Unit = model.foreach(_.close())
+
+  /** A failure message when the reader's outcomes for `input` differ from the Lean model's */
+  private def modelMismatch(input: Array[Byte]): Option[String] = model
+    .filter(_ => modelError.isEmpty)
+    .flatMap { m =>
+      try
+        Some(m.ask(input).map(String(_, StandardCharsets.ISO_8859_1)))
+      catch
+        case NonFatal(e) =>
+          modelError = Some(e)
+          None
+    }
+    .flatMap { expected =>
+      val actual = outcomes(input, 1 << 16, latin1Body = true)
+      Option.when(actual != expected)(
+        s"the reader gives ${actual}, but the Lean model gives ${expected}"
+      )
+    }
+
   test("the HTTP reader frames requests the same way for every read size") {
-    val model = startModel()
-    // An oracle that fails is not a reader bug: stop asking it, and fail after the run, so the fuzz
-    // runner never reduces or saves an input for it
-    var modelError: Option[Throwable] = None
+    model = startModel()
     val seeds = (HttpReaderSpecCases.cases ++ HttpReaderSpecCases.smugglingCases).map(c =>
       c.split("␞", 2)(0).getBytes(StandardCharsets.ISO_8859_1)
     )
-    try
-      fuzz(
-        "http-reader",
-        fuzzConfig
-          .withSeedBytes(seeds*)
-          .withDictionary(
-            "\r\n",
-            "\r\n\r\n",
-            "GET / HTTP/1.1\r\n",
-            "POST /a HTTP/1.1\r\n",
-            "HTTP/1.0",
-            "Host: a\r\n",
-            "Content-Length: ",
-            "Transfer-Encoding: chunked\r\n",
-            "0\r\n\r\n",
-            ";ext=1",
-            "Connection: close\r\n",
-            "Connection: keep-alive\r\n",
-            "Expect: 100-continue\r\n",
-            " ",
-            "\t",
-            ":"
-          )
-      ) { bytes =>
-        smuggling(bytes).foreach(fail(_))
-        requestRules(bytes).foreach(fail(_))
-        val whole = outcomes(bytes, 1 << 16)
-        readSizes.foreach { size =>
-          val split = outcomes(bytes, size)
-          if split != whole then
-            fail(s"reads of ${size} bytes give ${split}, but one read gives ${whole}")
-        }
-        model
-          .filter(_ => modelError.isEmpty)
-          .flatMap { m =>
-            try
-              Some(m.ask(bytes).map(String(_, StandardCharsets.ISO_8859_1)))
-            catch
-              case NonFatal(e) =>
-                modelError = Some(e)
-                None
-          }
-          .foreach { expected =>
-            val actual = outcomes(bytes, 1 << 16, latin1Body = true)
-            if actual != expected then
-              fail(s"the reader gives ${actual}, but the Lean model gives ${expected}")
-          }
+    fuzz(
+      "http-reader",
+      fuzzConfig
+        .withSeedBytes(seeds*)
+        .withDictionary(
+          "\r\n",
+          "\r\n\r\n",
+          "GET / HTTP/1.1\r\n",
+          "POST /a HTTP/1.1\r\n",
+          "HTTP/1.0",
+          "Host: a\r\n",
+          "Content-Length: ",
+          "Transfer-Encoding: chunked\r\n",
+          "0\r\n\r\n",
+          ";ext=1",
+          "Connection: close\r\n",
+          "Connection: keep-alive\r\n",
+          "Expect: 100-continue\r\n",
+          " ",
+          "\t",
+          ":"
+        )
+    ) { bytes =>
+      smuggling(bytes).foreach(fail(_))
+      requestRules(bytes).foreach(fail(_))
+      val whole = outcomes(bytes, 1 << 16)
+      readSizes.foreach { size =>
+        val split = outcomes(bytes, size)
+        if split != whole then
+          fail(s"reads of ${size} bytes give ${split}, but one read gives ${whole}")
       }
-    finally model.foreach(m =>
-        try
-          m.close()
-        catch
-          case NonFatal(_) =>
-      )
-    end try
+      modelMismatch(bytes).foreach(fail(_))
+    }
     modelError.foreach(e => fail(s"The Lean model (http-reader-oracle) failed: ${e}"))
   }
 

@@ -48,8 +48,12 @@ class LeanOracle(command: Seq[String]) extends AutoCloseable:
     line.split(' ').toSeq.filter(_.nonEmpty).map(LeanOracle.unhex)
   }
 
+  /** Close stdin, which ends the process; a process that already exited leaves a broken pipe */
   override def close(): Unit =
-    in.close()
+    try
+      in.close()
+    catch
+      case _: java.io.IOException =>
     process.waitFor()
 
 end LeanOracle
