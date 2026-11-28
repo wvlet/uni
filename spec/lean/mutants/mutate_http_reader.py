@@ -154,7 +154,11 @@ ORACLE = Path("spec/lean/.lake/build/bin/http-reader-oracle")
 
 def build_oracle() -> bool:
     """Build the Lean model's fuzz oracle, which HttpReaderFuzzTest compares the reader with."""
-    p = subprocess.run(["lake", "build", "http-reader-oracle"], cwd="spec/lean", capture_output=True, text=True)
+    try:
+        p = subprocess.run(["lake", "build", "http-reader-oracle"], cwd="spec/lean", capture_output=True, text=True)
+    except FileNotFoundError:
+        print("--fuzz needs Lean: install elan (see spec/lean/README.md)", file=sys.stderr)
+        return False
     if p.returncode != 0:
         print(f"lake build http-reader-oracle failed:\n{p.stdout}{p.stderr}", file=sys.stderr)
     return p.returncode == 0
