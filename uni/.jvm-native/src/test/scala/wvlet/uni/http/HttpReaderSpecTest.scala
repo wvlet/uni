@@ -57,6 +57,13 @@ object HttpReaderSpecTest:
   // 1: every byte in its own read. Large: the whole stream in one read.
   val readSizes = Seq(1, 2, 3, 5, 8, 13, 64, 1 << 16)
 
+  /** The limits the model's outcomes assume */
+  val specLimits: HttpReaderLimits = HttpReaderLimits(
+    maxInitialLineLength = HttpReaderSpecCases.maxInitialLineLength,
+    maxHeaderSize = HttpReaderSpecCases.maxHeaderSize,
+    maxContentLength = HttpReaderSpecCases.maxRequestSize
+  )
+
   /** Run the reader over `input`, delivered at most `readSize` bytes per read. */
   def outcomes(input: Array[Byte], readSize: Int): Seq[String] =
     var pos    = 0
@@ -70,12 +77,7 @@ object HttpReaderSpecTest:
           pos += n
           n
       ,
-      // The limits the model's outcomes assume
-      HttpReaderLimits(
-        maxInitialLineLength = HttpReaderSpecCases.maxInitialLineLength,
-        maxHeaderSize = HttpReaderSpecCases.maxHeaderSize,
-        maxContentLength = HttpReaderSpecCases.maxRequestSize
-      )
+      specLimits
     )
     val out  = Seq.newBuilder[String]
     var done = false
@@ -109,6 +111,10 @@ object HttpReaderSpecTest:
     * `readerFraming` in `HttpSmuggle.lean`. Bytes arrive one per read and every body is streamed,
     * so the reader returns right after the head: the bytes it pulled are the head, and the stream's
     * length (-1 when chunked) is the framing.
+    *
+    * Unlike the Lean version, it does not read the body, so it also gives a framing when the body
+    * is cut short or malformed. Framing depends on the head only, so a correct reader still agrees
+    * with every member there; such inputs are just outside what `no_smuggling` proves.
     */
   def readerFraming(input: Array[Byte]): Option[(Int, HttpSmuggleModel.Framing)] =
     var pos    = 0
@@ -121,12 +127,8 @@ object HttpReaderSpecTest:
           pos += 1
           1
       ,
-      HttpReaderLimits(
-        maxInitialLineLength = HttpReaderSpecCases.maxInitialLineLength,
-        maxHeaderSize = HttpReaderSpecCases.maxHeaderSize,
-        maxContentLength = HttpReaderSpecCases.maxRequestSize,
-        maxStreamingRequestSize = HttpReaderSpecCases.maxRequestSize
-      )
+      // A streamed body gets the same size limit as a buffered one
+      specLimits.copy(maxStreamingRequestSize = HttpReaderSpecCases.maxRequestSize)
     )
     reader.readRequest(_ => true) match
       case ReadResult.Req(request, true) =>
@@ -162,11 +164,7 @@ object HttpReaderSpecTest:
           pos += n
           n
       ,
-      HttpReaderLimits(
-        maxInitialLineLength = HttpReaderSpecCases.maxInitialLineLength,
-        maxHeaderSize = HttpReaderSpecCases.maxHeaderSize,
-        maxContentLength = HttpReaderSpecCases.maxRequestSize
-      )
+      specLimits
     )
     var broken: Option[String] = None
     var done                   = false
