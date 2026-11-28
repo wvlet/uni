@@ -93,8 +93,8 @@ class ResultCompareTest extends UniTest:
   }
 
   test("rows that match only within tolerance pair up even when tolerance is not transitive") {
-    // Each actual value is close to both expected ones, but a greedy pairing that takes the
-    // first candidate can leave 1.0 + 2e-9 without a partner
+    // 1 - 1e-9 is close to both expected values and 1 + 1e-9 only to 1.0, so a greedy pairing
+    // that gives 1.0 to 1 - 1e-9 leaves 1 + 1e-9 without a partner
     val a = Seq(Seq("x", 1.0 + 1e-9), Seq("x", 1.0 - 1e-9))
     val e = Seq(Seq("x", 1.0), Seq("x", 1.0 - 1.5e-9))
     val c = ResultCompareConfig().withRelTolerance(0).withAbsTolerance(1.2e-9)
@@ -112,6 +112,30 @@ class ResultCompareTest extends UniTest:
     ResultCompare.valueEquals((1, "a"), (1L, "a")) shouldBe true
     ResultCompare.valueEquals(Seq(1, 2), Seq(2, 1)) shouldBe false
     Seq(Array[Byte](1, 2), Array[Byte](3)) shouldBeInAnyOrder Seq(Array[Byte](3), Array[Byte](1, 2))
+  }
+
+  test("big numbers compare exactly") {
+    val digits = "1" * 35
+    ResultCompare.valueEquals(BigInt(digits), java.math.BigDecimal(digits)) shouldBe true
+    ResultCompare.valueEquals(BigInt(digits), BigInt(digits + "0") / 10 + 1) shouldBe false
+    ResultCompare.valueEquals(BigDecimal("1e400"), Double.PositiveInfinity) shouldBe false
+  }
+
+  test("maps pair their entries one to one") {
+    // Both entries of the first map are within tolerance of 1.0, but 5 has no partner
+    ResultCompare.valueEquals(
+      Map(1.0 -> "a", (1.0 + 1e-13) -> "a"),
+      Map(1.0 -> "a", 5             -> "z")
+    ) shouldBe false
+    // Rows whose maps have numeric keys and a value only within tolerance still pair up
+    Seq(Map(1 -> "a", 2 -> "b", "x" -> (0.1 + 0.2))) shouldBeInAnyOrder
+      Seq(Map(2 -> "b", 1 -> "a", "x" -> 0.3))
+  }
+
+  test("a difference shows nested values") {
+    ResultCompare.diff(Seq(Map("bin" -> Array[Byte](1, 2))), Seq.empty) shouldMatch {
+      case Some(msg) if msg.contains("Map(\"bin\" -> Array(1, 2))") =>
+    }
   }
 
   test("ordered results must match row by row") {
@@ -133,6 +157,8 @@ class ResultCompareTest extends UniTest:
     ResultCompare.diff(Seq(Sale(1, "JP", 1), Sale(3, "JP", 2), Sale(3, "US", 3)), e, c) shouldMatch {
       case Some(msg) if msg.startsWith("Rows with sort key <\"JP\">") =>
     }
+    ResultCompare.diff(Seq(Sale(1, "JP", 1), Sale(3, "US", 3), Sale(2, "JP", 2)), e, c) shouldBe
+      Some("Results are not in sort order: rows with sort key <\"JP\"> appear again in group 2")
     ResultCompare.diff(Seq(Sale(1, "JP", 1), Sale(2, "JP", 2)), e, c) shouldBe
       Some("Results differ: missing rows with sort key <\"US\">")
   }

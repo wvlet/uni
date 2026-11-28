@@ -182,6 +182,16 @@ object ResultCompare:
         s"\"${s}\""
       case a: Array[?] =>
         a.map(show).mkString("Array(", ", ", ")")
+      case m: scala.collection.Map[?, ?] =>
+        m.map((k, x) => s"${show(k)} -> ${show(x)}").mkString("Map(", ", ", ")")
+      case xs: scala.collection.Seq[?] =>
+        xs.map(show).mkString("Seq(", ", ", ")")
+      case Some(x) =>
+        s"Some(${show(x)})"
+      case p: Product if p.productArity > 0 && !p.productPrefix.startsWith("Tuple") =>
+        p.productIterator.map(show).mkString(s"${p.productPrefix}(", ", ", ")")
+      case p: Product if p.productArity > 0 =>
+        p.productIterator.map(show).mkString("(", ", ", ")")
       case other =>
         other.toString
 
@@ -210,13 +220,14 @@ object ResultCompare:
         case b: Byte =>
           Some(Num.Exact(BigDecimal(b.toInt)))
         case b: BigInt =>
-          Some(Num.Exact(BigDecimal(b)))
+          // Not BigDecimal(b), which rounds to 34 digits
+          Some(Num.Exact(BigDecimal(java.math.BigDecimal(b.bigInteger))))
         case b: BigDecimal =>
           Some(Num.Exact(b))
         case b: java.math.BigDecimal =>
           Some(Num.Exact(BigDecimal(b)))
         case b: java.math.BigInteger =>
-          Some(Num.Exact(BigDecimal(BigInt(b))))
+          Some(Num.Exact(BigDecimal(java.math.BigDecimal(b))))
         case _ =>
           None
 
@@ -270,14 +281,19 @@ object ResultCompare:
                 xs.map(key(_, skeleton)).toVector
               case None =>
                 u match
+                  // Multisets, so keys that collapse to the same key (1 and 1L, or any two
+                  // numbers in a skeleton) keep every entry
                   case m: scala.collection.Map[?, ?] =>
-                    m.iterator.map((k, x) => key(k, skeleton) -> key(x, skeleton)).toMap
+                    multiset(m.iterator.map((k, x) => (key(k, skeleton), key(x, skeleton))))
                   case s: scala.collection.Set[?] =>
-                    s.iterator.map(key(_, skeleton)).toSet
+                    multiset(s.iterator.map(key(_, skeleton)))
                   case p: Product if p.productArity > 0 =>
                     ProductKey(p.productPrefix, p.productIterator.map(key(_, skeleton)).toVector)
                   case other =>
                     other
+
+    private def multiset(it: Iterator[Any]): Map[Any, Int] =
+      it.toVector.groupMapReduce(identity)(_ => 1)(_ + _)
 
     private def numEqual(a: Num, b: Num): Boolean =
       (a, b) match
@@ -288,10 +304,11 @@ object ResultCompare:
           val y = toDouble(b)
           if x.isNaN || y.isNaN then
             x.isNaN && y.isNaN
+          else if x.isInfinite || y.isInfinite then
+            // An exact number past the Double range is not infinity
+            a.isInstanceOf[Num.Floating] && b.isInstanceOf[Num.Floating] && x == y
           else if x == y then
             true
-          else if x.isInfinite || y.isInfinite then
-            false
           else
             val d = math.abs(x - y)
             d <= config.absTolerance ||
@@ -324,10 +341,7 @@ object ResultCompare:
               case _ =>
                 (x, y) match
                   case (m: scala.collection.Map[?, ?], n: scala.collection.Map[?, ?]) =>
-                    m.size == n.size &&
-                    m.forall { (k, v) =>
-                      n.find((k2, _) => equal(k, k2)).exists((_, v2) => equal(v, v2))
-                    }
+                    m.size == n.size && bagDiff(m.toIndexedSeq, n.toIndexedSeq).isEmpty
                   case (s: scala.collection.Set[?], t: scala.collection.Set[?]) =>
                     bagDiff(s.toIndexedSeq, t.toIndexedSeq).isEmpty
                   case (p: Product, q: Product)
@@ -444,38 +458,52 @@ object ResultCompare:
         expected: IndexedSeq[Any],
         k: Any => Any
     ): Option[String] =
-      val sa = segments(actual, k)
-      val se = segments(expected, k)
-      val n  = math.min(sa.size, se.size)
-      (0 until n)
-        .iterator
-        .map { i =>
-          val (ka, ra) = sa(i)
-          val (ke, re) = se(i)
-          if !equal(ka, ke) then
-            Some(
-              s"Results differ in sort order: group ${i} has key <${show(ka)}> but expected <${show(
-                  ke
-                )}>"
-            )
-          else
-            bagDiff(ra, re).map(
-              _.render(ra.size, re.size, s"Rows with sort key <${show(ka)}>: ", config.maxShownRows)
-            )
-        }
-        .collectFirst { case Some(msg) =>
-          msg
-        }
-        .orElse {
-          if sa.size == se.size then
-            None
-          else if sa.size > se.size then
-            Some(s"Results differ: unexpected rows with sort key <${show(sa(n)._1)}>")
-          else
-            Some(s"Results differ: missing rows with sort key <${show(se(n)._1)}>")
-        }
+      val sa                       = segments(actual, k)
+      val se                       = segments(expected, k)
+      val n                        = math.min(sa.size, se.size)
+      def unsorted: Option[String] = sa
+        .indices
+        .find(i => (0 until i).exists(j => equal(sa(j)._1, sa(i)._1)))
+        .map(i =>
+          s"Results are not in sort order: rows with sort key <${show(
+              sa(i)._1
+            )}> appear again in group ${i}"
+        )
+      unsorted.orElse(keyedGroupDiff(sa, se, n))
 
-    end keyedDiff
+    private def keyedGroupDiff(
+        sa: Vector[(Any, IndexedSeq[Any])],
+        se: Vector[(Any, IndexedSeq[Any])],
+        n: Int
+    ): Option[String] = (0 until n)
+      .iterator
+      .map { i =>
+        val (ka, ra) = sa(i)
+        val (ke, re) = se(i)
+        if !equal(ka, ke) then
+          Some(
+            s"Results differ in sort order: group ${i} has key <${show(ka)}> but expected <${show(
+                ke
+              )}>"
+          )
+        else
+          bagDiff(ra, re).map(
+            _.render(ra.size, re.size, s"Rows with sort key <${show(ka)}>: ", config.maxShownRows)
+          )
+      }
+      .collectFirst { case Some(msg) =>
+        msg
+      }
+      .orElse {
+        if sa.size == se.size then
+          None
+        else if sa.size > se.size then
+          Some(s"Results differ: unexpected rows with sort key <${show(sa(n)._1)}>")
+        else
+          Some(s"Results differ: missing rows with sort key <${show(se(n)._1)}>")
+      }
+
+    end keyedGroupDiff
 
   end Comparator
 
