@@ -1346,7 +1346,11 @@
     font-family: var(--uni-font-sans);
     font-size: var(--uni-font-size);
     outline: none;
-    overscroll-behavior: contain;
+    /*
+     * The list's own vertical scroll stays inside it, but a sideways scroll at its edge reaches an
+     * outer scroller, as a wide table in a horizontally scrolling panel needs.
+     */
+    overscroll-behavior-y: contain;
   }
 
   .uni-list__spacer {
@@ -1440,7 +1444,8 @@
   }
 
   .uni-table__header-row {
-    height: var(--uni-row-height);
+    /* At least a row tall; taller for headers with a subtitle */
+    min-height: var(--uni-row-height);
     color: var(--uni-muted);
     font-size: var(--uni-font-size-sm);
     font-weight: 500;
@@ -1524,6 +1529,32 @@
   .uni-table__sort:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px var(--uni-focus);
+  }
+
+  /* A header with a subtitle: the label over a smaller, muted line, such as the column's type */
+  .uni-table__heading {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 4px 0;
+    line-height: 1.25;
+  }
+
+  .uni-table__label,
+  .uni-table__subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .uni-table__subtitle {
+    color: var(--uni-faint);
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .uni-table__cell--end .uni-table__heading {
+    align-items: flex-end;
+    text-align: end;
   }
 
   .uni-table__sort-icon {

@@ -84,6 +84,65 @@ object CollectionStories:
   end dataTable
   // #endregion
 
+  // #region data-table/results
+  case class Sale(region: String, product: String, units: Long, revenue: Double, day: String)
+
+  inline def dataTableResults: RxElement =
+    val sales = Rx.const(
+      Seq(
+        Sale("APAC", "Notebook", 1204, 18060.0, "2026-11-01"),
+        Sale("EMEA", "Pen", 8840, 4420.0, "2026-11-01"),
+        Sale("AMER", "Backpack", 312, 15600.0, "2026-11-02"),
+        Sale("APAC", "Pen", 6120, 3060.0, "2026-11-02"),
+        Sale("EMEA", "Notebook", 980, 14700.0, "2026-11-03")
+      )
+    )
+    val opened = Rx.variable("")
+
+    div(
+      cls -> "demo-stack",
+      // The panel scrolls sideways; a wheel or trackpad swipe over the table reaches it
+      div(
+        styleAttr -> "overflow-x: auto; border: 1px solid var(--uni-line); border-radius: 6px",
+        DataTable(
+          sales,
+          key = s => (s.region, s.product, s.day),
+          columns = Seq(
+            Column[Sale]("region", "region", cell = s => span(s.region))
+              .withSubtitle("varchar")
+              .sortBy(_.region),
+            Column[Sale]("product", "product", cell = s => span(s.product))
+              .withSubtitle("varchar")
+              .sortBy(_.product),
+            Column[Sale]("units", "units", cell = s => span(s.units.toString))
+              .withSubtitle("bigint")
+              .sortBy(_.units)
+              .alignEnd,
+            Column[Sale]("revenue", "revenue", cell = s => span(f"${s.revenue}%.2f"))
+              .withSubtitle("double")
+              .sortBy(_.revenue)
+              .alignEnd,
+            Column[Sale]("day", "day", cell = s => span(s.day)).withSubtitle("date")
+          )
+        ).withLabel("Query results")
+          .noSelection()
+          .onSelect(s => opened := s"${s.region} ${s.product} on ${s.day}")(
+            styleAttr += "height: 230px; min-width: 720px"
+          )
+      ),
+      p(
+        cls -> "demo-note",
+        opened.map(o =>
+          if o.isEmpty then
+            "Click a row: it opens without staying selected"
+          else
+            s"Opened ${o}"
+        )
+      )
+    )
+  end dataTableResults
+  // #endregion
+
   // #region virtual-list/reorder
   case class Task(id: Int, title: String)
 
@@ -409,7 +468,7 @@ object CollectionStories:
     ComponentPage(
       "data-table",
       "Data table",
-      "A sortable grid with a sticky header, cell navigation, widgets in cells, multi-select, and reordering.",
+      "A sortable grid with a sticky header, cell navigation, widgets in cells, multi-select, reordering, and a read-only mode for results.",
       Seq(
         Story(
           "data-table/basic",
@@ -430,7 +489,12 @@ object CollectionStories:
           "data-table/reorder",
           "Reorder rows",
           "Drag a grip, or press Alt+ArrowUp or Alt+ArrowDown on a row."
-        )(dataTableReorder)
+        )(dataTableReorder),
+        Story(
+          "data-table/results",
+          "Read-only results",
+          "Column types under each header, rows that a click doesn't select, and a sideways scroll over the table that moves its panel."
+        )(dataTableResults)
       ),
       ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]],
       Seq(A11yCheck(AriaPattern.Grid, "[role=grid]"))
