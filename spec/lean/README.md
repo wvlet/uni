@@ -56,6 +56,17 @@ A mutant that survives means a missing case: add an input to `GenHttpReaderCases
 regenerate. Run it when the model or the reader changes. It is not part of CI, because each
 mutant recompiles `uni`.
 
+With `--fuzz`, each mutant runs `HttpReaderFuzzTest` instead (with a fixed `UNI_FUZZ_SEED`), which
+scores what fuzzing finds on its own. That target checks every mutated input against the lenient
+parsers of `HttpSmuggle.lean` (ported to `HttpSmuggleModel.scala`) and three RFC 9112 rules on
+accepted requests. It kills 8 of the 18 mutants. The rest (limit off-by-ones, chunked bodies,
+HTTP/1.0, and inputs every lenient parser frames the same way) need the full reader outcomes
+that only the generated cases check.
+
+```bash
+python3 spec/lean/mutants/mutate_http_reader.py --fuzz
+```
+
 ## Changing a model
 
 - When `RxRunner` or `OffsetPacker` behaviour changes on purpose, change the model first, re-prove
