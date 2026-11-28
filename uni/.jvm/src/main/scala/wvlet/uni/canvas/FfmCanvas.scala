@@ -64,6 +64,10 @@ private[canvas] final class FfmCanvas(
   override def writeBytes(offset: Long, src: Array[Byte], srcOffset: Int, length: Int): Unit =
     keepAlive(MemorySegment.copy(src, srcOffset, segment, Byte_, offset, length))
 
+  override def fill(offset: Long, length: Long, value: Byte): Unit =
+    checkRange(offset, length)
+    keepAlive(segment.asSlice(offset, length).fill(value))
+
   override def slice(offset: Long, length: Long): Canvas =
     checkRange(offset, length)
     owner.allocation.ensureOpen()
@@ -90,12 +94,33 @@ private[canvas] object FfmCanvas:
   // Frees the memory of canvases that become unreachable without close()
   private lazy val cleaner: Cleaner = Cleaner.create()
 
-  def allocate(allocator: OffHeapMemoryAllocator, size: Long): Canvas =
+  /**
+    * True when new canvases get memory from libc `malloc`, which skips the zero-filling of
+    * `Arena.allocate`. It needs native access for Uni's module (`--enable-native-access`).
+    */
+  def usesMalloc: Boolean = NativeMalloc.available
+
+  def allocate(allocator: OffHeapMemoryAllocator, size: Long): Canvas = allocate(
+    allocator,
+    size,
+    NativeMalloc.available
+  )
+
+  private[canvas] def allocate(
+      allocator: OffHeapMemoryAllocator,
+      size: Long,
+      useMalloc: Boolean
+  ): Canvas =
     // A shared arena lets any thread access the memory and close it
     val arena   = Arena.ofShared()
     val segment =
       try
-        arena.allocate(size, 1)
+        if useMalloc then
+          // Closing the arena calls free
+          NativeMalloc.allocate(size, arena)
+        else
+          // Zero-fills the memory
+          arena.allocate(size, 1)
       catch
         case e: Throwable =>
           arena.close()

@@ -124,6 +124,24 @@ abstract class Canvas extends AutoCloseable:
   )
 
   /**
+    * Set `length` bytes at `offset` to `value`. Use it to clear memory that a reused or freshly
+    * allocated off-heap canvas may still hold.
+    */
+  def fill(offset: Long, length: Long, value: Byte): Unit =
+    checkRange(offset, length)
+    val buf     = Array.fill[Byte](math.min(length, Canvas.copyChunkSize.toLong).toInt)(value)
+    var written = 0L
+    while written < length do
+      val n = math.min(length - written, buf.length.toLong).toInt
+      writeBytes(offset + written, buf, 0, n)
+      written += n
+
+  /**
+    * Set every byte of this canvas to `value`
+    */
+  def fill(value: Byte): Unit = fill(0, size, value)
+
+  /**
     * Return a view of `length` bytes at `offset`, sharing the memory of this canvas
     */
   def slice(offset: Long, length: Long): Canvas
@@ -157,8 +175,9 @@ object Canvas:
   def newCanvas(size: Int): Canvas = wrap(Array.ofDim[Byte](size))
 
   /**
-    * Allocate a new off-heap canvas from the default allocator. The memory is not guaranteed to be
-    * zero-filled. Release it with `close()`.
+    * Allocate a new off-heap canvas from the default allocator. Its contents are unspecified: they
+    * may be zeros or bytes left by earlier use of the memory, so write before you read, or call
+    * `fill(0)`. Release it with `close()`.
     *
     * @throws UnsupportedOperationException
     *   if this platform cannot allocate off-heap memory (JVMs older than Java 22)
@@ -192,7 +211,7 @@ object Canvas:
         s"Canvas.wrap supports only array-backed ByteBuffers: ${buf.getClass.getName}"
       )
 
-  private val copyChunkSize = 8192
+  private[canvas] val copyChunkSize = 8192
 
   /**
     * Throw `IndexOutOfBoundsException` unless `[offset, offset + length)` is inside `arr`

@@ -37,8 +37,8 @@ class OffHeapMemoryAllocator extends AutoCloseable:
   def allocatedMemorySize: Long = totalSize.get()
 
   /**
-    * Allocate a new off-heap canvas of `size` bytes. The memory is not guaranteed to be
-    * zero-filled.
+    * Allocate a new off-heap canvas of `size` bytes. Its contents are unspecified (zeros or bytes
+    * left by earlier use of the memory); call `fill(0)` when you need zeros.
     *
     * @throws UnsupportedOperationException
     *   if this platform cannot allocate off-heap memory (JVMs older than Java 22)

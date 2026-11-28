@@ -147,7 +147,7 @@ turns input bytes into `Key` events.
 When stdin or stdout is not a terminal (a pipe, a file, CI), on Windows, or on a JVM older than 22,
 input is read line by line without editing, and nothing is drawn.
 
-On Java 24 and later, run the JVM with `--enable-native-access=ALL-UNNAMED` to turn off the warning
+On Java 22 and later, run the JVM with `--enable-native-access=ALL-UNNAMED` to turn off the warning
 the JVM prints on the first native call.
 
 `TerminalIO.inMemory(...)` replays input and records output, for testing code built on

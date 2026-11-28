@@ -193,7 +193,9 @@ val inTest = SettingStore
 
 A `Canvas` takes `Long` offsets, so it can exceed 2 GB. Free off-heap memory with `close()`;
 Scala Native frees it only then. On the JVM, off-heap canvases need Java 22+
-(`Canvas.isOffHeapSupported`).
+(`Canvas.isOffHeapSupported`). New off-heap memory is not zero-filled when the JVM runs with
+`--enable-native-access=ALL-UNNAMED` (Uni then uses `malloc`), so write before reading or call
+`fill(0)`. Allocate large canvases and `slice` them rather than allocating many small ones.
 
 ```scala
 import wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}
@@ -204,6 +206,7 @@ val allocator = OffHeapMemoryAllocator()
 Control.withResource(allocator.newCanvas(1024)) { c =>
   c.writeInt(0, 42)          // little-endian
   c.writeLongBigEndian(8, 7L)
+  c.fill(16, 8, 0)           // clear bytes [16, 24)
   val view = c.slice(0, 16)  // shares memory with c
   assert(view.readInt(0) == 42)
 }

@@ -223,4 +223,44 @@ class CanvasTest extends UniTest:
     }
   }
 
+  test("fill a range with a byte value") {
+    withCanvases(20000) { c =>
+      // Off-heap contents are unspecified, so clear first
+      c.fill(0)
+      c.fill(3, 10000, 7.toByte)
+      c.readByte(2) shouldBe 0.toByte
+      c.readByte(3) shouldBe 7.toByte
+      c.readByte(10002) shouldBe 7.toByte
+      c.readByte(10003) shouldBe 0.toByte
+      c.toByteArray.count(_ == 7.toByte) shouldBe 10000
+      // A slice fills only its own range
+      c.slice(100, 4).fill(9.toByte)
+      c.readBytes(99, 6).toSeq shouldBe Seq[Byte](7, 9, 9, 9, 9, 7)
+      c.fill(0, 0, 1.toByte)
+      c.readByte(0) shouldBe 0.toByte
+      intercept[IndexOutOfBoundsException] {
+        c.fill(19999, 2, 1.toByte)
+      }
+      intercept[IndexOutOfBoundsException] {
+        c.fill(-1, 1, 1.toByte)
+      }
+    }
+  }
+
+  test("fill a wrapped array range only") {
+    val arr = Array.fill[Byte](8)(1)
+    Canvas.wrap(arr, 2, 4).fill(0.toByte)
+    arr.toSeq shouldBe Seq[Byte](1, 1, 0, 0, 0, 0, 1, 1)
+  }
+
+  test("reject fill after close") {
+    if !Canvas.isOffHeapSupported then
+      skip("Off-heap canvases need Java 22 or later on the JVM")
+    val c = Canvas.newOffHeapCanvas(16)
+    c.close()
+    intercept[IllegalStateException] {
+      c.fill(0)
+    }
+  }
+
 end CanvasTest

@@ -108,6 +108,10 @@ private[canvas] final class JSCanvas(
         src.slice(srcOffset, srcOffset + length)
     int8View(o, length).set(js.typedarray.byteArray2Int8Array(part))
 
+  override def fill(offset: Long, length: Long, value: Byte): Unit =
+    val o = at(offset, length)
+    JSInt8Array(buffer, base + o, length.toDouble).fill(value)
+
   override def slice(offset: Long, length: Long): Canvas =
     at(offset, length)
     JSCanvas(buffer, base + offset.toDouble, length, owner)
@@ -148,3 +152,4 @@ private[canvas] class JSDataView(buffer: JSArrayBuffer, byteOffset: Double, byte
 private[canvas] class JSInt8Array(buffer: JSArrayBuffer, byteOffset: Double, length: Double)
     extends js.Object:
   def set(source: JSInt8Array): Unit = js.native
+  def fill(value: Byte): Unit        = js.native

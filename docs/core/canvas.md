@@ -23,7 +23,7 @@ Control.withResource(Canvas.newOffHeapCanvas(1024)) { c =>
 
 | Factory | Memory |
 |---------|--------|
-| `Canvas.newOffHeapCanvas(size: Long)` | Off-heap memory, not guaranteed to be zero-filled. Free it with `close()` |
+| `Canvas.newOffHeapCanvas(size: Long)` | Off-heap memory with unspecified contents (see [Allocation speed](#allocation-speed)). Free it with `close()` |
 | `Canvas.newCanvas(size: Int)` | A new zero-filled heap byte array |
 | `Canvas.wrap(bytes)`, `Canvas.wrap(bytes, offset, length)` | An existing byte array, without copying |
 | `Canvas.wrap(byteBuffer)` | The remaining bytes of an array-backed `ByteBuffer`, without copying |
@@ -39,6 +39,8 @@ view frees the memory for all of them.
   `writeLongBigEndian`, and the other `*BigEndian` methods use network byte order.
 - `readBytes` and `writeBytes` copy to and from byte arrays and other canvases. `toByteArray`
   copies a whole canvas (up to 2 GB).
+- `fill(offset, length, value)` sets a range to one byte value, and `fill(value)` sets the whole
+  canvas. Use `fill(0)` when you need zeros.
 - Every access checks its range and throws `IndexOutOfBoundsException` when it falls outside the
   canvas. Using an off-heap canvas after `close()` throws `IllegalStateException`.
 
@@ -59,6 +61,31 @@ a.close()
 allocator.allocatedMemorySize // 4096
 allocator.close()             // frees b and anything else still open
 ```
+
+## Allocation speed
+
+`newOffHeapCanvas` takes the fastest allocation each platform offers, so the contents of a new
+off-heap canvas are unspecified: they may be zeros or bytes left by earlier use of the memory.
+Write before you read, or call `fill(0)`.
+
+| Platform | New memory |
+|----------|------------|
+| JVM with native access enabled | libc `malloc` through the Foreign Function & Memory API, not zero-filled |
+| JVM without native access | `Arena.allocate`, zero-filled |
+| Scala.js | `ArrayBuffer`, zero-filled by the JS engine |
+| Scala Native | `malloc`, not zero-filled |
+
+On the JVM, calling `malloc` needs native access, so Uni uses it only when the JVM runs with
+`--enable-native-access=ALL-UNNAMED` (or the module that holds Uni). Without the flag it zero-fills
+and prints no warning. On a 64 MB canvas, skipping zero-filling cuts allocation from about 1 ms to
+about 20 µs. The [ADR](https://github.com/wvlet/uni/blob/main/adr/2026-11-27-canvas-malloc-allocation.md)
+has the numbers. `-Dwvlet.uni.canvas.useMalloc=false` turns `malloc` off.
+
+Closing an off-heap canvas on the JVM takes about 20 µs whatever its size, because other threads
+must stop using its memory first. If you allocate and free many small buffers, as a query engine
+does, allocate a few large canvases and hand out `slice`s of them, which take nanoseconds. Keep
+the pool in your application, where you know the sizes and the memory budget, and clear a reused
+range with `fill` when your code expects zeros.
 
 ## Platforms
 
