@@ -1256,6 +1256,17 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "ArrowDown")
       fireEvent.keyDown(table, "Home", ctrlKey = true)
       activeRow(table).map(_.getAttribute("role")) shouldBe Some("columnheader")
+      // A header click from the footer takes the keys to the header: Enter sorts
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "ArrowDown")
+      cell shouldBe Some("+2 more rows")
+      fireEvent.click(m.get("[role=columnheader]"))
+      activeRow(table).map(_.getAttribute("role")) shouldBe Some("columnheader")
+      m.queryAll("[data-active='true']").size shouldBe 1
+      fireEvent.keyDown(table, "Enter")
+      rowTexts(m) shouldBe Seq("1", "2")
+      m.get("[role=columnheader]").getAttribute("aria-sort") shouldBe "ascending"
     }
   }
 

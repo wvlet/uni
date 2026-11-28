@@ -128,6 +128,7 @@ private[ui] class ListCore[A, K](
   private val typeahead                          = Typeahead()
   private var root: Option[dom.HTMLElement]      = None
   private var spacer: Option[dom.Element]        = None
+  private var footerEl: Option[dom.HTMLElement]  = None
   private var resize: Option[dom.ResizeObserver] = None
 
   private val multi: Option[Selection[K]] =
@@ -205,32 +206,43 @@ private[ui] class ListCore[A, K](
       if active.get.exists(k => !idx.contains(k)) then
         active := None
 
-  // The header's height: where the rows start inside the scrolled content. Fractional, as a header
-  // with a subtitle can be, so an auto height never falls short by a rounding pixel.
+  /** Where the rows start: the height of the header above them. */
   private def rowsTop(el: dom.HTMLElement): Double = spacer
-    .map(s =>
-      s.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop
-    )
+    .collect { case AnyRealm.HTMLElement(s) =>
+      s.offsetTop
+    }
     .getOrElse(0.0)
 
-  private def footerHeight(el: dom.HTMLElement): Double = Option(
-    el.querySelector(":scope > .uni-list__footer")
-  ).map(_.getBoundingClientRect().height).getOrElse(0.0)
+  // The footer's height; 0 while it is hidden
+  private def footerHeight: Double = footerEl.map(_.offsetHeight).getOrElse(0.0)
 
   /** The space rows have: the container's height minus the header above and the footer below. */
   private def viewportHeight(el: dom.HTMLElement): Double = math.max(
     0.0,
-    el.clientHeight - rowsTop(el) - footerHeight(el)
+    el.clientHeight - rowsTop(el) - footerHeight
   )
 
   private var heightPending = false
 
   // The height withAutoHeight asks for: the header, the rows up to the count, the footer, and the
   // rest of the box (borders and a horizontal scrollbar)
+  // rest of the box (borders and a horizontal scrollbar). The header and footer come from their
+  // boxes, which keep the fraction a subtitle's line height gives and offsetTop rounds away; divided
+  // by the box's scale, as under a transformed ancestor they are in screen pixels.
   private def autoHeightOf(el: dom.HTMLElement): String =
+    val box   = el.getBoundingClientRect()
+    val scale =
+      if el.offsetHeight > 0 && box.height > 0 then
+        box.height / el.offsetHeight
+      else
+        1.0
+    val header = spacer
+      .map(s => (s.getBoundingClientRect().top - box.top) / scale - el.clientTop + el.scrollTop)
+      .getOrElse(0.0)
+    val foot  = footerEl.map(_.getBoundingClientRect().height / scale).getOrElse(0.0)
     val rows  = math.min(current.size, autoHeightRows.getOrElse(0))
     val frame = el.offsetHeight - el.clientHeight
-    s"${math.ceil(rowsTop(el) + rows * rowHeight + footerHeight(el) + frame).toInt}px"
+    s"${math.ceil(header + rows * rowHeight + foot + frame).toInt}px"
 
   // Sets an auto height in the next frame, once the rows and the footer have rendered; resizing the
   // box inside its resize observer's callback would be a resize loop. The observer then measures
@@ -250,7 +262,6 @@ private[ui] class ListCore[A, K](
         }
 
   private def measure(): Unit = root.foreach { el =>
-    fitHeight()
     val v = Windowing.inView(el.scrollTop, viewportHeight(el), rowHeight)
     if v != viewport.get then
       viewport := v
@@ -420,8 +431,18 @@ private[ui] class ListCore[A, K](
       case AnyRealm.HTMLElement(el) =>
         root = Some(el)
         spacer = Option(el.querySelector(":scope > .uni-list__spacer"))
+        footerEl = Option(el.querySelector(":scope > .uni-list__footer")).collect {
+          case AnyRealm.HTMLElement(f) =>
+            f
+        }
         measure()
-        val ro = AnyRealm.resizeObserver(el, (_, _) => measure())
+        // A new width can add or drop a horizontal scrollbar, which an auto height takes in
+        val ro = AnyRealm.resizeObserver(
+          el,
+          (_, _) =>
+            measure()
+            fitHeight()
+        )
         ro.observe(el)
         resize = Some(ro)
       case _ =>
@@ -431,6 +452,7 @@ private[ui] class ListCore[A, K](
     resize = None
     root = None
     spacer = None
+    footerEl = None
 
   private def row(a: A): RxElement =
     val k = key(a)

@@ -330,30 +330,22 @@ class DataTable[A, K] private (
   private def headerCellId(i: Int): String = s"${tableId}-header-${i}"
   private val footerCellId                 = s"${tableId}-footer"
 
-  // The rows the user expanded past the preview; other rows start folded
-  private val expandedFor = Rx.variable(Option.empty[Seq[A]])
+  // The rows the user expanded past the preview, until other rows come; a change bumps `toggled`
+  private var expandedRows: Option[Seq[A]] = None
+  private val toggled                      = Rx.variable(0)
 
-  // How the preview stands for the current rows, for the footer and the agent's actions
-  private val preview: Rx[DataTable.Preview[A]] = Rx
-    .join(rows, expandedFor)
-    .map { (xs, ex) =>
-      val p = DataTable.Preview(xs, previewRows, ex.exists(DataTable.sameRows(_, xs)))
-      previewNow = Some(p)
-      // The footer went away under the active cell
-      if !p.hasFooter && onFooter.get then
-        onFooter := false
-      p
-    }
-
-  private var previewNow: Option[DataTable.Preview[A]] = None
+  // How the preview stands for the current rows, for the footer and the agent's actions. Set
+  // where `shown` reads the rows: a mapped Rx runs its map once per subscriber, and the footer has
+  // several, so deriving it from `rows` again would rebuild a mapped result for each.
+  private val preview = Rx.variable(DataTable.Preview[A](Seq.empty, previewRows, expanded = false))
 
   private def toggleRows(p: DataTable.Preview[A]): Unit =
-    expandedFor := (
+    expandedRows =
       if p.expanded then
         None
       else
         Some(p.rows)
-    )
+    toggled.update(_ + 1)
 
   // The list, set when the table renders, for the key and focus handlers
   private var list: Option[ListCore[A, K]] = None
@@ -423,12 +415,11 @@ class DataTable[A, K] private (
         leaveFooter(core, core.rows.size - 1)
         true
       case "Home" if toRow && !e.altKey && !e.shiftKey =>
-        onFooter := false
         core.container.foreach(_.scrollTop = 0)
         enterHeader(core, 0)
         true
       case "Enter" | " " if plain(e) && !e.shiftKey =>
-        previewNow
+        Some(preview.get)
           .filter(_.hasFooter)
           .foreach { p =>
             toggleRows(p)
@@ -458,7 +449,7 @@ class DataTable[A, K] private (
     e.key match
       case "ArrowDown"
           if plain(e) && !e.shiftKey && core.activeRowIndex == core.rows.size - 1 &&
-            previewNow.exists(_.hasFooter) =>
+            preview.get.hasFooter =>
         enterFooter(core)
         true
       case "ArrowUp" if plain(e) && !e.shiftKey && core.activeRowIndex == 0 =>
@@ -526,6 +517,7 @@ class DataTable[A, K] private (
 
   private def enterHeader(core: ListCore[A, K], c: Int): Unit =
     core.setActive(None)
+    onFooter := false
     onHeader := true
     moveColumn(core, c)
 
@@ -664,14 +656,22 @@ class DataTable[A, K] private (
 
   // All rows sorted, then the preview's first rows unless the user expanded them
   private val shown: Rx[Seq[A]] = Rx
-    .join(rows, sort, expandedFor)
-    .map { (xs, s, ex) =>
+    .join(rows, sort, toggled)
+    .map { (xs, s, _) =>
+      val open = expandedRows.exists(DataTable.sameRows(_, xs))
+      // Other rows start folded, and the expanded ones are let go
+      if !open then
+        expandedRows = None
+      val p = DataTable.Preview(xs, previewRows, open)
+      preview := p
+      // The footer went away under the active cell
+      if !p.hasFooter && onFooter.get then
+        onFooter := false
       val all = DataTable.sortRows(xs, columns, s)
-      previewRows match
-        case Some(n) if !ex.exists(DataTable.sameRows(_, xs)) =>
-          all.take(n)
-        case _ =>
-          all
+      if p.expanded then
+        all
+      else
+        previewRows.fold(all)(all.take)
     }
 
   // The footer row below the rows, hidden while every row shows without a preview
@@ -703,14 +703,14 @@ class DataTable[A, K] private (
           data("slot") -> "data-table-more",
           // Enter or Space on the active footer cell presses it, so it is no tab stop
           tabindex -> "-1",
-          EventListenerBinding("click", _ => previewNow.foreach(toggleRows)),
+          EventListenerBinding("click", _ => toggleRows(preview.get)),
           preview.map(DataTable.footerText)
         )
       )
     )
   )
 
-  private def footerActions: Seq[AgentAction] = previewNow
+  private def footerActions: Seq[AgentAction] = Some(preview.get)
     .filter(_.hasFooter)
     .toSeq
     .map { p =>
@@ -994,7 +994,12 @@ object DataTable:
     * How a [[DataTable.withPreviewRows]] preview stands for `rows`: `shown` of `total` rows show,
     * and `expanded` once the user asked for all of them.
     */
-  private[ui] case class Preview[A](rows: Seq[A], previewRows: Option[Int], expanded: Boolean):
+  // Not a case class: comparing two of them would compare every row
+  private[ui] class Preview[A](
+      val rows: Seq[A],
+      val previewRows: Option[Int],
+      val expanded: Boolean
+  ):
     def total: Int         = rows.size
     def hasFooter: Boolean = previewRows.exists(total > _)
     def shown: Int         =
