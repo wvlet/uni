@@ -157,4 +157,33 @@ class RowGroupBatchesTest extends UniTest:
     }
   }
 
+  test("read a nullable one-page chunk in as many steps as a page is cut into") {
+    // 64,000 rows in batches of 2,000: 32 steps, each handing over the batch and keeping the rest
+    val rows = (0 until 64000).map(i =>
+      SliceRow(
+        id = i,
+        name = Option.when((i * 13) % 7 > 2)(s"n${i % 300}"),
+        store = s"s${i % 3}",
+        score = i.toDouble
+      )
+    )
+    val f = Parquet.open(
+      Parquet.writeBytes(
+        rows,
+        ParquetWriteOptions
+          .default
+          .withRowGroupSize(64 * 1024 * 1024)
+          .withPageSize(64 * 1024 * 1024)
+          .withDictionaryPageSize(64 * 1024 * 1024)
+      )
+    )
+    try
+      f.numRowGroups shouldBe 1
+      val batches = f.readRowGroupBatches(0, ParquetReadOptions.default.withBatchSize(2000)).toSeq
+      batches.size shouldBe 32
+      batches.flatMap(rowsOf) shouldBe rowsOf(f.readRowGroup(0))
+    finally
+      f.close()
+  }
+
 end RowGroupBatchesTest

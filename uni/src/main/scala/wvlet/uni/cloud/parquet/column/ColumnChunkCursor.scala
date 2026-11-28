@@ -102,7 +102,13 @@ private[parquet] final class ColumnChunkCursor(
   private var levelCap              = initialLevels(1024)
   // With rowSlots: the null entries in [base, committed)
   private var committedNulls = 0
-  private val nullMask       =
+  // A page committed in steps: its null positions before nullStart are committed, and every
+  // position is nullShift past its entry, the entries handed out since the page was held, so that
+  // neither a step nor a batch moves the positions left. stepNulls holds one step's positions.
+  private var nullStart             = 0
+  private var nullShift             = 0
+  private var stepNulls: Array[Int] = null
+  private val nullMask              =
     new NullMask:
       def array: Array[Boolean] =
         if nulls == null then
@@ -244,7 +250,9 @@ private[parquet] final class ColumnChunkCursor(
         result = complete
       else if complete > 0 && (pendingBytes >= softLimit || overflows(held)) then
         result = complete
-      else if held.reader != null || (target - complete < held.entriesLeft && inSteps(held)) then
+      else if held.reader != null ||
+        (target - complete < held.entriesLeft && inSteps(held, target - complete))
+      then
         commitPart(math.min(target - complete, held.entriesLeft))
       else
         commit()
@@ -340,10 +348,8 @@ private[parquet] final class ColumnChunkCursor(
         java.util.Arrays.fill(nulls, n, levelEnd, false)
       values.dropFirst(valueBase)
       // The null positions of a page committed in steps move with its entries
-      var i = 0
-      while i < nullMask.count do
-        nullMask.positions(i) -= base
-        i += 1
+      if nullMask.count > 0 then
+        nullShift += base
       committed -= base
       levelEnd = n
       base = 0
@@ -413,10 +419,13 @@ private[parquet] final class ColumnChunkCursor(
     else
       val a = new Array[Boolean](math.max(n, capacity))
       System.arraycopy(nulls, from, a, 0, n)
-      var i = 0
-      while i < nullMask.count do
-        nullMask.positions(i) -= from
-        i += 1
+      if held != null && held.reader != null then
+        nullShift += from
+      else
+        var i = 0
+        while i < nullMask.count do
+          nullMask.positions(i) -= from
+          i += 1
       a
 
   private def shiftLevels(levels: Array[Byte], from: Int, n: Int): Unit =
@@ -601,11 +610,14 @@ private[parquet] final class ColumnChunkCursor(
   /**
     * Whether the held page's values may be committed in steps: a flat column whose values map to
     * entries one to one (rows with a slot each, or no nulls), in an encoding [[PageValueReader]]
-    * resumes, unless the batch takes the rest of the chunk
+    * resumes, unless the batch takes the rest of the chunk, or steps of `rows` would cut the page
+    * into more than [[ColumnChunkCursor.MaxPageSteps]]: each batch moves the null mask of the
+    * entries left, so many tiny steps would cost more than decoding the page at once
     */
-  private def inSteps(h: HeldPage): Boolean =
+  private def inSteps(h: HeldPage, rows: Int): Boolean =
     maxRep == 0 &&
       (maxDef == 0 || rowSlots) && !toChunkEnd &&
+      rows.toLong * ColumnChunkCursor.MaxPageSteps >= h.entriesLeft &&
       PageValueReader.resumable(h.encoding, field.physicalType)
 
   /**
@@ -634,11 +646,19 @@ private[parquet] final class ColumnChunkCursor(
     then
       indices = new Array[Int](math.min(total, ValueDecoder.DictionaryBlock.toLong).toInt)
     val until = committed + k
-    // The page's null positions not committed yet come first, in ascending order
+    // This step's null positions: the next ones not committed, in ascending order
     var m = 0
     if rowSlots then
-      while m < nullMask.count && nullMask.positions(m) < until do
+      val p = nullMask.positions
+      while nullStart + m < nullMask.count && p(nullStart + m) - nullShift < until do
         m += 1
+      if m > 0 then
+        if stepNulls == null || stepNulls.length < m then
+          stepNulls = new Array[Int](math.max(m, 64))
+        var i = 0
+        while i < m do
+          stepNulls(i) = p(nullStart + i) - nullShift
+          i += 1
     val nonNull = k - m
     reserveValues(
       if rowSlots then
@@ -652,7 +672,7 @@ private[parquet] final class ColumnChunkCursor(
       rowSlots && m > 0 && values.writesSlots &&
         (h.encoding == Encoding.RLE_DICTIONARY || h.encoding == Encoding.PLAIN_DICTIONARY)
     if inSlots then
-      values.beginSlots(nullMask.positions, m)
+      values.beginSlots(stepNulls, m)
     h.reader.read(nonNull, h.nonNullLeft, values, indices)
     if rowSlots then
       val written =
@@ -665,11 +685,22 @@ private[parquet] final class ColumnChunkCursor(
           s"a page of column ${field.pathString} has ${written} values for ${nonNull} non-null rows"
         )
       if !inSlots then
-        values.spreadToRows(committed, k, nullMask.positions, m)
-      // Keep only the null positions after this step
-      if m > 0 then
-        System.arraycopy(nullMask.positions, m, nullMask.positions, 0, nullMask.count - m)
-        nullMask.count -= m
+        values.spreadToRows(
+          committed,
+          k,
+          if m > 0 then
+            stepNulls
+          else
+            Array.emptyIntArray
+          ,
+          m
+        )
+      nullStart += m
+      if nullStart == nullMask.count then
+        // Every null of the page is committed
+        nullMask.count = 0
+        nullStart = 0
+        nullShift = 0
       committedNulls += m
     committed = until
     h.entriesLeft -= k
@@ -891,6 +922,12 @@ private[parquet] final class ColumnChunkCursor(
 end ColumnChunkCursor
 
 private[parquet] object ColumnChunkCursor:
+
+  /**
+    * Up to how many steps a held page's values are decoded in (a batch size at least the page's
+    * entries over this); smaller batches decode the page at once, as before
+    */
+  final val MaxPageSteps = 32
 
   /** Reads a data page v1's levels into `dst`; returns how many equal `maxLevel` */
   private[column] def readLevelsV1(
