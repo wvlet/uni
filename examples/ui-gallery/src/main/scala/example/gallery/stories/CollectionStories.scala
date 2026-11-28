@@ -97,25 +97,26 @@ object CollectionStories:
   )
 
   inline def dataTableResults: RxElement =
-    // A query result of 1,248 rows: the table shows 3 of them and a footer for the rest
-    val products = Seq(("Notebook", 15.0), ("Pen", 0.5), ("Backpack", 50.0), ("Lamp", 32.0))
-    val sales    = Rx.const(
-      (0 until 1248).map { i =>
-        val (product, price) = products(i % products.size)
-        val units            = 100L + (i * 7919L) % 9000
-        val discount         = (i                 % 4) * 0.05
-        Sale(
-          Seq("APAC", "EMEA", "AMER")(i % 3),
-          product,
-          Seq("online", "retail", "partner")(i % 3 / 2 + i % 2),
-          units,
-          units * price * (1 - discount),
-          discount,
-          f"2026-11-${i % 28 + 1}%02d",
-          i % 16 + 1
-        )
-      }
-    )
+    // A query result of 1,248 rows or more: the table shows 3 of them and a footer for the rest.
+    // "Run again" gives a new result, which starts folded.
+    val products         = Seq(("Notebook", 15.0), ("Pen", 0.5), ("Backpack", 50.0), ("Lamp", 32.0))
+    def result(run: Int) = (0 until 1248 + run * 7).map { i =>
+      val (product, price) = products(i % products.size)
+      val units            = 100L + (i * 7919L) % 9000
+      val discount         = (i                 % 4) * 0.05
+      Sale(
+        Seq("APAC", "EMEA", "AMER")(i % 3),
+        product,
+        Seq("online", "retail", "partner")(i % 3 / 2 + i % 2),
+        units,
+        units * price * (1 - discount),
+        discount,
+        f"2026-11-${i % 28 + 1}%02d",
+        i % 16 + 1
+      )
+    }
+    val run    = Rx.variable(0)
+    val sales  = run.map(result)
     val opened = Rx.variable("")
 
     // A text column and a number column, each as wide as its values
@@ -170,13 +171,17 @@ object CollectionStories:
             styleAttr += "width: max-content"
           )
       )(styleAttr += "border: 1px solid var(--uni-line); border-radius: 6px"),
-      p(
-        cls -> "demo-note",
-        opened.map(o =>
-          if o.isEmpty then
-            "Click a row: it opens without staying selected"
-          else
-            s"Opened ${o}"
+      div(
+        cls -> "demo-row",
+        Button("Run again").small.onClick(() => run.update(_ + 1)),
+        p(
+          cls -> "demo-note",
+          opened.map(o =>
+            if o.isEmpty then
+              "Click a row: it opens without staying selected"
+            else
+              s"Opened ${o}"
+          )
         )
       )
     )

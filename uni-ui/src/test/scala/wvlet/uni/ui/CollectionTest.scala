@@ -1239,15 +1239,15 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "ArrowDown")
       cell shouldBe Some("+2 more rows")
       activeRow(table).map(_.getAttribute("role")) shouldBe Some("gridcell")
-      // Down stays on the footer; Enter shows every row and the footer stays active
+      // Down stays on the footer; Enter shows every row and moves on to the first new one
       fireEvent.keyDown(table, "ArrowDown")
       fireEvent.keyDown(table, "Enter")
       rowTexts(m) shouldBe Seq("1", "2", "3", "4")
-      cell shouldBe Some("Show fewer rows")
-      // Up returns to the last row, now row 4
-      fireEvent.keyDown(table, "ArrowUp")
-      cell shouldBe Some("4")
+      cell shouldBe Some("3")
       fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "ArrowDown")
+      cell shouldBe Some("Show fewer rows")
+      // Folding back keeps the footer active
       fireEvent.keyDown(table, " ")
       rowTexts(m) shouldBe Seq("1", "2")
       fireEvent.keyDown(table, "ArrowUp")
@@ -1275,6 +1275,20 @@ class CollectionTest extends DomTestSupport:
       table.getAttribute("aria-rowcount") shouldBe "4"
       rows := nums(4)
       m.get(".uni-table__more").textContent shouldBe "+1 more row"
+    }
+  }
+
+  test("a preview of mapped rows expands, and folds for a different result") {
+    // Each subscriber of a mapped Rx gets its own copy of the rows
+    val run = Rx.variable(5)
+    val m   = mount(DataTable(run.map(nums), key = _.id, columns = numColumns).withPreviewRows(2))
+    settle().map { _ =>
+      fireEvent.click(m.get(".uni-table__more"))
+      rowTexts(m) shouldBe Seq("1", "2", "3", "4", "5")
+      m.get(".uni-table__more").textContent shouldBe "Show fewer rows"
+      run := 6
+      rowTexts(m) shouldBe Seq("1", "2")
+      m.get(".uni-table__more").textContent shouldBe "+4 more rows"
     }
   }
 

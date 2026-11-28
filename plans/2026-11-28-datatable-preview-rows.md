@@ -24,8 +24,8 @@ User flow: an app shows a query result. It adds `.withPreviewRows(10).withAutoHe
   - The table sorts all rows, then shows the first n, so a header click brings the top rows of the whole result into the preview.
   - When rows exceed n, a footer below the last row reads "+1,234 more rows" (thousands separators) and is a button that shows all rows; it then reads "Show fewer rows".
   - Expansion is the table's own state, reset to the preview when `rows` changes, so a new result starts folded. No app variable for it, as nothing in the request needs the app to read or set it.
-  - Agents see the shown rows as items, and the footer's button as an action (`more rows` / `fewer rows`).
-  - The footer is the grid's last row, one cell spanning all columns: Down from the last shown row moves onto it (as Up from the first row moves onto the header), and Enter, Space, or a click toggles. It is not a separate tab stop, as cell widgets aren't.
+  - Agents see the shown rows as items, and the footer's button as an action (`showAllRows` / `showFewerRows`).
+  - The footer is the grid's last row, one cell spanning all columns: Down from the last shown row moves onto it (as Up from the first row moves onto the header), and Enter, Space, or a click toggles. Showing more by key moves on to the first new row. It is not a separate tab stop, as cell widgets aren't.
   - `aria-rowcount` counts what the arrow keys reach (header, shown rows, footer); the footer's text tells how many rows are left out.
 - **Auto height**: `DataTable.withAutoHeight(maxRows)` / `noAutoHeight()` (the default: the app's CSS sets the height, as today).
   - The box is as tall as its header, its rows up to maxRows, its footer, and its horizontal scrollbar strip if it has one; past maxRows it scrolls with the header and footer kept in view.

@@ -252,7 +252,8 @@ class DataTable[A, K] private (
     * Shows only the first `n` rows, after sorting all of them, as a preview of a query result. When
     * there are more, a footer row below them reads "+1,234 more rows"; Enter, Space, or a click on
     * it shows every row, and then "Show fewer rows" folds them back. New `rows` start folded again.
-    * The footer is the grid's last row: Down from the last shown row moves onto it.
+    * The footer is the grid's last row: Down from the last shown row moves onto it, and Enter on it
+    * moves on to the first row it shows.
     */
   def withPreviewRows(n: Int): DataTable[A, K] =
     require(n >= 1, s"withPreviewRows needs at least one row: ${n}")
@@ -329,14 +330,14 @@ class DataTable[A, K] private (
   private def headerCellId(i: Int): String = s"${tableId}-header-${i}"
   private val footerCellId                 = s"${tableId}-footer"
 
-  // The rows value the user expanded past the preview; new rows start folded
+  // The rows the user expanded past the preview; other rows start folded
   private val expandedFor = Rx.variable(Option.empty[Seq[A]])
 
   // How the preview stands for the current rows, for the footer and the agent's actions
   private val preview: Rx[DataTable.Preview[A]] = Rx
     .join(rows, expandedFor)
     .map { (xs, ex) =>
-      val p = DataTable.Preview(xs, previewRows, ex.exists(_ eq xs))
+      val p = DataTable.Preview(xs, previewRows, ex.exists(DataTable.sameRows(_, xs)))
       previewNow = Some(p)
       // The footer went away under the active cell
       if !p.hasFooter && onFooter.get then
@@ -412,7 +413,9 @@ class DataTable[A, K] private (
 
   end headerKey
 
-  // The footer is one cell: Up returns to the last row, Enter or Space shows more or fewer rows
+  // The footer is one cell: Up returns to the last row, and Enter or Space shows more or fewer
+  // rows. Showing more moves to the first new row, the row the footer stood under, rather than
+  // leaving the footer below the last of thousands of rows.
   private def footerKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
     val toRow = e.ctrlKey || e.metaKey
     e.key match
@@ -425,7 +428,13 @@ class DataTable[A, K] private (
         enterHeader(core, 0)
         true
       case "Enter" | " " if plain(e) && !e.shiftKey =>
-        previewNow.filter(_.hasFooter).foreach(toggleRows)
+        previewNow
+          .filter(_.hasFooter)
+          .foreach { p =>
+            toggleRows(p)
+            if !p.expanded then
+              leaveFooter(core, p.shown)
+          }
         true
       case "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp" |
           "PageDown" =>
@@ -659,7 +668,7 @@ class DataTable[A, K] private (
     .map { (xs, s, ex) =>
       val all = DataTable.sortRows(xs, columns, s)
       previewRows match
-        case Some(n) if !ex.exists(_ eq xs) =>
+        case Some(n) if !ex.exists(DataTable.sameRows(_, xs)) =>
           all.take(n)
         case _ =>
           all
@@ -994,6 +1003,10 @@ object DataTable:
           math.min(n, total)
         case _ =>
           total
+
+  // Rows compared by value: an `rx.map(...)` gives each subscriber its own copy of the same rows,
+  // so the footer and the list would disagree on identity
+  private[ui] def sameRows(a: Seq[?], b: Seq[?]): Boolean = (a eq b) || a == b
 
   /** The footer's text: "+1,234 more rows" in a preview, "Show fewer rows" once expanded. */
   private[ui] def footerText(p: Preview[?]): String =

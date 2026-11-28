@@ -91,7 +91,8 @@ A sortable table, live. The Code tab shows its source:
   and takes no room below the last row.
   `.withPreviewRows(10)` shows the first 10 rows (after sorting all of them) and a footer row
   reading "+1,234 more rows"; Enter, Space, or a click on it shows every row, and "Show fewer
-  rows" folds them back. New rows start folded. Down from the last shown row reaches the footer,
+  rows" folds them back. New rows start folded. Down from the last shown row reaches the footer, Enter on it
+  moves on to the first new row,
   and an agent gets `showAllRows` and `showFewerRows` actions. `.withAutoHeight(maxRows = 30)`
   makes the box as tall as its header, its rows up to 30, the footer, and a horizontal scrollbar,
   so a short result ends at its last row and a long one scrolls; no app `height` is needed, and
