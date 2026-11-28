@@ -229,6 +229,15 @@ trait Assertions:
       if actual.exists(_ == element) then
         throw AssertionFailure(s"Expected <${actual}> not to contain <${element}>", source)
 
+    /**
+      * Assert that the collection holds the same elements as expected, in any order and with the
+      * same multiplicities. Values compare as query results do (see
+      * [[wvlet.uni.test.result.ResultCompare]]): NULL equals NULL, numbers compare by value across
+      * types, and floating numbers within a small tolerance.
+      */
+    inline infix def shouldBeInAnyOrder(expected: Iterable[Any])(using source: TestSource): Unit =
+      wvlet.uni.test.result.ResultCompare.assertSame(actual, expected)
+
   extension (actual: String)
     /**
       * Assert that string contains the substring

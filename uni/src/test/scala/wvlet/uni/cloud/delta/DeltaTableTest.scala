@@ -116,9 +116,7 @@ class DeltaTableTest extends UniTest:
       ParquetDatasetOptions.default.withTableFormat(ParquetTableFormat.Files)
     )
     // The removed file is read too, so ids 1 and 3 show up twice
-    try
-      ds.readRows().map(_("id")).toSeq.sortBy(_.asInstanceOf[Long]) shouldBe
-        Seq(1L, 1L, 2L, 3L, 3L, 4L, 5L, 6L)
+    try ds.readRows().map(_("id")).toSeq shouldBeInAnyOrder Seq(1L, 1L, 2L, 3L, 3L, 4L, 5L, 6L)
     finally ds.close()
   }
 
@@ -127,7 +125,7 @@ class DeltaTableTest extends UniTest:
     try
       val opts = ParquetReadOptions.default.withFilter(col("country") === "US")
       ds.selectFiles(opts).size shouldBe 1
-      ds.readRows(opts).map(_("id")).toSeq.sortBy(_.asInstanceOf[Long]) shouldBe Seq(4L, 5L)
+      ds.readRows(opts).map(_("id")).toSeq shouldBeInAnyOrder Seq(4L, 5L)
     finally
       ds.close()
   }
@@ -280,10 +278,8 @@ class DeltaTableTest extends UniTest:
     try
       ds.files.map(_.path) shouldBe
         IndexedSeq(dir.resolve("b.parquet").path, dir.resolve("x/a%20b.parquet").path)
-      ds.readRows()
-        .toSeq
-        .sortBy(_("id").asInstanceOf[Int])
-        .map(r => (r("id"), r("flag"), r("n"))) shouldBe Seq((1, "true", null), (2, "false", 7L))
+      ds.readRows().toSeq.map(r => (r("id"), r("flag"), r("n"))) shouldBeInAnyOrder
+        Seq((1, "true", null), (2, "false", 7L))
     finally
       ds.close()
   }

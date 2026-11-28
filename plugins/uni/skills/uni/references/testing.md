@@ -41,6 +41,7 @@ x shouldNotBe y
 opt shouldBe defined               // Option / collection non-empty
 opt shouldBe empty
 seq shouldContain elem
+seq shouldBeInAnyOrder Seq(1L)     // any order; NULL = NULL, 1 = 1L, floats within 1e-9
 str shouldContain "sub"
 v shouldMatch { case Some(_: User) => }   // type/shape checks: not asInstanceOf
 a shouldBeTheSameInstanceAs b

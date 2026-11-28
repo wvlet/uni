@@ -160,3 +160,22 @@ coverage guidance; this ADR records the first step that shipped.
 - **All passes share one step budget** (`maxReduceSteps`, at most 30 for a slow input), counted in
   the runner's predicate.
 - `forAll` keeps its own shrink loop, which counts any exception as a failure.
+
+## Update: result comparison, and where query oracles live
+
+- **`ResultCompare` and `shouldBeInAnyOrder`** (`wvlet.uni.test.result`) compare results the way query
+  results compare: in any order with the same multiplicities unless the config says ordered, NULL
+  equals NULL, numbers by value across types, floats within 1e-12 absolute or 1e-9 relative (the
+  bounds Wvlet's conformance tests use). Under `withOrderedBy(key)`, rows with equal keys (ties
+  under ORDER BY) compare as a bag. `withRowCountOnly` covers results that are not determined.
+- **Tolerance is not transitive**, so rows are not hashed by rounded values or sorted: exact
+  matches pair up by a canonical hash, and the rest pair up within groups of the same shape by a
+  bipartite matching.
+- **`ResultMismatch` is its own `AssertionFailure` subclass**, because the reducer keeps a failure
+  only while the exception class matches; a plain `AssertionFailure` would let a mismatch slide
+  into any other failed assertion while reducing.
+- **The logic oracles (TLP, NoREC), optimizer-rule ablation, predicate generators, and DuckDB
+  adapters live in Wvlet, not uni-test.** Uni has no query engine, and Wvlet's own expression AST
+  and `OptimizerOptions` are what those oracles drive. A testing utility joins uni-test when Uni's
+  own tests use it: dataset tests (Parquet, Iceberg, Delta) read rows in file-listing order and
+  sorted them by hand before `shouldBe`. `Reduce.ddmin` is already public for ablation.

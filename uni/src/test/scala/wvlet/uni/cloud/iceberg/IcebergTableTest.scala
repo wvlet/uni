@@ -131,7 +131,7 @@ class IcebergTableTest extends UniTest:
     try
       val opts = ParquetReadOptions.default.withFilter(col("dt") === LocalDate.of(2026, 11, 20))
       ds.selectFiles(opts).size shouldBe 1
-      ds.readRows(opts).map(_("id")).toSeq.sortBy(_.asInstanceOf[Long]) shouldBe Seq(4L, 5L)
+      ds.readRows(opts).map(_("id")).toSeq shouldBeInAnyOrder Seq(4L, 5L)
     finally
       ds.close()
   }
