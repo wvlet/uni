@@ -42,7 +42,7 @@ class FfmCanvasTest extends UniTest:
 
   test("read, write, and track memory on every allocation path") {
     requireFfm()
-    paths.foreach { (name, useMalloc) =>
+    paths.foreach { (_, useMalloc) =>
       val allocator = OffHeapMemoryAllocator()
       val c         = allocate(allocator, 1 << 20, useMalloc)
       allocator.allocatedMemorySize shouldBe (1L << 20)
