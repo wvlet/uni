@@ -64,8 +64,11 @@ object HttpReaderSpecTest:
     maxContentLength = HttpReaderSpecCases.maxRequestSize
   )
 
-  /** Run the reader over `input`, delivered at most `readSize` bytes per read. */
-  def outcomes(input: Array[Byte], readSize: Int): Seq[String] =
+  /**
+    * Run the reader over `input`, delivered at most `readSize` bytes per read. A body prints as
+    * UTF-8 text, or with `latin1Body`, one character per byte as the Lean model reads it.
+    */
+  def outcomes(input: Array[Byte], readSize: Int, latin1Body: Boolean = false): Seq[String] =
     var pos    = 0
     val reader = HttpConnectionReader(
       (buf, off, len, _) =>
@@ -89,10 +92,12 @@ object HttpReaderSpecTest:
               "keep-alive"
             else
               "close"
-          out +=
-            s"req ${request.method.name} ${request.uri} ${connection} ${request
-                .content
-                .toContentString}"
+          val body =
+            if latin1Body then
+              String(request.content.toContentBytes, StandardCharsets.ISO_8859_1)
+            else
+              request.content.toContentString
+          out += s"req ${request.method.name} ${request.uri} ${connection} ${body}"
           if !keepAlive then
             done = true
         case ReadResult.Error(status, message) =>

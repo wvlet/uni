@@ -328,13 +328,6 @@ def smuggleReport : SmuggleReport := Id.run do
           picked := picked ++ [String.ofList v]
   return ⟨failures, count, splitting, picked, flipsSeen⟩
 
-def outcomeLine : Outcome → String
-  | .req m t k b => s!"req {m} {t} {if k then "keep-alive" else "close"} {String.ofList b}"
-  | .bad code msg => s!"bad {code} {msg}"
-  -- The reader reports an incomplete request as a 400
-  | .incomplete msg => s!"bad 400 {msg}"
-  | .closed => "closed"
-
 /-- A Scala string literal of `s`. -/
 def scalaString (s : String) : String :=
   let esc : Char → String
@@ -351,7 +344,7 @@ def scalaString (s : String) : String :=
   "\"" ++ String.join (s.toList.map esc) ++ "\""
 
 def caseLine (input : String) : String :=
-  let outcomes := (readAll lim input.toList).map outcomeLine
+  let outcomes := (readAll lim input.toList).map Outcome.text
   s!"    {scalaString (input ++ "␞" ++ "␟".intercalate outcomes)}"
 
 -- Formatted as scalafmt would, so the Code format check passes on the generated file

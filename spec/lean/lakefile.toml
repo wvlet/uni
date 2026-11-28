@@ -1,5 +1,5 @@
 name = "uni-spec"
-defaultTargets = ["UniSpec", "Check", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-http-reader-cases", "gen-rx-live-cases", "gen-dom-render-cases", "gen-rx-r3-cases"]
+defaultTargets = ["UniSpec", "Check", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-http-reader-cases", "gen-rx-live-cases", "gen-dom-render-cases", "gen-rx-r3-cases", "http-reader-oracle"]
 
 [[lean_lib]]
 name = "UniSpec"
@@ -36,3 +36,8 @@ root = "GenDomRenderCases"
 [[lean_exe]]
 name = "gen-rx-r3-cases"
 root = "GenRxR3Cases"
+
+# A fuzz oracle, not a generator: HttpReaderFuzzTest sends it inputs and compares outcomes
+[[lean_exe]]
+name = "http-reader-oracle"
+root = "HttpReaderOracle"
