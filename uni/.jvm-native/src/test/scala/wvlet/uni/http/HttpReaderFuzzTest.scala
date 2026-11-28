@@ -17,6 +17,7 @@ import wvlet.uni.test.UniTest
 import wvlet.uni.test.fuzz.FuzzConfig
 
 import java.nio.charset.StandardCharsets
+import scala.util.control.NonFatal
 
 /**
   * Fuzz the HTTP/1.1 request reader of the JVM and Native servers. It reads bytes from any client,
@@ -26,6 +27,11 @@ import java.nio.charset.StandardCharsets
   * after must be framed the same way by every lenient parser of [[HttpSmuggleModel]] that accepts
   * it, so no front proxy among them can smuggle a request past the reader. And every accepted
   * request must keep the RFC 9112 rules that hold for any input (see `requestRules`).
+  *
+  * When the Lean model is built (`lake build http-reader-oracle` in `spec/lean`, or the path in
+  * `UNI_LEAN_HTTP_ORACLE`), every input must also give the outcomes `readAll` in
+  * `spec/lean/UniSpec/HttpReader.lean` gives. That check runs on the JVM only and is skipped
+  * without the model, since Lean is a dev-only tool.
   */
 class HttpReaderFuzzTest extends UniTest:
   import HttpReaderSpecTest.*
@@ -39,7 +45,72 @@ class HttpReaderFuzzTest extends UniTest:
     )
     .withCorpusDir("uni/src/test/resources/fuzz")
 
+  // The Lean model as a running process, None (logged) when it is not built or not on the JVM
+  private def startModel(): Option[LeanOracle] =
+    if !isScalaJVM then
+      info("Skipping the Lean model check: it runs on the JVM only")
+      None
+    else
+      LeanOracle.find("http-reader-oracle", "UNI_LEAN_HTTP_ORACLE") match
+        case Right(exe) =>
+          Some(
+            LeanOracle(
+              Seq(
+                exe.getPath,
+                HttpReaderSpecCases.maxInitialLineLength.toString,
+                HttpReaderSpecCases.maxHeaderSize.toString,
+                HttpReaderSpecCases.maxRequestSize.toString
+              )
+            )
+          )
+        case Left(path) =>
+          info(
+            s"Skipping the Lean model check: ${path} is not built (run `lake build http-reader-oracle` in spec/lean)"
+          )
+          None
+
+  private var model: Option[LeanOracle] = None
+
+  // An oracle that fails is not a reader bug: stop asking it and fail after the run, so the fuzz
+  // runner never reduces or saves an input for it
+  @volatile
+  private var modelError: Option[Throwable] = None
+
+  override protected def afterAll: Unit = model.foreach(_.close())
+
+  /**
+    * The model keeps the request target as bytes; the reader then decodes a UTF-8 target into
+    * Unicode (`Request.decodeRequestTarget`), a step after framing that the model leaves out
+    */
+  private def decodeTarget(outcome: String): String =
+    outcome.split(" ", 5) match
+      case Array("req", method, target, rest*) =>
+        (Seq("req", method, Request.decodeRequestTarget(target)) ++ rest).mkString(" ")
+      case _ =>
+        outcome
+
+  /**
+    * A failure message when the reader's outcomes for `input`, `actual` with Latin-1 bodies, differ
+    * from the Lean model's
+    */
+  private def modelMismatch(input: Array[Byte], actual: Seq[String]): Option[String] = model
+    .filter(_ => modelError.isEmpty)
+    .flatMap { m =>
+      try
+        Some(m.ask(input).map(o => decodeTarget(String(o, StandardCharsets.ISO_8859_1))))
+      catch
+        case NonFatal(e) =>
+          modelError = Some(e)
+          None
+    }
+    .flatMap { expected =>
+      Option.when(actual != expected)(
+        s"the reader gives ${actual}, but the Lean model gives ${expected}"
+      )
+    }
+
   test("the HTTP reader frames requests the same way for every read size") {
+    model = startModel()
     val seeds = (HttpReaderSpecCases.cases ++ HttpReaderSpecCases.smugglingCases).map(c =>
       c.split("␞", 2)(0).getBytes(StandardCharsets.ISO_8859_1)
     )
@@ -68,13 +139,16 @@ class HttpReaderFuzzTest extends UniTest:
     ) { bytes =>
       smuggling(bytes).foreach(fail(_))
       requestRules(bytes).foreach(fail(_))
-      val whole = outcomes(bytes, 1 << 16)
+      // Latin-1 bodies, as the Lean model reads them; every read size decodes them the same way
+      val whole = outcomes(bytes, 1 << 16, latin1Body = true)
       readSizes.foreach { size =>
-        val split = outcomes(bytes, size)
+        val split = outcomes(bytes, size, latin1Body = true)
         if split != whole then
           fail(s"reads of ${size} bytes give ${split}, but one read gives ${whole}")
       }
+      modelMismatch(bytes, whole).foreach(fail(_))
     }
+    modelError.foreach(e => fail(s"The Lean model (http-reader-oracle) failed: ${e}"))
   }
 
 end HttpReaderFuzzTest

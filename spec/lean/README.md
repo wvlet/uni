@@ -58,14 +58,29 @@ mutant recompiles `uni`.
 
 With `--fuzz`, each mutant runs `HttpReaderFuzzTest` instead (with a fixed `UNI_FUZZ_SEED`), which
 scores what fuzzing finds on its own. That target checks every mutated input against the lenient
-parsers of `HttpSmuggle.lean` (ported to `HttpSmuggleModel.scala`) and three RFC 9112 rules on
-accepted requests. It kills 8 of the 18 mutants. The rest (limit off-by-ones, chunked bodies,
-HTTP/1.0, and inputs every lenient parser frames the same way) need the full reader outcomes
-that only the generated cases check.
+parsers of `HttpSmuggle.lean` (ported to `HttpSmuggleModel.scala`), three RFC 9112 rules on
+accepted requests, and the outcomes of the model itself, through the fuzz oracle below. The script
+builds the oracle first, so `--fuzz` needs Lean. It kills all 18 mutants; without the oracle it
+killed 8.
 
 ```bash
 python3 spec/lean/mutants/mutate_http_reader.py --fuzz
 ```
+
+## Fuzz oracle
+
+`lake exe http-reader-oracle <maxLine> <maxHeader> <maxBody>` runs `readAll` from
+`UniSpec/HttpReader.lean` as a long-lived process: it reads one hex-encoded input per stdin line
+and prints that input's outcomes on one line, each one's `Outcome.text` hex-encoded, separated by
+spaces. `HttpReaderFuzzTest` starts it once per run (JVM only) and fails on any input where
+`HttpConnectionReader` gives other outcomes, so fuzzing checks the reader against the model on
+inputs no generated case holds. The test finds the executable at Lake's default output
+(`spec/lean/.lake/build/bin/http-reader-oracle`, after `lake build`) or at the path in
+`UNI_LEAN_HTTP_ORACLE`. Without either it logs that it skips the model check, so `./sbt test`
+still needs no Lean; a path set in `UNI_LEAN_HTTP_ORACLE` must exist. The nightly
+[`fuzz.yml`](../../.github/workflows/fuzz.yml) job builds the oracle and sets the variable.
+`LeanOracle` (in the same test directory) is the process bridge, which another model's oracle can
+reuse.
 
 ## Changing a model
 

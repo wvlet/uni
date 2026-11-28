@@ -15,8 +15,10 @@ Run it from the repository root, on demand or after changing the model:
 
 With names, only those mutants run. With --fuzz, each mutant runs HttpReaderFuzzTest instead, with a
 fixed UNI_FUZZ_SEED (override it in the environment), to measure what fuzzing finds on its own: the
-smuggling rule of HttpSmuggle.lean checked on mutated inputs, and the same outcomes for every read
-size. It refuses to start when the reader has uncommitted changes,
+smuggling rule of HttpSmuggle.lean checked on mutated inputs, the same outcomes for every read
+size, and the outcomes of the Lean model itself. For that it first builds the model's fuzz oracle
+(`lake build http-reader-oracle`, so it needs Lean) and passes it in UNI_LEAN_HTTP_ORACLE. It
+refuses to start when the reader has uncommitted changes,
 and always restores the file, so the working tree is left as it was.
 """
 
@@ -147,9 +149,28 @@ MUTANTS = [
 ]
 
 
+ORACLE = Path("spec/lean/.lake/build/bin/http-reader-oracle")
+
+
+def build_oracle() -> bool:
+    """Build the Lean model's fuzz oracle, which HttpReaderFuzzTest compares the reader with."""
+    try:
+        p = subprocess.run(["lake", "build", "http-reader-oracle"], cwd="spec/lean", capture_output=True, text=True)
+    except FileNotFoundError:
+        print("--fuzz needs Lean: install elan (see spec/lean/README.md)", file=sys.stderr)
+        return False
+    if p.returncode != 0:
+        print(f"lake build http-reader-oracle failed:\n{p.stdout}{p.stderr}", file=sys.stderr)
+    return p.returncode == 0
+
+
 def run_test(test: list[str]) -> tuple[str, str]:
     """Run the test: ("pass" | "fail" | "invalid", the last lines of its output)."""
-    env = {**os.environ, "UNI_FUZZ_SEED": os.environ.get("UNI_FUZZ_SEED", "1")}
+    env = {
+        **os.environ,
+        "UNI_FUZZ_SEED": os.environ.get("UNI_FUZZ_SEED", "1"),
+        "UNI_LEAN_HTTP_ORACLE": str(ORACLE.resolve()),
+    }
     p = subprocess.run(test, capture_output=True, text=True, errors="replace", env=env)
     out = p.stdout + p.stderr
     ran = any("Total:" in line for line in out.splitlines())
@@ -172,6 +193,8 @@ def main() -> int:
     fuzz = "--fuzz" in args
     names = [a for a in args if a != "--fuzz"]
     test = FUZZ_TEST if fuzz else SPEC_TEST
+    if fuzz and not build_oracle():
+        return 2
     test_name = test[1].split()[-1].rsplit(".", 1)[-1]
     selected = [m for m in MUTANTS if not names or m[0] in names]
     original = TARGET.read_text()

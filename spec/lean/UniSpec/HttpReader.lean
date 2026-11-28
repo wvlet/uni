@@ -40,6 +40,15 @@ def Outcome.isReq : Outcome → Bool
   | .req .. => true
   | _ => false
 
+/-- The outcome as `HttpReaderSpecTest.outcomes` prints the reader's result: the generated cases and
+the fuzz oracle (`HttpReaderOracle.lean`) compare this text. -/
+def Outcome.text : Outcome → String
+  | .req m t k b => s!"req {m} {t} {if k then "keep-alive" else "close"} {String.ofList b}"
+  | .bad code msg => s!"bad {code} {msg}"
+  -- The reader reports an incomplete request as a 400
+  | .incomplete msg => s!"bad 400 {msg}"
+  | .closed => "closed"
+
 /-- The outcome comes from the end of the input, not from the bytes before it: more bytes could
 change it. -/
 def Outcome.atEof : Outcome → Bool

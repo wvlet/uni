@@ -37,12 +37,24 @@ jobs:
           java-version: '25'
           cache: sbt
       - uses: ./.github/actions/sbt-launcher
+      # The Lean model of the HTTP reader as a fuzz oracle: HttpReaderFuzzTest compares the reader's
+      # outcomes with the model's on every input (see spec/lean/README.md). Pull request test jobs
+      # skip that check, since they run without Lean.
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Build the Lean HTTP reader oracle
+        working-directory: spec/lean
+        run: lake build http-reader-oracle
       - name: Run fuzz targets
         shell: bash
         env:
           # Short on pull requests, which only check that the workflow runs
           UNI_FUZZ_SECONDS: ${{ inputs.seconds || (github.event_name == 'pull_request' && '10') || '120' }}
           UNI_FUZZ_SEED: ${{ inputs.seed }}
+          # Set, so a missing oracle fails the job rather than skipping the model check
+          UNI_LEAN_HTTP_ORACLE: ${{ github.workspace }}/spec/lean/.lake/build/bin/http-reader-oracle
         run: |
           set -o pipefail
           ./sbt "uniJVM/testOnly *FuzzTest" 2>&1 | tee fuzz.log
