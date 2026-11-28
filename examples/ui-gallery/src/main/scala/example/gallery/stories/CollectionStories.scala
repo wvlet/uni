@@ -97,14 +97,24 @@ object CollectionStories:
   )
 
   inline def dataTableResults: RxElement =
-    val sales = Rx.const(
-      Seq(
-        Sale("APAC", "Notebook", "online", 1204, 18060.0, 0.05, "2026-11-01", 12),
-        Sale("EMEA", "Pen", "retail", 8840, 4420.0, 0.0, "2026-11-01", 7),
-        Sale("AMER", "Backpack", "online", 312, 15600.0, 0.1, "2026-11-02", 3),
-        Sale("APAC", "Pen", "retail", 6120, 3060.0, 0.0, "2026-11-02", 12),
-        Sale("EMEA", "Notebook", "partner", 980, 14700.0, 0.15, "2026-11-03", 9)
-      )
+    // A query result of 1,248 rows: the table shows 3 of them and a footer for the rest
+    val products = Seq(("Notebook", 15.0), ("Pen", 0.5), ("Backpack", 50.0), ("Lamp", 32.0))
+    val sales    = Rx.const(
+      (0 until 1248).map { i =>
+        val (product, price) = products(i % products.size)
+        val units            = 100L + (i * 7919L) % 9000
+        val discount         = (i                 % 4) * 0.05
+        Sale(
+          Seq("APAC", "EMEA", "AMER")(i % 3),
+          product,
+          Seq("online", "retail", "partner")(i % 3 / 2 + i % 2),
+          units,
+          units * price * (1 - discount),
+          discount,
+          f"2026-11-${i % 28 + 1}%02d",
+          i % 16 + 1
+        )
+      }
     )
     val opened = Rx.variable("")
 
@@ -136,7 +146,7 @@ object CollectionStories:
       ScrollArea(
         DataTable(
           sales,
-          key = s => (s.region, s.product, s.day),
+          key = s => (s.region, s.product, s.day, s.store, s.units),
           columns = Seq(
             text("region", "80px", _.region),
             text("product", "96px", _.product),
@@ -152,9 +162,12 @@ object CollectionStories:
         ).withLabel("Query results")
           .noSelection()
           .withCenteredHeaders()
+          // The first 3 rows and "+1,245 more rows"; all of them scroll in a box 4 rows tall
+          .withPreviewRows(3)
+          .withAutoHeight(maxRows = 4)
           .onSelect(s => opened := s"${s.region} ${s.product} on ${s.day}")(
-            // As wide as its columns, and a max-height so the box ends at the last row
-            styleAttr += "width: max-content; max-height: 230px"
+            // As wide as its columns
+            styleAttr += "width: max-content"
           )
       )(styleAttr += "border: 1px solid var(--uni-line); border-radius: 6px"),
       p(
@@ -520,7 +533,7 @@ object CollectionStories:
         Story(
           "data-table/results",
           "Read-only results",
-          "Column types under each header, rows that a click doesn't select, and a sideways scroll over the table that moves its panel."
+          "Column types under each header, rows that a click doesn't select, the first rows with a \"+N more rows\" footer, a box as tall as its rows, and a sideways scroll over the table that moves its panel."
         )(dataTableResults)
       ),
       ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]] ++ ApiDoc.of[ScrollArea],

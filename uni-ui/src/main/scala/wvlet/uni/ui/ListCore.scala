@@ -65,6 +65,15 @@ import scala.language.implicitConversions
   * @param headerActive
   *   true while a header cell is active instead of a row, in the column `activeCell` names;
   *   `aria-activedescendant` then names `headerCellId` of it, and focus picks no row
+  * @param footer
+  *   content below the rows inside the scroll container, such as a table's "+N more rows" row, with
+  *   the class `uni-list__footer`; the rows' windowing ends above it
+  * @param footerActive
+  *   true while the footer's cell `footerCellId` is active instead of a row
+  * @param autoHeightRows
+  *   with a row count, the list is as tall as its header, its rows up to that count, its footer,
+  *   and its horizontal scrollbar; it writes that height to `--uni-list-auto-height`, which the
+  *   class `uni-list--auto-height` reads
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -98,7 +107,11 @@ private[ui] class ListCore[A, K](
     firstKey: dom.KeyboardEvent => Boolean = _ => false,
     beforeFocus: () => Unit = () => (),
     headerActive: RxVar[Boolean] = Rx.variable(false),
-    headerCellId: Int => String = i => s"header-${i}"
+    headerCellId: Int => String = i => s"header-${i}",
+    footer: DomNode = DomNode.empty,
+    footerActive: RxVar[Boolean] = Rx.variable(false),
+    footerCellId: String = "",
+    autoHeightRows: Option[Int] = None
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -192,19 +205,52 @@ private[ui] class ListCore[A, K](
       if active.get.exists(k => !idx.contains(k)) then
         active := None
 
-  /** The space rows have: the container's height minus the header above them. */
+  // The header's height: where the rows start inside the scrolled content. Fractional, as a header
+  // with a subtitle can be, so an auto height never falls short by a rounding pixel.
   private def rowsTop(el: dom.HTMLElement): Double = spacer
-    .collect { case AnyRealm.HTMLElement(s) =>
-      s.offsetTop
-    }
+    .map(s =>
+      s.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop
+    )
     .getOrElse(0.0)
 
+  private def footerHeight(el: dom.HTMLElement): Double = Option(
+    el.querySelector(":scope > .uni-list__footer")
+  ).map(_.getBoundingClientRect().height).getOrElse(0.0)
+
+  /** The space rows have: the container's height minus the header above and the footer below. */
   private def viewportHeight(el: dom.HTMLElement): Double = math.max(
     0.0,
-    el.clientHeight - rowsTop(el)
+    el.clientHeight - rowsTop(el) - footerHeight(el)
   )
 
+  private var heightPending = false
+
+  // The height withAutoHeight asks for: the header, the rows up to the count, the footer, and the
+  // rest of the box (borders and a horizontal scrollbar)
+  private def autoHeightOf(el: dom.HTMLElement): String =
+    val rows  = math.min(current.size, autoHeightRows.getOrElse(0))
+    val frame = el.offsetHeight - el.clientHeight
+    s"${math.ceil(rowsTop(el) + rows * rowHeight + footerHeight(el) + frame).toInt}px"
+
+  // Sets an auto height in the next frame, once the rows and the footer have rendered; resizing the
+  // box inside its resize observer's callback would be a resize loop. The observer then measures
+  // the rows' new space.
+  private def fitHeight(): Unit =
+    if autoHeightRows.nonEmpty && !heightPending then
+      heightPending = true
+      dom
+        .window
+        .requestAnimationFrame { _ =>
+          heightPending = false
+          root.foreach { el =>
+            val v = autoHeightOf(el)
+            if el.style.getPropertyValue("--uni-list-auto-height") != v then
+              el.style.setProperty("--uni-list-auto-height", v)
+          }
+        }
+
   private def measure(): Unit = root.foreach { el =>
+    fitHeight()
     val v = Windowing.inView(el.scrollTop, viewportHeight(el), rowHeight)
     if v != viewport.get then
       viewport := v
@@ -353,7 +399,7 @@ private[ui] class ListCore[A, K](
   // Focusing the list shows where the keys will start: the selected row, else the first
   private def onFocus(): Unit =
     beforeFocus()
-    if active.get.isEmpty && !headerActive.get then
+    if active.get.isEmpty && !headerActive.get && !footerActive.get then
       val start =
         selection match
           case ListSelection.Single(s) =>
@@ -607,6 +653,7 @@ private[ui] class ListCore[A, K](
       .join(items, viewport)
       .map { (xs, v) =>
         sync(xs)
+        fitHeight()
         val (start, end) = Windowing.range(v._1, v._2, xs.size, overscan)
         window := (start, xs.size)
         xs.slice(start, end)
@@ -615,12 +662,18 @@ private[ui] class ListCore[A, K](
       cls          -> s"uni-list ${containerClass}",
       data("slot") -> slot,
       AgentRegistry.attach(agentBinding),
-      tabindex             -> "0",
-      styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",
+      tabindex  -> "0",
+      styleAttr ->
+        // Until it is measured, an auto height guesses a row for the header and one for the footer
+        s"--uni-row-height: ${rowHeight}px; ${autoHeightRows
+            .map(n => s"--uni-list-auto-height: ${(n + 2) * rowHeight}px; ")
+            .getOrElse("")}${containerStyle}",
       ariaActivedescendant ->
-        Rx.join(active, activeCell, headerActive)
-          .map { (a, c, h) =>
-            if h then
+        Rx.join(active, activeCell, headerActive, footerActive)
+          .map { (a, c, h, f) =>
+            if f then
+              Some(footerCellId)
+            else if h then
               c.map(headerCellId)
             else
               a.map(k => c.fold(rowId(k))(cellId(k, _)))
@@ -643,7 +696,8 @@ private[ui] class ListCore[A, K](
             s"height: ${count * rowHeight}px; padding-top: ${start * rowHeight}px"
           },
         each(rows)(key)(row)
-      )
+      ),
+      footer
     )
 
   end render

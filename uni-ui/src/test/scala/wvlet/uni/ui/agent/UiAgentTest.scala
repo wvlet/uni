@@ -285,6 +285,31 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("an agent shows all rows of a table preview and folds them back") {
+    mount(
+      DataTable(
+        Rx.const((1 to 5).toSeq),
+        key = identity,
+        columns = Seq(Column[Int]("n", "N", cell = i => span(i.toString)))
+      ).withLabel("Results").withPreviewRows(2)
+    )
+    val agent = install()
+    node(agent, "table").items.size shouldBe 2
+    node(agent, "table").actions.map(_.name) shouldContain "showAllRows"
+    agent
+      .act("table:results", "showAllRows", None)
+      .flatMap { r =>
+        r.status shouldBe ActStatus.Applied
+        node(agent, "table").items.size shouldBe 5
+        agent.act("table:results", "showFewerRows", None)
+      }
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        node(agent, "table").items.size shouldBe 2
+        agent.uninstall()
+      }
+  }
+
   test("an agent selects a tab, a list row, and sorts a table") {
     val tab   = Rx.variable("chat")
     val row   = Rx.variable(Option.empty[Int])

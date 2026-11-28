@@ -1178,6 +1178,170 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  private case class Num(id: Int)
+  private def nums(n: Int): Seq[Num] = (1 to n).map(Num(_))
+  private val numColumns             = Seq(
+    Column[Num]("id", "Id", cell = r => span(r.id.toString)).sortBy(_.id)
+  )
+
+  // Two animation frames, after which resize observers have run
+  private def frames(): Rx[Unit] =
+    val p = scala.concurrent.Promise[Unit]()
+    dom.window.requestAnimationFrame(_ => dom.window.requestAnimationFrame(_ => p.success(())))
+    Rx.future(p.future)(using scala.concurrent.ExecutionContext.parasitic)
+
+  private def heightOf(e: dom.Element): Double = e.getBoundingClientRect().height
+
+  test("a data table with withPreviewRows shows the first rows of the sorted rows and a footer") {
+    val sort = Rx.variable(Option.empty[SortBy])
+    val m    = mount(
+      DataTable(Rx.const(nums(1234 + 3)), key = _.id, columns = numColumns)
+        .withSort(sort)
+        .withPreviewRows(3)
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      rowTexts(m) shouldBe Seq("1", "2", "3")
+      val footer = m.get(".uni-table__footer")
+      footer.hasAttribute("hidden") shouldBe false
+      m.get(".uni-table__more").textContent shouldBe "+1,234 more rows"
+      m.get(".uni-table__more").getAttribute("tabindex") shouldBe "-1"
+      // Header, three rows, and the footer
+      table.getAttribute("aria-rowcount") shouldBe "5"
+      m.get(".uni-table__footer-row").getAttribute("aria-rowindex") shouldBe "5"
+      m.get(".uni-table__footer-cell").getAttribute("aria-colspan") shouldBe "1"
+      // Sorting orders every row, then the preview shows the first ones
+      sort := Some(SortBy("id", SortDirection.Descending))
+      rowTexts(m) shouldBe Seq("1237", "1236", "1235")
+      // A click shows every row, and another folds them back
+      fireEvent.click(m.get(".uni-table__more"))
+      m.get(".uni-table__more").textContent shouldBe "Show fewer rows"
+      table.getAttribute("aria-rowcount") shouldBe "1239"
+      fireEvent.click(m.get(".uni-table__more"))
+      rowTexts(m) shouldBe Seq("1237", "1236", "1235")
+      m.get(".uni-table__more").textContent shouldBe "+1,234 more rows"
+    }
+  }
+
+  test("the preview footer is the grid's last row for the keys") {
+    val m = mount(
+      DataTable(Rx.const(nums(4)), key = _.id, columns = numColumns)
+        .noSelection()
+        .withPreviewRows(2)
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def cell  = activeRow(table).map(_.textContent)
+    settle().map { _ =>
+      m.get(".uni-table__more").textContent shouldBe "+2 more rows"
+      table.focus()
+      cell shouldBe Some("1")
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "ArrowDown")
+      cell shouldBe Some("+2 more rows")
+      activeRow(table).map(_.getAttribute("role")) shouldBe Some("gridcell")
+      // Down stays on the footer; Enter shows every row and the footer stays active
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "Enter")
+      rowTexts(m) shouldBe Seq("1", "2", "3", "4")
+      cell shouldBe Some("Show fewer rows")
+      // Up returns to the last row, now row 4
+      fireEvent.keyDown(table, "ArrowUp")
+      cell shouldBe Some("4")
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, " ")
+      rowTexts(m) shouldBe Seq("1", "2")
+      fireEvent.keyDown(table, "ArrowUp")
+      cell shouldBe Some("2")
+      // Ctrl+Home goes to the header from the footer too
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "Home", ctrlKey = true)
+      activeRow(table).map(_.getAttribute("role")) shouldBe Some("columnheader")
+    }
+  }
+
+  test("new rows fold a preview again, and a short result has no footer") {
+    val rows  = Rx.variable(nums(5))
+    val m     = mount(DataTable(rows, key = _.id, columns = numColumns).withPreviewRows(3))
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      fireEvent.click(m.get(".uni-table__more"))
+      rowTexts(m).size shouldBe 5
+      rows := nums(6)
+      rowTexts(m) shouldBe Seq("1", "2", "3")
+      m.get(".uni-table__more").textContent shouldBe "+3 more rows"
+      rows := nums(3)
+      rowTexts(m) shouldBe Seq("1", "2", "3")
+      m.get(".uni-table__footer").hasAttribute("hidden") shouldBe true
+      table.getAttribute("aria-rowcount") shouldBe "4"
+      rows := nums(4)
+      m.get(".uni-table__more").textContent shouldBe "+1 more row"
+    }
+  }
+
+  test("a data table with withAutoHeight is as tall as its rows, up to a count") {
+    val rows = Rx.variable(nums(3))
+    val m    = mount(
+      DataTable(rows, key = _.id, columns = numColumns.map(_.withSubtitle("integer")))
+        .withAutoHeight(maxRows = 5)
+    )
+    val table  = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def header = heightOf(m.get(".uni-table__header"))
+    settle()
+      .flatMap(_ => frames())
+      .flatMap { _ =>
+        // The subtitle makes the header taller than a row
+        (header > 32) shouldBe true
+        (math.abs(table.clientHeight - (header + 3 * 32)) <= 1) shouldBe true
+        table.scrollHeight shouldBe table.clientHeight
+        rows := nums(50)
+        frames().map { _ =>
+          (math.abs(table.clientHeight - (header + 5 * 32)) <= 1) shouldBe true
+          (table.scrollHeight > table.clientHeight) shouldBe true
+        }
+      }
+  }
+
+  test("an auto height takes in the preview footer, and the footer hides no row") {
+    val m = mount(
+      DataTable(Rx.const(nums(40)), key = _.id, columns = numColumns)
+        .withPreviewRows(4)
+        .withAutoHeight(maxRows = 10)
+    )
+    val table  = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def header = heightOf(m.get(".uni-table__header"))
+    def footer = heightOf(m.get(".uni-table__footer"))
+    settle()
+      .flatMap(_ => frames())
+      .flatMap { _ =>
+        (math.abs(table.clientHeight - (header + 4 * 32 + footer)) <= 1) shouldBe true
+        table.scrollHeight shouldBe table.clientHeight
+        fireEvent.click(m.get(".uni-table__more"))
+        frames().map { _ =>
+          (math.abs(table.clientHeight - (header + 10 * 32 + footer)) <= 1) shouldBe true
+          // The click left the footer active; Up scrolls the last row into view above it
+          activeRow(table).map(_.textContent) shouldBe Some("Show fewer rows")
+          fireEvent.keyDown(table, "ArrowUp")
+          val last = activeRow(table).get.closest(".uni-list__row").getBoundingClientRect()
+          val foot = m.get(".uni-table__footer").getBoundingClientRect()
+          activeRow(table).map(_.textContent) shouldBe Some("40")
+          (last.bottom <= foot.top + 1) shouldBe true
+        }
+      }
+  }
+
+  test("an app height wins over withAutoHeight") {
+    val m = mount(
+      DataTable(Rx.const(nums(2)), key = _.id, columns = numColumns).withAutoHeight(maxRows = 5)(
+        styleAttr += "height: 300px"
+      )
+    )
+    settle()
+      .flatMap(_ => frames())
+      .map { _ =>
+        heightOf(m.get(".uni-table")) shouldBe 300
+      }
+  }
+
   test("a list keeps vertical scrolls but lets sideways scrolls reach an outer scroller") {
     val m = mount(
       DataTable(
