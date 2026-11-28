@@ -158,6 +158,7 @@ test("defined and empty") {
 |--------|-------------|
 | `collection shouldContain element` | Assert collection contains element |
 | `collection shouldNotContain element` | Assert collection does not contain element |
+| `collection shouldBeInAnyOrder expected` | Assert the same elements in any order, compared as [query results](#comparing-results) |
 
 ```scala test
 test("collection assertions") {
@@ -166,6 +167,58 @@ test("collection assertions") {
   list shouldNotContain 5
 }
 ```
+
+### Comparing Results
+
+`shouldBeInAnyOrder` checks rows whose order is not fixed, such as a dataset
+read across files or the rows of a query, without sorting them first. It
+compares the way query results compare: rows match in any order with the same
+multiplicities, NULL (`null` or `None`) equals NULL, numbers compare by value
+across types (`1`, `1L`, and `BigDecimal(1)` are equal), and when either side is
+a `Float` or `Double`, within a small tolerance. Nested `Seq`, `Array`, `Map`,
+and case class values compare element-wise by the same rules.
+
+```scala test
+test("rows in any order") {
+  val rows = Seq(Map("id" -> 2L, "name" -> "b"), Map("id" -> 1L, "name" -> null))
+  rows shouldBeInAnyOrder Seq(Map("id" -> 1, "name" -> None), Map("id" -> 2, "name" -> "b"))
+  Seq(0.1 + 0.2, 1.0) shouldBeInAnyOrder Seq(1.0, 0.3)
+}
+```
+
+For other rules, use `ResultCompare` from `wvlet.uni.test.result` with a
+`ResultCompareConfig`. `ResultCompare.diff` returns the difference as text
+(missing and unexpected rows), and `assertSame` throws it as a `ResultMismatch`,
+its own exception class, so a [fuzz target](#fuzz-testing) reduces a mismatch
+as one bug.
+
+| Config | Description |
+|--------|-------------|
+| `withOrdered` | Rows must also come in the same order |
+| `withOrderedBy(key)` | Rows must come in the order of `key`, as under ORDER BY; rows with equal keys (ties) compare in any order |
+| `withRowCountOnly` | Compare only the number of rows, for results that are not determined (LIMIT without a total order, sampling) |
+| `withAbsTolerance(t)`, `withRelTolerance(t)`, `noFloatTolerance` | Tolerance for floating numbers (defaults: 1e-12 absolute, 1e-9 relative) |
+| `withNormalize(f)` | Map every value, nested ones included, to a common form first, such as a day count to a date string |
+
+```scala test
+import wvlet.uni.test.result.{ResultCompare, ResultCompareConfig}
+
+test("rows ordered by a key") {
+  case class Sale(id: Long, country: String)
+  val config = ResultCompareConfig().withOrderedBy[Sale](_.country)
+  // The two JP rows are tied, so their order does not count
+  ResultCompare.assertSame(
+    Seq(Sale(2, "JP"), Sale(1, "JP"), Sale(3, "US")),
+    Seq(Sale(1, "JP"), Sale(2, "JP"), Sale(3, "US")),
+    config
+  )
+}
+```
+
+Tolerance is not transitive (a can be close to b and b to c while a and c are
+not), so rows that differ only within the tolerance are paired by a matching,
+not by sorting or rounding. On Scala.js a `Float` is a `Double` at run time, so
+`0.1f` equals `0.1` on the JVM and Scala Native only.
 
 ### String Assertions
 

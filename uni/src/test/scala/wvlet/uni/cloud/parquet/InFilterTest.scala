@@ -212,9 +212,7 @@ class InFilterTest extends UniTest:
       root.path,
       ParquetDatasetOptions.default.withPartitionType("p", ParquetType.INT64)
     )
-    try
-      ds.readRows(f).map(_("id")).toSeq.sortBy(_.asInstanceOf[Long]) shouldBe
-        Seq(10L, 11L, 12L, 30L, 31L, 32L)
+    try ds.readRows(f).map(_("id")).toSeq shouldBeInAnyOrder Seq(10L, 11L, 12L, 30L, 31L, 32L)
     finally ds.close()
     // Partition values read as strings by default, which isIn can't test
     val strings = Parquet.dataset(root.path)

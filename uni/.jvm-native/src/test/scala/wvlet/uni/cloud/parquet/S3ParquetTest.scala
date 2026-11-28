@@ -174,7 +174,7 @@ class S3ParquetTest extends UniTest:
         val day = ParquetReadOptions
           .default
           .withRowGroupFilter(ParquetFilter.col("dt") === java.time.LocalDate.of(2026, 11, 21))
-        ds.readRows(day).map(_("id")).toSeq.sortBy(_.toString) shouldBe Seq(1L, 3L, 5L)
+        ds.readRows(day).map(_("id")).toSeq shouldBeInAnyOrder Seq(1L, 3L, 5L)
       finally
         ds.close()
     check(Parquet.dataset(store, root))
