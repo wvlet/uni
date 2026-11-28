@@ -58,7 +58,7 @@ Maven Central should depend on a Central version and not add that resolver.
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.rpc.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.ai.mcp.MCP`, `wvlet.uni.surface.description` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
 | MCP client (HTTP) | `wvlet.uni.ai.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
-| Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `Canvas.newOffHeapCanvas(size)` (`Long` offsets, beyond 2 GB), `readInt`/`writeLong` (little-endian; `*BigEndian` variants), `close()` frees it now; JVM needs Java 22+; see [references/core.md](references/core.md#off-heap-memory-canvas) |
+| Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `Canvas.newOffHeapCanvas(size)` (`Long` offsets, beyond 2 GB), `readInt`/`writeLong` (little-endian; `*BigEndian` variants), `fill(0)` (new off-heap memory may hold old bytes), `close()` frees it now; JVM needs Java 22+; see [references/core.md](references/core.md#off-heap-memory-canvas) |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Terminal emulator | `wvlet.uni.cli.term.TerminalEmulator`, `wvlet.uni.dom.TerminalView` (Scala.js) | `term.write(output)`, `term.screen.text`; `TerminalView(term)` draws it in the DOM; `PosixPty.spawn` (JVM, Native) or `NodePty.spawn` (Scala.js) runs a shell in a PTY; see [references/cli.md](references/cli.md#terminal-emulator) |

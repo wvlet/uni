@@ -87,6 +87,11 @@ final class HeapCanvas private[canvas] (
     val i = at(offset, length)
     System.arraycopy(src, srcOffset, array, i, length)
 
+  override def fill(offset: Long, length: Long, value: Byte): Unit =
+    checkRange(offset, length)
+    val i = arrayIndex(offset)
+    java.util.Arrays.fill(array, i, i + length.toInt, value)
+
   override def slice(offset: Long, length: Long): Canvas =
     checkRange(offset, length)
     HeapCanvas(array, arrayIndex(offset), length.toInt)

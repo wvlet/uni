@@ -88,6 +88,11 @@ private[canvas] final class NativeCanvas(
     if length > 0 then
       string.memcpy(p, src.at(srcOffset), length.toUSize)
 
+  override def fill(offset: Long, length: Long, value: Byte): Unit =
+    val p = at(offset, length)
+    if length > 0 then
+      string.memset(p, value.toInt, length.toUSize)
+
   override def slice(offset: Long, length: Long): Canvas =
     at(offset, length)
     NativeCanvas(ptr + offset, length, owner)
