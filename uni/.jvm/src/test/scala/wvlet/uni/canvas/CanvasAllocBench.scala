@@ -63,7 +63,7 @@ object CanvasAllocBench:
 
   def main(args: Array[String]): Unit =
     val allocator = OffHeapMemoryAllocator()
-    val slab      = FfmCanvas.allocate(allocator, sizes.max, true)
+    val slab      = FfmCanvas.allocate(allocator, sizes.max, FfmCanvas.usesMalloc)
     println(s"Java ${Runtime.version()}, malloc available: ${FfmCanvas.usesMalloc}")
     println("| Size | Operation | new Array[Byte] | Arena (zero-fill) | malloc | slab slice |")
     println("|------|-----------|----------------:|------------------:|-------:|-----------:|")

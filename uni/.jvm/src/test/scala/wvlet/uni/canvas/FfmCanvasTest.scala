@@ -37,7 +37,9 @@ class FfmCanvasTest extends UniTest:
     requireFfm()
     // ./sbt runs with --enable-native-access=ALL-UNNAMED, so CI covers the malloc path
     debug(s"malloc: ${FfmCanvas.usesMalloc}")
-    FfmCanvas.usesMalloc shouldBe classOf[FfmCanvas].getModule.isNativeAccessEnabled
+    val enabled   = classOf[FfmCanvas].getModule.isNativeAccessEnabled
+    val turnedOff = "false".equalsIgnoreCase(System.getProperty("wvlet.uni.canvas.useMalloc"))
+    FfmCanvas.usesMalloc shouldBe (enabled && !turnedOff)
   }
 
   test("read, write, and track memory on every allocation path") {

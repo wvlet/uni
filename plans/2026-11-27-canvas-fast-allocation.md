@@ -24,7 +24,7 @@ Lane: Standard — changes how JVM off-heap memory is obtained (user approved; s
 - **Contents contract:** off-heap canvas contents are unspecified (zeros or leftover bytes); callers must not rely on either.
 - **New `Canvas.fill(offset, length, value)`** on every platform (FFM `fill`, `Int8Array.fill`, `memset`, `Arrays.fill`), so an engine that reuses buffers can zero just the part it needs.
 - **Benchmark:** a small JVM program compares allocate + close and first touch for `new Array[Byte]`, zero-filling arena, malloc arena, and slices of one pre-allocated segment (the cost an engine-owned pool would pay), at 64 KB / 1 MB / 64 MB.
-- **Tests:** JVM tests fork with `--enable-native-access=ALL-UNNAMED` so the malloc path runs in CI; a test covers the fallback path directly; shared tests cover `fill`.
+- **Tests:** JVM tests get `--enable-native-access=ALL-UNNAMED` from the `./sbt` launcher, so the malloc path runs in CI; a test covers the fallback path directly; shared tests cover `fill`.
 - **Docs:** new ADR, docs/core/canvas.md (flag, contents contract, how to build a pool from slices), the Canvas rows in docs/guide/for-ai-agents.md and the `uni` skill (plugin version bump), and the PTY ADR's "Java 24+" warning claim.
 
 ## Alternatives and Why Not?
