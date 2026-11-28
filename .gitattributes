@@ -3,3 +3,6 @@
 # that compare formatter output (LF) against a `stripMargin` source literal (CRLF) fail — e.g.
 # JSONTest and YAMLFormatterTest on the Scala Native (Windows) CI job.
 * text=auto eol=lf
+
+# Fuzz corpus files are byte inputs: keep their CR LF and every other byte as is
+uni/src/test/resources/fuzz/** -text
