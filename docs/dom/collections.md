@@ -52,7 +52,7 @@ A sortable table, live. The Code tab shows its source:
 |-----------|--------------|
 | `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)`. `.withRowLabel(a => text)` names rows for `UiAgent`, and `.withAgentConfirm(a => Option(msg))` asks the human before an agent selects or drops a guarded row |
 | `Tree(roots, children = a => Seq(...), key = a => k, render = a => node)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight`. `.withRowLabel(a => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
-| `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, `.alignEnd`, and `.withSubtitle(text)`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection, or `.withSelectedCell(cellVar)` one `CellKey(row, column)`, and `.noSelection()` selects nothing; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
+| `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, `.alignEnd`, and `.withSubtitle(text)`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection, or `.withSelectedCell(cellVar)` one `CellKey(row, column)`, and `.noSelection()` selects nothing; `.withCenteredHeaders()`; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
 - **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
@@ -82,8 +82,9 @@ A sortable table, live. The Code tab shows its source:
 - **Read-only results.** For a grid of query results, `.withSubtitle("bigint")` on a `Column`
   puts a smaller, muted line (the column's type, say) under its header. The header keeps its
   label as its name, and the subtitle becomes its description. `.noSelection()` on the table
-  makes a click or Enter select nothing: rows get no `aria-selected` and no selected background,
-  and `onSelect` still runs, to open a row. Hover, the active cell, and the keys work as before.
+  makes a click, Enter, or Space select nothing: rows get no `aria-selected` and no selected
+  background, and `onSelect` still runs, to open a row. Hover, the active cell, and the keys work
+  as before. `.withCenteredHeaders()` centers each header over its column.
   A table inside a panel that scrolls sideways passes a sideways wheel or trackpad scroll on to
   the panel, while its own vertical scroll stays inside it.
 

@@ -1561,6 +1561,16 @@
     text-align: end;
   }
 
+  /* withCenteredHeaders: each header centered over its column */
+  .uni-table--center-headers .uni-table__header-row > .uni-table__cell {
+    justify-content: center;
+  }
+
+  .uni-table--center-headers .uni-table__header-row .uni-table__heading {
+    align-items: center;
+    text-align: center;
+  }
+
   .uni-table__sort-icon {
     width: 8px;
     color: var(--uni-faint);

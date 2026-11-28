@@ -1134,6 +1134,50 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a data table with noSelection starts focus at the first row, not a cell variable") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+        )
+      ).withSelectedCell(Rx.variable(Some(CellKey(2, "millis")))).noSelection()
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.focus()
+      table.getAttribute("aria-activedescendant") shouldBe
+        m.getByText("list").closest("[role=gridcell]").id
+    }
+  }
+
+  test("a data table centers its headers with withCenteredHeaders") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "method", cell = c => span(c.method))
+            .withSubtitle("varchar")
+            .sortBy(_.method),
+          Column[Call]("millis", "millis", cell = c => span(f"${c.millis}%.1f")).alignEnd
+        )
+      ).withCenteredHeaders()
+    )
+    settle().map { _ =>
+      val headers = m.queryAll("[role=columnheader]")
+      headers.map(h => dom.window.getComputedStyle(h).getPropertyValue("justify-content")) shouldBe
+        Seq("center", "center")
+      val heading = headers(0).querySelector(".uni-table__heading")
+      dom.window.getComputedStyle(heading).getPropertyValue("align-items") shouldBe "center"
+      // Cells keep their own alignment
+      val cell = m.getByText("4.0").closest("[role=gridcell]")
+      dom.window.getComputedStyle(cell).getPropertyValue("justify-content") shouldBe "flex-end"
+    }
+  }
+
   test("a list keeps vertical scrolls but lets sideways scrolls reach an outer scroller") {
     val m = mount(
       DataTable(

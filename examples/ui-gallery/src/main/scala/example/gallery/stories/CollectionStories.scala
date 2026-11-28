@@ -85,49 +85,77 @@ object CollectionStories:
   // #endregion
 
   // #region data-table/results
-  case class Sale(region: String, product: String, units: Long, revenue: Double, day: String)
+  case class Sale(
+      region: String,
+      product: String,
+      channel: String,
+      units: Long,
+      revenue: Double,
+      discount: Double,
+      day: String,
+      store: Int
+  )
 
   inline def dataTableResults: RxElement =
     val sales = Rx.const(
       Seq(
-        Sale("APAC", "Notebook", 1204, 18060.0, "2026-11-01"),
-        Sale("EMEA", "Pen", 8840, 4420.0, "2026-11-01"),
-        Sale("AMER", "Backpack", 312, 15600.0, "2026-11-02"),
-        Sale("APAC", "Pen", 6120, 3060.0, "2026-11-02"),
-        Sale("EMEA", "Notebook", 980, 14700.0, "2026-11-03")
+        Sale("APAC", "Notebook", "online", 1204, 18060.0, 0.05, "2026-11-01", 12),
+        Sale("EMEA", "Pen", "retail", 8840, 4420.0, 0.0, "2026-11-01", 7),
+        Sale("AMER", "Backpack", "online", 312, 15600.0, 0.1, "2026-11-02", 3),
+        Sale("APAC", "Pen", "retail", 6120, 3060.0, 0.0, "2026-11-02", 12),
+        Sale("EMEA", "Notebook", "partner", 980, 14700.0, 0.15, "2026-11-03", 9)
       )
     )
     val opened = Rx.variable("")
 
+    // A text column and a number column, each as wide as its values
+    def text(id: String, width: String, f: Sale => String) = Column[Sale](
+      id,
+      id,
+      cell = s => span(f(s))
+    ).withSubtitle("varchar").sortBy(f).withWidth(width)
+
+    def number[N: Ordering](
+        id: String,
+        tpe: String,
+        width: String,
+        f: Sale => N,
+        show: N => String
+    ) =
+      Column[Sale](id, id, cell = s => span(show(f(s))))
+        .withSubtitle(tpe)
+        .sortBy(f)
+        .withWidth(width)
+        .alignEnd
+
     div(
       cls -> "demo-stack",
-      // The panel scrolls sideways; a wheel or trackpad swipe over the table reaches it
+      // The panel is as wide as the table, up to the page, and scrolls sideways past that; a wheel
+      // or trackpad swipe over the table reaches it
       div(
-        styleAttr -> "overflow-x: auto; border: 1px solid var(--uni-line); border-radius: 6px",
+        styleAttr ->
+          "width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--uni-line); border-radius: 6px",
         DataTable(
           sales,
           key = s => (s.region, s.product, s.day),
           columns = Seq(
-            Column[Sale]("region", "region", cell = s => span(s.region))
-              .withSubtitle("varchar")
-              .sortBy(_.region),
-            Column[Sale]("product", "product", cell = s => span(s.product))
-              .withSubtitle("varchar")
-              .sortBy(_.product),
-            Column[Sale]("units", "units", cell = s => span(s.units.toString))
-              .withSubtitle("bigint")
-              .sortBy(_.units)
-              .alignEnd,
-            Column[Sale]("revenue", "revenue", cell = s => span(f"${s.revenue}%.2f"))
-              .withSubtitle("double")
-              .sortBy(_.revenue)
-              .alignEnd,
-            Column[Sale]("day", "day", cell = s => span(s.day)).withSubtitle("date")
+            text("region", "80px", _.region),
+            text("product", "96px", _.product),
+            text("channel", "88px", _.channel),
+            number("units", "bigint", "72px", _.units, _.toString),
+            number("revenue", "double", "96px", _.revenue, r => f"${r}%.2f"),
+            number("discount", "double", "88px", _.discount, d => f"${d}%.2f"),
+            Column[Sale]("day", "day", cell = s => span(s.day))
+              .withSubtitle("date")
+              .withWidth("104px"),
+            number("store", "int", "64px", _.store, _.toString)
           )
         ).withLabel("Query results")
           .noSelection()
+          .withCenteredHeaders()
           .onSelect(s => opened := s"${s.region} ${s.product} on ${s.day}")(
-            styleAttr += "height: 230px; min-width: 720px"
+            // As wide as its columns, and a max-height so the box ends at the last row
+            styleAttr += "width: max-content; max-height: 230px"
           )
       ),
       p(

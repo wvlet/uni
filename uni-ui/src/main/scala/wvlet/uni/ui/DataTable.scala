@@ -144,7 +144,8 @@ class DataTable[A, K] private (
     rowLabel: Option[A => String],
     agentConfirm: Option[A => Option[String]],
     selectedCell: Option[RxVar[Option[CellKey[K]]]],
-    selectable: Boolean
+    selectable: Boolean,
+    centerHeaders: Boolean
 ) extends RxElement:
 
   private def copy(
@@ -159,7 +160,8 @@ class DataTable[A, K] private (
       rowLabel: Option[A => String] = rowLabel,
       agentConfirm: Option[A => Option[String]] = agentConfirm,
       selectedCell: Option[RxVar[Option[CellKey[K]]]] = selectedCell,
-      selectable: Boolean = selectable
+      selectable: Boolean = selectable,
+      centerHeaders: Boolean = centerHeaders
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -176,7 +178,8 @@ class DataTable[A, K] private (
       rowLabel,
       agentConfirm,
       selectedCell,
-      selectable
+      selectable,
+      centerHeaders
     )
 
   /** The accessible name of the table. */
@@ -211,15 +214,24 @@ class DataTable[A, K] private (
   def noSelectedCell(): DataTable[A, K] = copy(selectedCell = None)
 
   /**
-    * Selects nothing, as in a read-only grid of query results: a click or Enter leaves no row or
-    * cell selected (no `aria-selected`, no selected background) and only runs [[onSelect]]. Hover,
-    * the active cell, the keys, and sorting work as before. It overrides [[withSelected]],
+    * Selects nothing, as in a read-only grid of query results: a click, Enter, or Space leaves no
+    * row or cell selected (no `aria-selected`, no selected background) and only runs [[onSelect]].
+    * Hover, the active cell, the keys, and sorting work as before. It overrides [[withSelected]],
     * [[withMultiSelect]], and [[withSelectedCell]], whose variables the table then leaves alone.
     */
   def noSelection(): DataTable[A, K] = copy(selectable = false)
 
   /** Selects rows or a cell, as the other options set (the default). */
   def withSelection(): DataTable[A, K] = copy(selectable = true)
+
+  /**
+    * Centers each header over its column, as in a grid of query results; cells keep their own
+    * alignment.
+    */
+  def withCenteredHeaders(): DataTable[A, K] = copy(centerHeaders = true)
+
+  /** Aligns each header as its column's cells (the default). */
+  def noCenteredHeaders(): DataTable[A, K] = copy(centerHeaders = false)
 
   /**
     * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
@@ -411,6 +423,7 @@ class DataTable[A, K] private (
         onHeader := true
       else
         selectedCell
+          .filter(_ => selectable)
           .flatMap(_.get)
           .foreach { c =>
             val col = columns.indexWhere(_.id == c.column)
@@ -665,7 +678,12 @@ class DataTable[A, K] private (
       key,
       rowHeight,
       VirtualList.defaultOverscan,
-      containerClass = "uni-table",
+      containerClass =
+        if centerHeaders then
+          "uni-table uni-table--center-headers"
+        else
+          "uni-table"
+      ,
       agentKind = "table",
       agentActions = () => sortActions,
       containerAttrs = Seq(
@@ -779,7 +797,8 @@ object DataTable:
       rowLabel = None,
       agentConfirm = None,
       selectedCell = None,
-      selectable = true
+      selectable = true,
+      centerHeaders = false
     )
 
   /**
