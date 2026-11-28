@@ -265,7 +265,12 @@ expected-exception message counts, and a target can report states with
 
 For trees and ASTs, `Gen.recursive(leaf)(child => branch)` builds finite
 values (at most `size` branches, `maxDepth` deep), and failing trees reduce
-toward leaves under `fuzzGen`.
+toward leaves under `fuzzGen`. Byte reduction cannot remove a failing
+subtree's ancestors, so pass `fuzzGen(..., shrink = Shrink.tree(children,
+withChildren, local))` to also report a `shrunk value:` (the crash file stays
+the reduced bytes). `fuzzString` reduces text by lines, then tokens, then
+bytes. The reducers (`Reduce.text`, `lines`, `tokens`, `bytes`, `shrink` in
+`wvlet.uni.test.fuzz`) are public for reducing a saved failing input.
 
 `UNI_FUZZ_SECONDS`, `UNI_FUZZ_ITERATIONS`, and `UNI_FUZZ_SEED` override the
 budget and seed for long runs and replays. `withSlowInputMillis(ms)` fails on

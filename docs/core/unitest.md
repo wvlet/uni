@@ -963,7 +963,10 @@ without seeds still gets varied input.
 On a failure, the input is reduced while it still fails with the same
 exception class (delta debugging, then lowering each byte to the smallest
 value that still fails), written to `target/fuzz/<target>/crash-<hash>` with a
-`.report` file, and reported with the seed:
+`.report` file, and reported with the seed. `fuzzString` reduces text by whole
+lines, then by tokens (words, whitespace runs, and single symbols), then by
+bytes, and never lowers bytes, so a long failing query comes down to the
+clauses that matter and stays readable:
 
 ```text
 Fuzz target json-parse failed on input 20 with java.lang.ArrayIndexOutOfBoundsException: ...
@@ -1007,6 +1010,59 @@ reducing the bytes shrinks the value: shorter lists, smaller numbers. Inputs
 for which the generator throws, such as a `filter` that never matches, are
 skipped. A saved crash file replays as long as the generator stays the same.
 For a type with an `Arbitrary`, pass `Arbitrary.arbitrary[A]`.
+
+### Shrinking trees
+
+Byte reduction cannot remove the ancestors of a failing subtree: dropping
+bytes shifts every later draw, so the subtree changes too. Pass `fuzzGen` a
+`shrink` built with `Shrink.tree`, which tells how to read and replace a
+node's children, to shrink the reduced value further. For the `Expr` above:
+
+```scala
+import wvlet.uni.test.check.Shrink
+
+val shrinkExpr: Shrink[Expr] = Shrink.tree[Expr](
+  children = {
+    case Expr.Num(_)    => Nil
+    case Expr.Neg(e)    => List(e)
+    case Expr.Add(args) => args
+  },
+  withChildren = {
+    case (Expr.Neg(_), Seq(e)) => Some(Expr.Neg(e))
+    case (Expr.Add(_), args)   => Some(Expr.Add(args.toList))
+    case _                     => None // Num has no children; Neg needs exactly one
+  },
+  local = {
+    case Expr.Num(v) => Shrink.shrink(v).map(Expr.Num(_))
+    case _           => LazyList.empty
+  }
+)
+
+def eval(e: Expr): Int =
+  e match
+    case Expr.Num(v)    => v
+    case Expr.Neg(x)    => -eval(x)
+    case Expr.Add(args) => args.map(eval).sum
+
+class ExprFuzzTest extends UniTest:
+  test("negation flips the sign") {
+    fuzzGen("expr-eval", expr, shrink = shrinkExpr) { e =>
+      eval(Expr.Neg(e)) shouldBe -eval(e)
+    }
+  }
+```
+
+The shrinker tries a child in place of the node first, then the node with
+fewer children, then the `local` candidates, then each child shrunk. The
+report keeps `value:`, which the saved crash file replays, and adds
+`shrunk value:` with the exception it fails with. The crash file stays the
+reduced bytes, since a generated value has no byte form.
+
+The reducers are public in `wvlet.uni.test.fuzz.Reduce` for use outside a
+fuzz target, such as reducing a failing query saved from a bug report:
+`Reduce.text`, `Reduce.lines`, `Reduce.tokens`, `Reduce.bytes`, and `Reduce.ddmin`
+take a predicate that is true while the input still fails, and
+`Reduce.shrink` does the same for a value with a `Shrink`.
 
 `forAll` and `fuzzGen` complement each other: `forAll` samples a fixed
 number of values and shrinks with `Shrink`; `fuzzGen` keeps going for a time

@@ -33,6 +33,78 @@ object Shrink extends LowPriorityShrinks:
     */
   def none[A]: Shrink[A] = apply(_ => LazyList.empty)
 
+  /**
+    * A shrinker for a tree, such as an AST, given how to read and replace a node's children of the
+    * same type. Candidates come in this order, so the biggest cuts are tried first:
+    *
+    *   1. a child in place of the node (hoisting), which drops the node and its other children
+    *   1. the node with no children, then with one child removed
+    *   1. `local` candidates for the node itself, such as a smaller literal
+    *   1. the node with one child shrunk, recursively
+    *
+    * {{{
+    *   enum Expr:
+    *     case Num(v: Int)
+    *     case Neg(e: Expr)
+    *     case Add(args: List[Expr])
+    *
+    *   val shrinkExpr: Shrink[Expr] = Shrink.tree[Expr](
+    *     children = {
+    *       case Expr.Num(_)    => Nil
+    *       case Expr.Neg(e)    => List(e)
+    *       case Expr.Add(args) => args
+    *     },
+    *     withChildren = {
+    *       case (Expr.Neg(_), Seq(e)) => Some(Expr.Neg(e))
+    *       case (Expr.Add(_), args)   => Some(Expr.Add(args.toList))
+    *       case _                     => None
+    *     },
+    *     local = {
+    *       case Expr.Num(v) => Shrink.shrink(v).map(Expr.Num(_))
+    *       case _           => LazyList.empty
+    *     }
+    *   )
+    * }}}
+    *
+    * @param children
+    *   the node's children of the same type, in order
+    * @param withChildren
+    *   the node with its children replaced, or None when the node cannot have that many (for
+    *   example, a unary operator with no operand)
+    * @param local
+    *   candidates for the node itself that keep its children, such as a smaller number
+    */
+  def tree[A](
+      children: A => Seq[A],
+      withChildren: (A, Seq[A]) => Option[A],
+      local: A => LazyList[A] = (_: A) => LazyList.empty[A]
+  ): Shrink[A] =
+    def candidates(a: A): LazyList[A] =
+      val cs      = children(a).toVector
+      val hoist   = cs.to(LazyList)
+      val dropAll =
+        if cs.nonEmpty then
+          LazyList.from(withChildren(a, Vector.empty))
+        else
+          LazyList.empty
+      val dropOne =
+        if cs.size > 1 then
+          LazyList.tabulate(cs.size)(i => withChildren(a, cs.patch(i, Nil, 1))).flatten
+        else
+          LazyList.empty
+      def inPlace = local(a)
+      def nested  =
+        LazyList
+          .tabulate(cs.size) { i =>
+            candidates(cs(i)).flatMap(c => withChildren(a, cs.updated(i, c)))
+          }
+          .flatten
+      hoist #::: dropAll #::: dropOne #::: inPlace #::: nested
+    apply(candidates)
+
+  /** The candidates of the given [[Shrink]] for a value. */
+  def shrink[A](a: A)(using s: Shrink[A]): LazyList[A] = s.shrink(a)
+
   given Shrink[Boolean] = apply {
     case true =>
       LazyList(false)

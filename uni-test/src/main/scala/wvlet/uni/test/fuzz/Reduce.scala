@@ -13,6 +13,9 @@
  */
 package wvlet.uni.test.fuzz
 
+import scala.collection.mutable.ArrayBuffer
+import wvlet.uni.test.check.Shrink
+
 /**
   * Test-case reduction: shrink a failing input while it still fails.
   */
@@ -109,5 +112,113 @@ object Reduce:
       shorter
 
   end bytes
+
+  /**
+    * Reduce a failing text input: [[ddmin]] over lines, then over tokens, then over bytes. Units of
+    * whole lines and tokens keep candidates lexically valid, so a parser fails on them the same way
+    * more often than on byte cuts. Bytes are only dropped, never lowered, so the identifiers and
+    * literals that remain stay readable. All passes work on bytes, so input that is not valid UTF-8
+    * reduces byte for byte.
+    */
+  def text(input: Array[Byte], fails: Array[Byte] => Boolean, maxSteps: Int): Array[Byte] =
+    var steps                                 = 0
+    def tryCandidate(c: Array[Byte]): Boolean =
+      steps += 1
+      fails(c)
+
+    val byLine  = lines(input, tryCandidate, maxSteps)
+    val byToken = tokens(byLine, tryCandidate, maxSteps - steps)
+    ddmin[Byte](byToken.toIndexedSeq, c => tryCandidate(c.toArray), maxSteps - steps).toArray
+
+  /** [[ddmin]] over lines, each with its trailing `\n`. */
+  def lines(input: Array[Byte], fails: Array[Byte] => Boolean, maxSteps: Int): Array[Byte] =
+    ddminUnits(splitLines(input), fails, maxSteps)
+
+  /**
+    * [[ddmin]] over tokens: a run of ASCII letters, digits, and `_` or of non-ASCII bytes (so a
+    * UTF-8 character stays whole), a run of whitespace, or any other single byte. The tokens join
+    * back to the input.
+    */
+  def tokens(input: Array[Byte], fails: Array[Byte] => Boolean, maxSteps: Int): Array[Byte] =
+    ddminUnits(splitTokens(input), fails, maxSteps)
+
+  /**
+    * Greedy shrinking with a [[wvlet.uni.test.check.Shrink]]: replace the value with its first
+    * candidate for which `fails` is true, until no candidate fails or `maxSteps` calls to `fails`
+    * are spent. `fails` must be true for `input`.
+    */
+  def shrink[A](input: A, fails: A => Boolean, maxSteps: Int)(using s: Shrink[A]): A =
+    var cur   = input
+    var steps = 0
+    var done  = false
+    while !done && steps < maxSteps do
+      val next = s
+        .shrink(cur)
+        .find { c =>
+          steps < maxSteps && {
+            steps += 1
+            fails(c)
+          }
+        }
+      next match
+        case Some(c) =>
+          cur = c
+        case None =>
+          done = true
+    cur
+
+  private def ddminUnits(
+      units: IndexedSeq[Array[Byte]],
+      fails: Array[Byte] => Boolean,
+      maxSteps: Int
+  ): Array[Byte] = concat(ddmin[Array[Byte]](units, us => fails(concat(us)), maxSteps))
+
+  private def concat(units: IndexedSeq[Array[Byte]]): Array[Byte] =
+    val out = new Array[Byte](units.map(_.length).sum)
+    var pos = 0
+    units.foreach { u =>
+      System.arraycopy(u, 0, out, pos, u.length)
+      pos += u.length
+    }
+    out
+
+  private def splitLines(input: Array[Byte]): IndexedSeq[Array[Byte]] =
+    val units = ArrayBuffer.empty[Array[Byte]]
+    var start = 0
+    var i     = 0
+    while i < input.length do
+      if input(i) == '\n' then
+        units += input.slice(start, i + 1)
+        start = i + 1
+      i += 1
+    if start < input.length then
+      units += input.slice(start, input.length)
+    units.toIndexedSeq
+
+  // 0: word bytes, 1: whitespace, 2: any other byte, which is a token by itself
+  private def tokenClass(b: Byte): Int =
+    if b < 0 ||
+      (b >= 'a' && b <= 'z') ||
+      (b >= 'A' && b <= 'Z') ||
+      (b >= '0' && b <= '9') || b == '_'
+    then
+      0
+    else if b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' || b == 0x0b then
+      1
+    else
+      2
+
+  private def splitTokens(input: Array[Byte]): IndexedSeq[Array[Byte]] =
+    val units = ArrayBuffer.empty[Array[Byte]]
+    var start = 0
+    var i     = 1
+    while i <= input.length do
+      if i == input.length || tokenClass(input(i - 1)) == 2 ||
+        tokenClass(input(i)) != tokenClass(input(i - 1))
+      then
+        units += input.slice(start, i)
+        start = i
+      i += 1
+    units.toIndexedSeq
 
 end Reduce
