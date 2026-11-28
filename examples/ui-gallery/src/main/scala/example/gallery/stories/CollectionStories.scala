@@ -130,11 +130,10 @@ object CollectionStories:
 
     div(
       cls -> "demo-stack",
-      // The panel is as wide as the table, up to the page, and scrolls sideways past that; a wheel
-      // or trackpad swipe over the table reaches it
-      div(
-        styleAttr ->
-          "width: fit-content; max-width: 100%; overflow-x: auto; border: 1px solid var(--uni-line); border-radius: 6px",
+      // The area is as wide as the table, up to the page, and scrolls sideways past that: a wheel
+      // or trackpad swipe over the table reaches it, and a thumb shows on hover without taking
+      // room below the last row
+      ScrollArea(
         DataTable(
           sales,
           key = s => (s.region, s.product, s.day),
@@ -157,7 +156,7 @@ object CollectionStories:
             // As wide as its columns, and a max-height so the box ends at the last row
             styleAttr += "width: max-content; max-height: 230px"
           )
-      ),
+      )(styleAttr += "border: 1px solid var(--uni-line); border-radius: 6px"),
       p(
         cls -> "demo-note",
         opened.map(o =>
@@ -524,7 +523,7 @@ object CollectionStories:
           "Column types under each header, rows that a click doesn't select, and a sideways scroll over the table that moves its panel."
         )(dataTableResults)
       ),
-      ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]],
+      ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]] ++ ApiDoc.of[ScrollArea],
       Seq(A11yCheck(AriaPattern.Grid, "[role=grid]"))
     ),
     ComponentPage(

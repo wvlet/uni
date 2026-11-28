@@ -159,7 +159,8 @@ val table = DataTable(
   // Escape returns. .withSelectedCell(cellVar) selects one CellKey(row, column) instead of rows.
   // For read-only results, .noSelection() selects nothing (onSelect still runs), and
   // Column(...).withSubtitle("bigint") shows a muted second header line, such as the type;
-  // .withCenteredHeaders() centers the headers over their columns
+  // .withCenteredHeaders() centers the headers over their columns. ScrollArea(table) scrolls a
+  // wide table sideways with a hover-only thumb and no scrollbar strip below the last row
   // Drag a row or press Alt+ArrowUp/Down to move it; selected rows move together. The new order
   // goes to `calls` through onChange (key "order"); off while a column sort is applied. On touch,
   // drags start only from a Reorder.grip in the row (e.g. a Column cell = _ => Reorder.grip)

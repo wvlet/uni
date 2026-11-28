@@ -86,7 +86,9 @@ A sortable table, live. The Code tab shows its source:
   background, and `onSelect` still runs, to open a row. Hover, the active cell, and the keys work
   as before. `.withCenteredHeaders()` centers each header over its column.
   A table inside a panel that scrolls sideways passes a sideways wheel or trackpad scroll on to
-  the panel, while its own vertical scroll stays inside it.
+  the panel, while its own vertical scroll stays inside it. Wrap a wide table (styled
+  `width: max-content`) in `ScrollArea(table)` for that panel: its scrollbar shows only on hover
+  and takes no room below the last row.
 
 <UiGallery story="data-table/results" embed height="420px" />
 

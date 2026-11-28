@@ -1586,6 +1586,63 @@
     color: var(--uni-accent);
   }
 
+  /*
+   * ScrollArea: sideways scrolling with no native scrollbar, which would take room below the
+   * content; a thin thumb shows over the bottom edge on hover
+   */
+  .uni-scroll-area {
+    position: relative;
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .uni-scroll-area__view {
+    max-width: 100%;
+    /* Clip the content to a border radius set on the area */
+    border-radius: inherit;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /*
+     * Important, so an app's own scrollbar styling (such as `* { scrollbar-width: thin }`, which
+     * wins over this layer otherwise) can't bring the native scrollbar and its room back
+     */
+    scrollbar-width: none !important;
+  }
+
+  .uni-scroll-area__view::-webkit-scrollbar {
+    display: none;
+  }
+
+  .uni-scroll-area__bar {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    left: 2px;
+    height: 6px;
+    pointer-events: none;
+  }
+
+  .uni-scroll-area__thumb {
+    display: none;
+    height: 100%;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--uni-fg) 28%, transparent);
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: auto;
+    cursor: grab;
+  }
+
+  .uni-scroll-area:hover .uni-scroll-area__thumb,
+  .uni-scroll-area[data-dragging='true'] .uni-scroll-area__thumb {
+    opacity: 1;
+  }
+
+  .uni-scroll-area__thumb:hover,
+  .uni-scroll-area[data-dragging='true'] .uni-scroll-area__thumb {
+    background: color-mix(in srgb, var(--uni-fg) 45%, transparent);
+  }
+
   /* CommandPalette: a Dialog near the top of the window */
   .uni-dialog-backdrop--palette {
     place-items: start center;

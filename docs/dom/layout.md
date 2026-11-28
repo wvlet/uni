@@ -34,6 +34,7 @@ Stack(header, Separator(), cards).withGap(16)
 | `Stack(content*)`, `Stack.row(content*)` | A flex column (stretched) or row (centered across), 8px apart. `.withGap(px)`, `.withAlign(Alignment.Center)`, `.withJustify(Justify.Between)`, `.withWrap(true)`, `.row` and `.column` |
 | `Grid(content*)` | A CSS grid of columns at least 200px wide, 12px apart. `.withColumns(n)` for exactly `n` columns, `.withMinColumnWidth(px)`, `.withGap(px)`, `.withRowGap(px)`, `.withAlign(a)` |
 | `GridItem(content*)` | A grid child that spans: `.withColumnSpan(n)` (`0` takes the whole row) and `.withRowSpan(n)` |
+| `ScrollArea(content)` | Sideways scrolling without a native scrollbar, so no strip is added below the content (under a table's last row, say). A thin thumb shows over the bottom edge on hover, and dragging it scrolls; trackpads and Shift with the wheel scroll as usual. As wide as its content, up to its container |
 | `Separator()` | A 1px line, `role="separator"` with `aria-orientation`; `.vertical` for a row, `.decorative` to hide it from assistive technology |
 
 They render `div.uni-stack` (with `data-direction`, `data-align`, `data-justify`, and the gap in
