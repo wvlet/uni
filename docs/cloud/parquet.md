@@ -240,6 +240,12 @@ of rows, for example to bound memory, set a batch size:
 val batches = file.readBatches(ParquetReadOptions.default.withBatchSize(10000))
 ```
 
+To read one row group in such batches, for example when row groups are read in parallel, use
+`readRowGroupBatches(i, options)`. Values of flat PLAIN or dictionary-encoded columns are decoded
+one batch at a time, also when a column chunk is a single page, as files written by DuckDB often
+are, so a reader holds the decoded values of one batch rather than of the whole row group; the row
+group's column chunks and decompressed pages stay in memory until its last batch is read.
+
 Each column of a batch is held in arrays, which are limited to 2 GiB. So when a column of a row
 group holds more than 1 GiB of values, `readBatches` (and `readAs`, `readRows`, and `readJson`,
 which read through it) also splits the row group, ending a batch at the first row after that
