@@ -154,11 +154,10 @@ object Reduce:
     while !done && steps < maxSteps do
       val next = s
         .shrink(cur)
+        .take(maxSteps - steps)
         .find { c =>
-          steps < maxSteps && {
-            steps += 1
-            fails(c)
-          }
+          steps += 1
+          fails(c)
         }
       next match
         case Some(c) =>
