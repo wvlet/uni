@@ -22,6 +22,7 @@ import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.test.check.Gen
 import wvlet.uni.test.check.Params
+import wvlet.uni.test.check.Shrink
 import wvlet.uni.test.fuzz.ByteMutator
 import wvlet.uni.test.fuzz.ByteRandom
 import wvlet.uni.test.fuzz.FuzzConfig
@@ -65,10 +66,20 @@ trait FuzzCheck:
       source: TestSource
   ): Unit = FuzzCheck.run(target, config.applyEnv(FuzzCheck.env), Some(_), body, source)
 
-  /** Fuzz a target that reads text. Inputs are mutated as bytes and decoded as UTF-8. */
-  def fuzzString(target: String, config: FuzzConfig = fuzzConfig)(body: String => Any)(using
-      source: TestSource
-  ): Unit = fuzz(target, config)(bytes => body(String(bytes, StandardCharsets.UTF_8)))
+  /**
+    * Fuzz a target that reads text. Inputs are mutated as bytes and decoded as UTF-8. A failing
+    * input is reduced by lines, then tokens, then bytes (see [[wvlet.uni.test.fuzz.Reduce.text]]).
+    */
+  def fuzzString(target: String, config: FuzzConfig = fuzzConfig)(
+      body: String => Any
+  )(using source: TestSource): Unit = FuzzCheck.run(
+    target,
+    config.applyEnv(FuzzCheck.env),
+    bytes => Some(String(bytes, StandardCharsets.UTF_8)),
+    body,
+    source,
+    text = true
+  )
 
   /**
     * Fuzz a target over values of a generator, such as a `Gen` built for property tests:
@@ -84,10 +95,18 @@ trait FuzzCheck:
     * map to their first or smallest choice. A failure reports the generated value, and a saved
     * crash file replays as long as the generator stays the same. An input for which the generator
     * throws (for example, a `filter` that never matches) is skipped.
+    *
+    * Byte reduction cannot remove the ancestors of a failing subtree, since dropping bytes shifts
+    * every later draw. Pass a `shrink`, such as one built with
+    * [[wvlet.uni.test.check.Shrink.tree]], to shrink the reduced value further: the report then
+    * also shows the shrunk value, while the saved crash file stays the reduced bytes.
     */
-  def fuzzGen[A](target: String, gen: Gen[A], config: FuzzConfig = fuzzConfig)(body: A => Any)(using
-      source: TestSource
-  ): Unit =
+  def fuzzGen[A](
+      target: String,
+      gen: Gen[A],
+      config: FuzzConfig = fuzzConfig,
+      shrink: Shrink[A] = Shrink.none[A]
+  )(body: A => Any)(using source: TestSource): Unit =
     val c = config.applyEnv(FuzzCheck.env)
     FuzzCheck.run(
       target,
@@ -95,7 +114,8 @@ trait FuzzCheck:
       bytes => FuzzCheck.generate(gen, bytes, c.genSize),
       body,
       source,
-      bytes => FuzzCheck.generate(gen, bytes, c.genSize).map(FuzzCheck.show)
+      bytes => FuzzCheck.generate(gen, bytes, c.genSize).map(FuzzCheck.show),
+      shrink = Some(shrink)
     )
 
   /**
@@ -195,6 +215,10 @@ object FuzzCheck:
     * @param decode
     *   turns an input into the target's argument, or None to skip it; its time does not count
     *   against the slow-input limit
+    * @param text
+    *   reduce failures by lines and tokens before bytes, and never lower bytes
+    * @param shrink
+    *   shrinks the decoded value of a reduced failure
     */
   private[test] def run[A](
       target: String,
@@ -202,7 +226,9 @@ object FuzzCheck:
       decode: Array[Byte] => Option[A],
       body: A => Any,
       source: TestSource,
-      describe: Array[Byte] => Option[String] = _ => None
+      describe: Array[Byte] => Option[String] = _ => None,
+      text: Boolean = false,
+      shrink: Option[Shrink[A]] = None
   ): Unit =
     val seed = config.seed.getOrElse(System.nanoTime())
     val rng  = Random(seed)
@@ -215,9 +241,8 @@ object FuzzCheck:
     // The inputs that most recently showed a new feature
     val recent = mutable.ArrayDeque.empty[Array[Byte]]
 
-    def runOnce(input: Array[Byte]): Option[Throwable] =
+    def runOnce(arg: Option[A]): Option[Throwable] =
       features.clear()
-      val arg    = decode(input)
       val start  = System.nanoTime()
       val guided = config.featureGuidance
       val prev   = currentFeatures.get()
@@ -257,33 +282,53 @@ object FuzzCheck:
       }
     end runOnce
 
-    def check(input: Array[Byte]): Option[Throwable] =
-      runOnce(input) match
+    def checkArg(arg: Option[A]): Option[Throwable] =
+      runOnce(arg) match
         case Some(_: SlowInput) =>
           // Run a slow input again: JIT compilation and GC pauses can slow down a single run
-          runOnce(input)
+          runOnce(arg)
         case other =>
           other
 
+    def check(input: Array[Byte]): Option[Throwable] = checkArg(decode(input))
+
     def fail(input: Array[Byte], cause: Throwable, executed: Long): Nothing =
       val crashClass = cause.getClass
-      val reduced    = Reduce.bytes(
-        input,
-        candidate => check(candidate).exists(_.getClass == crashClass),
+      // One budget for every pass, so a slow input stays within maxSlowReduceSteps in total
+      val maxSteps =
         cause match
           case _: SlowInput =>
             math.min(config.maxReduceSteps, maxSlowReduceSteps)
           case _ =>
             config.maxReduceSteps
-      )
+      var steps                                    = 0
+      def failsSame(r: Option[Throwable]): Boolean =
+        steps += 1
+        r.exists(_.getClass == crashClass)
+      val fails: Array[Byte] => Boolean = candidate => failsSame(check(candidate))
+      val reduced                       =
+        if text then
+          Reduce.text(input, fails, maxSteps)
+        else
+          Reduce.bytes(input, fails, maxSteps)
       val reducedCause = check(reduced).getOrElse(cause)
-      val saved        = saveCrash(config, target, reduced, reducedCause, seed)
-      val msg          =
+      // Shrink the decoded value further; it has no byte form, so it is reported, not saved
+      val shrunk: Option[(String, Throwable)] =
+        for
+          s     <- shrink
+          value <- decode(reduced)
+          smaller =
+            Reduce.shrink(value, v => failsSame(checkArg(Some(v))), maxSteps - steps)(using s)
+          if smaller != value
+        yield (show(smaller), checkArg(Some(smaller)).getOrElse(reducedCause))
+      val saved = saveCrash(config, target, reduced, reducedCause, seed)
+      val msg   =
         failureMessage(
           target,
           input,
           reduced,
           describe(reduced),
+          shrunk,
           reducedCause,
           seed,
           executed,
@@ -437,6 +482,7 @@ object FuzzCheck:
       original: Array[Byte],
       reduced: Array[Byte],
       value: Option[String],
+      shrunk: Option[(String, Throwable)],
       cause: Throwable,
       seed: Long,
       executed: Long,
@@ -454,6 +500,11 @@ object FuzzCheck:
         s"Fuzz target ${target} failed on input ${executed} with ${cause}",
         s"  input (${reduced.length} bytes, reduced from ${original.length}): ${hex(reduced)}"
       ) ++ value.map(v => s"  value: ${v}") ++
+        shrunk
+          .toSeq
+          .flatMap { (v, e) =>
+            Seq(s"  shrunk value: ${v}", s"  shrunk value fails with: ${e}")
+          } ++
         Seq(
           s"  as text: \"${text}\"",
           s"  seed=${seed} (replay with UNI_FUZZ_SEED=${seed})",

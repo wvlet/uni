@@ -138,3 +138,25 @@ coverage guidance; this ADR records the first step that shipped.
   `Gzip.decompress` now throws `IOException` there, as `java.util.zip` does on the JVM and Native.
 - Not bounded: value and level counts. An RLE run encodes a million nulls in a few bytes, so a
   page's count cannot be checked against its size; the batch limit (`MaxArrayLength`) caps it.
+
+## Update: text and tree reduction
+
+- **`fuzzString` reduces by lines, then tokens, then bytes, and never lowers bytes.** Byte ddmin on
+  text cuts through keywords, so most candidates fail with a different exception and are rejected;
+  whole lines and tokens keep candidates lexically valid. Lowering would turn the identifiers that
+  remain into NUL bytes. The passes split bytes, not decoded text, so input that is not valid UTF-8
+  reduces byte for byte and the crash file replays exactly. Binary `fuzz` targets keep ddmin plus
+  lowering.
+- **`fuzzGen` takes an optional `Shrink`, reversing "typed targets need no `Shrink`" above.** Byte
+  reduction cannot hoist a subtree: dropping bytes shifts every later draw, so a failure deep in a
+  generated tree keeps its ancestors. `Shrink.tree(children, withChildren, local)` shrinks the
+  decoded value (hoist a child, drop children, shrink in place, recurse) with the same failure rule
+  as bytes: the same exception class, expected exceptions pass, a slow input runs twice.
+- **The shrunk value is reported, not saved.** A `Gen` has no inverse, so the crash file, `.report`,
+  and crash_id stay tied to the reduced bytes; the message adds `shrunk value:` and its exception.
+- **`shrink` is an explicit parameter defaulting to `Shrink.none`, not a `using`.** The derived
+  givens for `List`, `Option`, and tuples would otherwise switch value shrinking on for existing
+  targets.
+- **All passes share one step budget** (`maxReduceSteps`, at most 30 for a slow input), counted in
+  the runner's predicate.
+- `forAll` keeps its own shrink loop, which counts any exception as a failure.

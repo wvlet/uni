@@ -169,6 +169,64 @@ class FuzzCheckTest extends UniTest:
     ex.getMessage shouldContain "Fuzz target gen-sum failed"
     ex.getMessage shouldContain "value: List("
     ex.getMessage shouldContain "IllegalStateException"
+    // Without a shrink, the report shows only the value the bytes decode to
+    ex.getMessage shouldNotContain "shrunk value"
+  }
+
+  test("Reduce.tokens keeps whole tokens") {
+    val reduced = Reduce.tokens(
+      utf8("select a, b from t where x = 1/0"),
+      c => String(c, StandardCharsets.UTF_8).contains("1/0"),
+      10000
+    )
+    String(reduced, StandardCharsets.UTF_8) shouldBe "1/0"
+  }
+
+  test("Reduce.text reduces a long query to the failing token") {
+    val query = (1 to 50).map(i => s"select c${i}, sum(v) from t${i} group by c${i}\n").mkString
+    val input = utf8(query.replace("sum(v) from t37", "sum(boom) from t37"))
+    // A parser-like target: it fails on `boom` only when the text still tokenizes cleanly
+    var calls   = 0
+    val reduced = Reduce.text(
+      input,
+      { c =>
+        calls += 1
+        val s = String(c, StandardCharsets.UTF_8)
+        s.split("[^A-Za-z0-9_]+").contains("boom")
+      },
+      10000
+    )
+    String(reduced, StandardCharsets.UTF_8) shouldBe "boom"
+    (calls <= 10000) shouldBe true
+  }
+
+  test("Reduce.text keeps bytes that are not valid UTF-8") {
+    val input   = Array[Byte]('a', ' ', 0xff.toByte, 0xfe.toByte, ' ', 'b')
+    val reduced = Reduce.text(input, c => c.contains(0xff.toByte), 1000)
+    reduced.toSeq shouldBe Seq(0xff.toByte)
+  }
+
+  test("Reduce.text stays within the step budget") {
+    var calls = 0
+    Reduce.text(
+      utf8("a b c d e f g h i j k l m n o p"),
+      { c =>
+        calls += 1
+        c.length > 3
+      },
+      7
+    )
+    (calls <= 7) shouldBe true
+  }
+
+  test("fuzzString reduces by tokens and keeps the text readable") {
+    val ex = intercept[AssertionFailure] {
+      fuzzString("text-reduce", base.withIterations(0).withSeeds("select error from t")) { s =>
+        if s.split("[^A-Za-z]+").contains("error") then
+          throw IllegalStateException("found error")
+      }
+    }
+    ex.getMessage shouldContain "as text: \"error\""
   }
 
   test("fuzzGen explores values without seeds") {
