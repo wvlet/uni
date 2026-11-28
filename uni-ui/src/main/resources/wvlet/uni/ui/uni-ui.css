@@ -1535,13 +1535,17 @@
   .uni-table__heading {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
     min-width: 0;
     padding: 4px 0;
+    /* A sort button centers its text by default */
+    text-align: start;
     line-height: 1.25;
   }
 
   .uni-table__label,
   .uni-table__subtitle {
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
   }
