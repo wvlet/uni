@@ -136,7 +136,8 @@ Overlays render at the end of `<body>` and share one behavior:
 - To close one from code, set its `open := false`.
 
 Collections are one tab stop. They track the highlighted row with `aria-activedescendant`, and
-render only the rows in view, so give them a bounded height.
+render only the rows in view, so give them a bounded height (or, on a table,
+`.withAutoHeight(maxRows)`).
 
 ```scala
 case class Call(id: Long, method: String, millis: Double)
@@ -160,7 +161,9 @@ val table = DataTable(
   // For read-only results, .noSelection() selects nothing (onSelect still runs), and
   // Column(...).withSubtitle("bigint") shows a muted second header line, such as the type;
   // .withCenteredHeaders() centers the headers over their columns. ScrollArea(table) scrolls a
-  // wide table sideways with a hover-only thumb and no scrollbar strip below the last row
+  // wide table sideways with a hover-only thumb and no scrollbar strip below the last row.
+  // .withPreviewRows(10) shows the first rows and a "+N more rows" footer that shows the rest;
+  // .withAutoHeight(maxRows = 30) sizes the box to header + rows + footer instead of a height
   // Drag a row or press Alt+ArrowUp/Down to move it; selected rows move together. The new order
   // goes to `calls` through onChange (key "order"); off while a column sort is applied. On touch,
   // drags start only from a Reorder.grip in the row (e.g. a Column cell = _ => Reorder.grip)

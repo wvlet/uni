@@ -128,6 +128,15 @@ object Column:
   * with `role="grid"`; the header row is `div.uni-table__header`, and each row is a
   * `div.uni-list__row` of `div.uni-table__cell`s, laid out by the CSS grid in
   * `--uni-table-columns`.
+  *
+  * For a query result, [[withPreviewRows]] shows the first rows with a "+1,234 more rows" footer,
+  * and [[withAutoHeight]] makes the box as tall as its rows, so a short result ends at its last
+  * row:
+  *
+  * {{{
+  *   DataTable(result.rows, key = _.index, columns = cols)
+  *     .noSelection().withPreviewRows(10).withAutoHeight(maxRows = 30)
+  * }}}
   */
 class DataTable[A, K] private (
     rows: Rx[Seq[A]],
@@ -145,7 +154,9 @@ class DataTable[A, K] private (
     agentConfirm: Option[A => Option[String]],
     selectedCell: Option[RxVar[Option[CellKey[K]]]],
     selectable: Boolean,
-    centerHeaders: Boolean
+    centerHeaders: Boolean,
+    previewRows: Option[Int],
+    autoHeightRows: Option[Int]
 ) extends RxElement:
 
   private def copy(
@@ -161,7 +172,9 @@ class DataTable[A, K] private (
       agentConfirm: Option[A => Option[String]] = agentConfirm,
       selectedCell: Option[RxVar[Option[CellKey[K]]]] = selectedCell,
       selectable: Boolean = selectable,
-      centerHeaders: Boolean = centerHeaders
+      centerHeaders: Boolean = centerHeaders,
+      previewRows: Option[Int] = previewRows,
+      autoHeightRows: Option[Int] = autoHeightRows
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -179,7 +192,9 @@ class DataTable[A, K] private (
       agentConfirm,
       selectedCell,
       selectable,
-      centerHeaders
+      centerHeaders,
+      previewRows,
+      autoHeightRows
     )
 
   /** The accessible name of the table. */
@@ -234,6 +249,33 @@ class DataTable[A, K] private (
   def noCenteredHeaders(): DataTable[A, K] = copy(centerHeaders = false)
 
   /**
+    * Shows only the first `n` rows, after sorting all of them, as a preview of a query result. When
+    * there are more, a footer row below them reads "+1,234 more rows"; Enter, Space, or a click on
+    * it shows every row, and then "Show fewer rows" folds them back. New `rows` start folded again.
+    * The footer is the grid's last row: Down from the last shown row moves onto it, and Enter on it
+    * moves on to the first row it shows.
+    */
+  def withPreviewRows(n: Int): DataTable[A, K] =
+    require(n >= 1, s"withPreviewRows needs at least one row: ${n}")
+    copy(previewRows = Some(n))
+
+  /** Shows every row (the default). */
+  def noPreviewRows(): DataTable[A, K] = copy(previewRows = None)
+
+  /**
+    * Makes the table as tall as its header, its rows up to `maxRows`, the [[withPreviewRows]]
+    * footer, and its horizontal scrollbar, so a short table has no empty space below its last row
+    * and a longer one scrolls. A `height` in the app's own style still wins, and a `max-height`
+    * limits it.
+    */
+  def withAutoHeight(maxRows: Int): DataTable[A, K] =
+    require(maxRows >= 1, s"withAutoHeight needs at least one row: ${maxRows}")
+    copy(autoHeightRows = Some(maxRows))
+
+  /** Leaves the height to the app's style (the default). */
+  def noAutoHeight(): DataTable[A, K] = copy(autoHeightRows = None)
+
+  /**
     * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
     * and Alt+End on the active row, as [[base.Reorder]] does. The new order is written to `order`,
     * the variable the table shows, after [[onChange]] sees it under the key `order`. With
@@ -280,10 +322,30 @@ class DataTable[A, K] private (
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
 
   // The active column; the row comes from the list's active row, or the header while `onHeader`
-  private val activeColumn                 = Rx.variable(0)
-  private val onHeader                     = Rx.variable(false)
+  private val activeColumn = Rx.variable(0)
+  private val onHeader     = Rx.variable(false)
+  // The "+N more rows" footer is active instead of a row
+  private val onFooter                     = Rx.variable(false)
   private val tableId                      = Ids.next("uni-table")
   private def headerCellId(i: Int): String = s"${tableId}-header-${i}"
+  private val footerCellId                 = s"${tableId}-footer"
+
+  // The rows the user expanded past the preview, until other rows come; a change bumps `toggled`
+  private var expandedRows: Option[Seq[A]] = None
+  private val toggled                      = Rx.variable(0)
+
+  // How the preview stands for the current rows, for the footer and the agent's actions. Set
+  // where `shown` reads the rows: a mapped Rx runs its map once per subscriber, and the footer has
+  // several, so deriving it from `rows` again would rebuild a mapped result for each.
+  private val preview = Rx.variable(DataTable.Preview[A](Seq.empty, previewRows, expanded = false))
+
+  private def toggleRows(p: DataTable.Preview[A]): Unit =
+    expandedRows =
+      if p.expanded then
+        None
+      else
+        Some(p.rows)
+    toggled.update(_ + 1)
 
   // The list, set when the table renders, for the key and focus handlers
   private var list: Option[ListCore[A, K]] = None
@@ -297,6 +359,8 @@ class DataTable[A, K] private (
   private def firstKey(e: dom.KeyboardEvent): Boolean = list.exists { core =>
     if e.target ne e.currentTarget then
       widgetKey(core, e)
+    else if onFooter.get then
+      footerKey(core, e)
     else if onHeader.get then
       headerKey(core, e)
     else
@@ -341,8 +405,53 @@ class DataTable[A, K] private (
 
   end headerKey
 
+  // The footer is one cell: Up returns to the last row, and Enter or Space shows more or fewer
+  // rows. Showing more moves to the first new row, the row the footer stood under, rather than
+  // leaving the footer below the last of thousands of rows.
+  private def footerKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
+    val toRow = e.ctrlKey || e.metaKey
+    e.key match
+      case "ArrowUp" | "PageUp" if plain(e) && !e.shiftKey =>
+        leaveFooter(core, core.rows.size - 1)
+        true
+      case "Home" if toRow && !e.altKey && !e.shiftKey =>
+        core.container.foreach(_.scrollTop = 0)
+        enterHeader(core, 0)
+        true
+      case "Enter" | " " if plain(e) && !e.shiftKey =>
+        Some(preview.get)
+          .filter(_.hasFooter)
+          .foreach { p =>
+            toggleRows(p)
+            if !p.expanded then
+              leaveFooter(core, p.shown)
+          }
+        true
+      case "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp" |
+          "PageDown" =>
+        true
+      case _ =>
+        false
+
+  private def enterFooter(core: ListCore[A, K]): Unit =
+    core.setActive(None)
+    onHeader := false
+    onFooter := true
+
+  private def leaveFooter(core: ListCore[A, K], row: Int): Unit =
+    onFooter := false
+    if row >= 0 && row < core.rows.size then
+      core.moveTo(row)
+    else
+      enterHeader(core, activeColumn.get)
+
   private def bodyKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
     e.key match
+      case "ArrowDown"
+          if plain(e) && !e.shiftKey && core.activeRowIndex == core.rows.size - 1 &&
+            preview.get.hasFooter =>
+        enterFooter(core)
+        true
       case "ArrowUp" if plain(e) && !e.shiftKey && core.activeRowIndex == 0 =>
         enterHeader(core, activeColumn.get)
         true
@@ -408,6 +517,7 @@ class DataTable[A, K] private (
 
   private def enterHeader(core: ListCore[A, K], c: Int): Unit =
     core.setActive(None)
+    onFooter := false
     onHeader := true
     moveColumn(core, c)
 
@@ -418,7 +528,7 @@ class DataTable[A, K] private (
 
   // Focus starts at the selected cell; a table without rows starts on its header
   private def beforeFocus(): Unit = list.foreach { core =>
-    if !onHeader.get && core.activeNow.isEmpty then
+    if !onHeader.get && !onFooter.get && core.activeNow.isEmpty then
       if core.rows.isEmpty then
         onHeader := true
       else
@@ -544,10 +654,72 @@ class DataTable[A, K] private (
     else
       "uni-table__cell"
 
-  private val sorted: Rx[Seq[A]] = Rx
-    .join(rows, sort)
-    .map { (xs, s) =>
-      DataTable.sortRows(xs, columns, s)
+  // All rows sorted, then the preview's first rows unless the user expanded them
+  private val shown: Rx[Seq[A]] = Rx
+    .join(rows, sort, toggled)
+    .map { (xs, s, _) =>
+      val open = expandedRows.exists(DataTable.sameRows(_, xs))
+      // Other rows start folded, and the expanded ones are let go
+      if !open then
+        expandedRows = None
+      val p = DataTable.Preview(xs, previewRows, open)
+      preview := p
+      // The footer went away under the active cell
+      if !p.hasFooter && onFooter.get then
+        onFooter := false
+      val all = DataTable.sortRows(xs, columns, s)
+      if p.expanded then
+        all
+      else
+        previewRows.fold(all)(all.take)
+    }
+
+  // The footer row below the rows, hidden while every row shows without a preview
+  private def footer(core: => ListCore[A, K]): RxElement = div(
+    role                     -> "rowgroup",
+    cls                      -> "uni-list__footer uni-table__footer",
+    data("slot")             -> "data-table-footer",
+    wvlet.uni.dom.all.hidden -> preview.map(!_.hasFooter),
+    div(
+      role         -> "row",
+      cls          -> "uni-table__footer-row",
+      ariaRowindex -> preview.map(p => (p.shown + 2).toString),
+      div(
+        id             -> footerCellId,
+        role           -> "gridcell",
+        cls            -> "uni-table__footer-cell",
+        ariaColspan    -> columns.size.toString,
+        data("active") -> onFooter.map(Option.when(_)("true")),
+        // As on the header, a click makes the cell active and the grid keeps the keys
+        EventListenerBinding(
+          "click",
+          _ =>
+            enterFooter(core)
+            core.container.filterNot(c => c eq AnyRealm.activeElementOf(c)).foreach(_.focus())
+        ),
+        button(
+          tpe          -> "button",
+          cls          -> "uni-table__more",
+          data("slot") -> "data-table-more",
+          // Enter or Space on the active footer cell presses it, so it is no tab stop
+          tabindex -> "-1",
+          EventListenerBinding("click", _ => toggleRows(preview.get)),
+          preview.map(DataTable.footerText)
+        )
+      )
+    )
+  )
+
+  private def footerActions: Seq[AgentAction] = Some(preview.get)
+    .filter(_.hasFooter)
+    .toSeq
+    .map { p =>
+      if p.expanded then
+        AgentAction("showFewerRows", s"Show only the first ${p.shown} rows again")(() =>
+          toggleRows(p)
+        )
+      else
+        AgentAction("showAllRows", s"Show all ${p.total} rows")(() => toggleRows(p))
     }
 
   private def subtitleId(i: Int): String = s"${tableId}-subtitle-${i}"
@@ -674,23 +846,33 @@ class DataTable[A, K] private (
   override def render: RxElement =
     // Lazy, so each cell can take its id from the list that renders it
     lazy val core: ListCore[A, K] = ListCore[A, K](
-      sorted,
+      shown,
       key,
       rowHeight,
       VirtualList.defaultOverscan,
-      containerClass =
-        if centerHeaders then
-          "uni-table uni-table--center-headers"
-        else
-          "uni-table"
-      ,
+      containerClass = Seq(
+        Some("uni-table"),
+        Option.when(centerHeaders)("uni-table--center-headers"),
+        Option.when(autoHeightRows.nonEmpty)("uni-list--auto-height")
+      ).flatten.mkString(" "),
       agentKind = "table",
-      agentActions = () => sortActions,
+      agentActions = () => sortActions ++ footerActions,
       containerAttrs = Seq(
         role -> "grid",
         label.map(ariaLabel -> _).getOrElse(DomNode.empty),
         ariaColcount -> columns.size.toString,
-        ariaRowcount -> rows.map(xs => (xs.size + 1).toString),
+        // The rows the keys reach: the header, the rows shown, and the footer
+        ariaRowcount ->
+          preview.map(p =>
+            (
+              p.shown + 1 + (
+                if p.hasFooter then
+                  1
+                else
+                  0
+              )
+            ).toString
+          ),
         OnMount(watchCells)
       ),
       containerStyle = s"--uni-table-columns: ${columns.map(_.width).mkString(" ")}",
@@ -727,6 +909,7 @@ class DataTable[A, K] private (
                   "click",
                   _ =>
                     onHeader     := false
+                    onFooter     := false
                     activeColumn := i
                 ),
                 c.cell(a)
@@ -770,7 +953,11 @@ class DataTable[A, K] private (
       firstKey = firstKey,
       beforeFocus = () => beforeFocus(),
       headerActive = onHeader,
-      headerCellId = headerCellId
+      headerCellId = headerCellId,
+      footer = footer(core),
+      footerActive = onFooter,
+      footerCellId = footerCellId,
+      autoHeightRows = autoHeightRows
     )
     list = Some(core)
     core
@@ -798,8 +985,44 @@ object DataTable:
       agentConfirm = None,
       selectedCell = None,
       selectable = true,
-      centerHeaders = false
+      centerHeaders = false,
+      previewRows = None,
+      autoHeightRows = None
     )
+
+  /**
+    * How a [[DataTable.withPreviewRows]] preview stands for `rows`: `shown` of `total` rows show,
+    * and `expanded` once the user asked for all of them.
+    */
+  // Not a case class: comparing two of them would compare every row
+  private[ui] class Preview[A](
+      val rows: Seq[A],
+      val previewRows: Option[Int],
+      val expanded: Boolean
+  ):
+    def total: Int         = rows.size
+    def hasFooter: Boolean = previewRows.exists(total > _)
+    def shown: Int         =
+      previewRows match
+        case Some(n) if !expanded =>
+          math.min(n, total)
+        case _ =>
+          total
+
+  // Rows compared by value: an `rx.map(...)` gives each subscriber its own copy of the same rows,
+  // so the footer and the list would disagree on identity
+  private[ui] def sameRows(a: Seq[?], b: Seq[?]): Boolean = (a eq b) || a == b
+
+  /** The footer's text: "+1,234 more rows" in a preview, "Show fewer rows" once expanded. */
+  private[ui] def footerText(p: Preview[?]): String =
+    if p.expanded then
+      "Show fewer rows"
+    else
+      val more = p.total - p.shown
+      if more == 1 then
+        "+1 more row"
+      else
+        f"+${more}%,d more rows"
 
   /**
     * The active column after `key` in a row of `count` cells: Left and Right move by one and stop

@@ -1357,6 +1357,11 @@
     box-sizing: border-box;
   }
 
+  /* withAutoHeight: as tall as the header, the rows up to a count, and the footer */
+  .uni-list--auto-height {
+    height: var(--uni-list-auto-height);
+  }
+
   .uni-list__row {
     display: flex;
     align-items: center;
@@ -1584,6 +1589,47 @@
   .uni-table__sort-icon[data-direction='desc']::before {
     content: '↓';
     color: var(--uni-accent);
+  }
+
+  /*
+   * withPreviewRows: the "+N more rows" row stays below the rows in view, and in the box's view
+   * when a wide table scrolls sideways
+   */
+  .uni-table__footer {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    background: var(--uni-surface);
+    box-shadow: 0 -1px var(--uni-line);
+  }
+
+  .uni-table__footer-cell {
+    display: flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--uni-row-height);
+    padding: 0 10px;
+  }
+
+  .uni-table:focus-visible .uni-table__footer-cell[data-active='true'] {
+    box-shadow: inset 0 0 0 2px var(--uni-focus);
+  }
+
+  .uni-table__more {
+    margin: 0 -4px;
+    padding: 2px 4px;
+    border: none;
+    border-radius: var(--uni-radius-sm);
+    background: none;
+    color: var(--uni-accent);
+    font: inherit;
+    font-size: var(--uni-font-size-sm);
+    cursor: pointer;
+  }
+
+  .uni-table__more:hover {
+    background: var(--uni-hover);
   }
 
   /*
